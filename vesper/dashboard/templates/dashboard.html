@@ -206,11 +206,18 @@
                         data-sl="{{ s.default_stop_loss_pct }}"
                         data-tpmin="{{ s.min_return_pct }}"
                         data-tpmax="{{ s.max_return_pct }}"
-                        data-mode="{{ s.default_mode }}">
+                        data-mode="{{ s.default_mode }}"
+                        data-desc="{{ s.description }}">
                     {{ s.icon }} {{ s.name }} — {{ s.timeframe }}
                 </option>
                 {% endfor %}
             </select>
+        </div>
+
+        <!-- Strategy Callout -->
+        <div class="strategy-callout" id="strategyCallout">
+            <div class="strategy-callout-title">How it works</div>
+            <div id="strategyCalloutText">Select a strategy to see details.</div>
         </div>
 
         <div class="input-group">
@@ -252,15 +259,27 @@
 
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
             <div class="input-group">
-                <label class="input-label">Stop-Loss %</label>
+                <label class="input-label tooltip-wrap">
+                    Stop-Loss %
+                    <span class="tooltip-icon">?</span>
+                    <span class="tooltip-text">If the price drops by this %, your position auto-closes to limit losses.</span>
+                </label>
                 <input type="number" class="input" id="modalSL" value="2" min="0.1" step="0.1">
             </div>
             <div class="input-group">
-                <label class="input-label">TP Min %</label>
+                <label class="input-label tooltip-wrap">
+                    TP Min %
+                    <span class="tooltip-icon">?</span>
+                    <span class="tooltip-text">Minimum take-profit target. The bot may start closing here for partial gains.</span>
+                </label>
                 <input type="number" class="input" id="modalTPMin" value="1.5" min="0.1" step="0.1">
             </div>
             <div class="input-group">
-                <label class="input-label">TP Max %</label>
+                <label class="input-label tooltip-wrap">
+                    TP Max %
+                    <span class="tooltip-icon">?</span>
+                    <span class="tooltip-text">Maximum take-profit. Position auto-closes when the price reaches this gain.</span>
+                </label>
                 <input type="number" class="input" id="modalTPMax" value="5" min="0.1" step="0.1">
             </div>
         </div>
@@ -512,8 +531,8 @@ function openTradeModal(strategyId) {
     document.getElementById('modalSuccess').style.display = 'none';
     if (strategyId) {
         document.getElementById('modalStrategy').value = strategyId;
-        updateModalDefaults();
     }
+    updateModalDefaults();
     updateMaxWinLoss();
 }
 
@@ -529,23 +548,34 @@ function updateModalDefaults() {
     document.getElementById('modalTPMax').value = opt.dataset.tpmax || 5;
     const mode = opt.dataset.mode || 'one_off';
     setBetMode(mode);
+    // Update strategy callout
+    const desc = opt.dataset.desc || '';
+    document.getElementById('strategyCalloutText').textContent = desc || 'Select a strategy to see details.';
     updateMaxWinLoss();
 }
+
+// Set initial callout on page load
+(function() {
+    const sel = document.getElementById('modalStrategy');
+    if (sel && sel.options.length > 0) {
+        const opt = sel.options[sel.selectedIndex];
+        document.getElementById('strategyCalloutText').textContent = opt.dataset.desc || '';
+    }
+})();
 
 function updateMaxWinLoss() {
     const amount = parseFloat(document.getElementById('modalAmount').value) || 0;
     const sl = parseFloat(document.getElementById('modalSL').value) || 0;
     const tpMax = parseFloat(document.getElementById('modalTPMax').value) || 0;
-    const maxLoss = amount * (sl / 100);
-    const maxWin = amount * (tpMax / 100);
     // Coinbase Advanced taker fee: ~0.60% per trade (entry + exit = ~1.2% round-trip)
     const feeRate = 0.006;
-    const entryFee = amount * feeRate;
-    const exitFee = amount * feeRate;
-    const totalFee = entryFee + exitFee;
+    const totalFee = amount * feeRate * 2;
+    // Net forecasts: factor in round-trip fees
+    const maxLoss = amount * (sl / 100) + totalFee;
+    const maxWin = Math.max(0, amount * (tpMax / 100) - totalFee);
     document.getElementById('maxLossDisplay').textContent = 'Max Loss: -$' + maxLoss.toFixed(2);
     document.getElementById('feeDisplay').textContent = 'Fee: ~$' + totalFee.toFixed(2);
-    document.getElementById('maxWinDisplay').textContent = 'Max Win: +$' + maxWin.toFixed(2);
+    document.getElementById('maxWinDisplay').textContent = 'Net Win: +$' + maxWin.toFixed(2);
 }
 
 ['modalAmount', 'modalSL', 'modalTPMax'].forEach(id => {

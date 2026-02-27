@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import hashlib
 import hmac
 import io
 import os
@@ -23,6 +24,7 @@ from vesper.dashboard.database import (
     init_db, create_user, get_user_by_email, get_user_by_id,
     verify_password, update_api_keys, update_trading_config,
     set_bot_active, update_trading_mode, create_oauth_user, User,
+    add_trusted_device, is_device_trusted, remove_trusted_device,
 )
 from vesper.strategies.catalog import get_strategy_catalog, get_strategy_by_id
 from vesper.portfolio import Portfolio, Position
@@ -169,7 +171,8 @@ async def login_page(request: Request, error: str = ""):
 
 @app.post("/login")
 async def login(request: Request, email: str = Form(...),
-                password: str = Form(...), totp_code: str = Form("")):
+                password: str = Form(...), totp_code: str = Form(""),
+                remember_me: str = Form("")):
     ip = _get_ip(request)
     if _is_locked(ip):
         return RedirectResponse(url="/login?error=locked", status_code=303)
@@ -177,11 +180,32 @@ async def login(request: Request, email: str = Form(...),
     if not user or not verify_password(user, password):
         _record_fail(ip)
         return RedirectResponse(url="/login?error=invalid", status_code=303)
-    if not pyotp.TOTP(user.totp_secret).verify(totp_code, valid_window=1):
-        _record_fail(ip)
-        return RedirectResponse(url="/login?error=invalid_2fa", status_code=303)
+
+    # Check if this device is trusted (skip 2FA)
+    trust_cookie = request.cookies.get("vesper_trust", "")
+    device_trusted = False
+    if trust_cookie:
+        token_hash = hashlib.sha256(trust_cookie.encode()).hexdigest()
+        device_trusted = is_device_trusted(user.id, token_hash)
+
+    if not device_trusted:
+        if not pyotp.TOTP(user.totp_secret).verify(totp_code, valid_window=1):
+            _record_fail(ip)
+            return RedirectResponse(url="/login?error=invalid_2fa", status_code=303)
+
     _clear_fails(ip)
-    return _create_session(user.id)
+    resp = _create_session(user.id)
+
+    # Set trust cookie if "remember me" checked
+    if remember_me:
+        trust_token = secrets.token_hex(32)
+        token_hash = hashlib.sha256(trust_token.encode()).hexdigest()
+        expires_at = time.time() + 86400 * 7  # 7 days
+        add_trusted_device(user.id, token_hash, expires_at)
+        resp.set_cookie(key="vesper_trust", value=trust_token, httponly=True,
+                        max_age=86400 * 7, samesite="lax")
+
+    return resp
 
 
 # --- Google OAuth ---
@@ -295,8 +319,14 @@ async def logout(request: Request):
     t = request.cookies.get("vesper_session")
     if t:
         _sessions.pop(t, None)
+    # Remove trusted device token
+    trust_cookie = request.cookies.get("vesper_trust", "")
+    if trust_cookie:
+        token_hash = hashlib.sha256(trust_cookie.encode()).hexdigest()
+        remove_trusted_device(token_hash)
     resp = RedirectResponse(url="/", status_code=303)
     resp.delete_cookie("vesper_session")
+    resp.delete_cookie("vesper_trust")
     return resp
 
 

@@ -48,9 +48,13 @@
                     <label class="input-label" for="totp_code">2FA code</label>
                     <input class="input" type="text" name="totp_code" id="totp_code" placeholder="000 000"
                            inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
-                           autocomplete="one-time-code" required
+                           autocomplete="one-time-code"
                            style="text-align:center;font-size:18px;letter-spacing:8px;">
                 </div>
+                <label style="display:flex;align-items:center;gap:8px;margin:12px 0;cursor:pointer;">
+                    <input type="checkbox" name="remember_me" value="1" style="accent-color:var(--accent);width:16px;height:16px;">
+                    <span style="font-size:13px;color:var(--text-secondary);">Remember this device for 7 days</span>
+                </label>
                 <button type="submit" class="btn btn-accent btn-full" style="padding:14px;">Log In</button>
             </form>
         {% endif %}

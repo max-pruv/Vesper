@@ -305,6 +305,35 @@
         }
         .empty-state-icon { font-size: 40px; margin-bottom: 12px; }
 
+        /* Tooltips */
+        .tooltip-wrap { position: relative; display: inline-flex; align-items: center; gap: 4px; }
+        .tooltip-icon {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 14px; height: 14px; border-radius: 50%;
+            background: var(--border-hover); color: var(--text-muted);
+            font-size: 9px; font-weight: 700; cursor: help; flex-shrink: 0;
+        }
+        .tooltip-text {
+            display: none; position: absolute; bottom: calc(100% + 6px); left: 50%;
+            transform: translateX(-50%); background: #222; color: #ddd;
+            font-size: 11px; font-weight: 400; line-height: 1.4;
+            padding: 8px 10px; border-radius: 8px; white-space: normal;
+            width: 200px; z-index: 100; text-transform: none; letter-spacing: 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+        .tooltip-wrap:hover .tooltip-text { display: block; }
+
+        /* Strategy Callout */
+        .strategy-callout {
+            background: var(--accent-dim); border: 1px solid rgba(0,220,90,0.15);
+            border-radius: 10px; padding: 12px 14px; margin-top: 8px; margin-bottom: 8px;
+            font-size: 13px; color: var(--text-secondary); line-height: 1.5;
+        }
+        .strategy-callout-title {
+            font-size: 11px; font-weight: 600; color: var(--accent);
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;
+        }
+
         /* Real-time P&L flash animations */
         @keyframes flash-green {
             0% { background-color: rgba(0,220,90,0.25); }

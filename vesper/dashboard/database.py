@@ -93,6 +93,49 @@ def init_db():
             created_at REAL NOT NULL
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS trusted_devices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            token_hash TEXT NOT NULL,
+            expires_at REAL NOT NULL,
+            created_at REAL NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+def add_trusted_device(user_id: int, token_hash: str, expires_at: float):
+    """Store a trusted device token hash for skipping 2FA."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "INSERT INTO trusted_devices (user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)",
+        (user_id, token_hash, expires_at, time.time()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def is_device_trusted(user_id: int, token_hash: str) -> bool:
+    """Check if a trust token is valid for this user. Prunes expired rows."""
+    conn = sqlite3.connect(DB_PATH)
+    now = time.time()
+    conn.execute("DELETE FROM trusted_devices WHERE expires_at < ?", (now,))
+    conn.commit()
+    row = conn.execute(
+        "SELECT id FROM trusted_devices WHERE user_id = ? AND token_hash = ? AND expires_at > ?",
+        (user_id, token_hash, now),
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def remove_trusted_device(token_hash: str):
+    """Remove a trusted device token (on logout)."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("DELETE FROM trusted_devices WHERE token_hash = ?", (token_hash,))
     conn.commit()
     conn.close()
 
