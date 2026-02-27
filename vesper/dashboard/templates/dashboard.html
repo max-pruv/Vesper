@@ -332,6 +332,11 @@
             </div>
         </div>
 
+        <div style="display:flex; justify-content:space-between; padding:10px 0; margin-top:4px; border-top:1px solid #222;">
+            <span style="color:var(--red); font-weight:600;" id="maxLossDisplay">Max Loss: -$1.00</span>
+            <span style="color:var(--green); font-weight:600;" id="maxWinDisplay">Max Win: +$2.50</span>
+        </div>
+
         <div id="modalError" class="alert alert-error" style="display:none;"></div>
         <div id="modalSuccess" class="alert alert-success" style="display:none;"></div>
 
@@ -476,6 +481,7 @@ function openTradeModal(strategyId) {
         document.getElementById('modalStrategy').value = strategyId;
         updateModalDefaults();
     }
+    updateMaxWinLoss();
 }
 
 function closeTradeModal() {
@@ -490,7 +496,22 @@ function updateModalDefaults() {
     document.getElementById('modalTPMax').value = opt.dataset.tpmax || 5;
     const mode = opt.dataset.mode || 'one_off';
     setBetMode(mode);
+    updateMaxWinLoss();
 }
+
+function updateMaxWinLoss() {
+    const amount = parseFloat(document.getElementById('modalAmount').value) || 0;
+    const sl = parseFloat(document.getElementById('modalSL').value) || 0;
+    const tpMax = parseFloat(document.getElementById('modalTPMax').value) || 0;
+    const maxLoss = amount * (sl / 100);
+    const maxWin = amount * (tpMax / 100);
+    document.getElementById('maxLossDisplay').textContent = 'Max Loss: -$' + maxLoss.toFixed(2);
+    document.getElementById('maxWinDisplay').textContent = 'Max Win: +$' + maxWin.toFixed(2);
+}
+
+['modalAmount', 'modalSL', 'modalTPMax'].forEach(id => {
+    document.getElementById(id).addEventListener('input', updateMaxWinLoss);
+});
 
 function setBetMode(mode) {
     currentBetMode = mode;
