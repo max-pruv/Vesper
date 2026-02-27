@@ -228,6 +228,13 @@
                 <option value="{{ sym.strip() }}">{{ sym.strip() }}</option>
                 {% endfor %}
             </select>
+            <!-- AI Signal Badge -->
+            <div id="signalBadge" style="margin-top:8px;padding:10px 14px;border-radius:8px;font-size:13px;display:none;border:1px solid var(--border);">
+                <span id="signalIcon"></span>
+                <span id="signalText" style="font-weight:600;"></span>
+                <span id="signalConfidence" style="margin-left:4px;"></span>
+                <div id="signalReason" style="color:var(--text-secondary);margin-top:4px;font-size:12px;"></div>
+            </div>
         </div>
 
         <!-- Paper / Real Toggle -->
@@ -534,6 +541,7 @@ function openTradeModal(strategyId) {
     }
     updateModalDefaults();
     updateMaxWinLoss();
+    fetchSignal();
 }
 
 function closeTradeModal() {
@@ -562,6 +570,63 @@ function updateModalDefaults() {
         document.getElementById('strategyCalloutText').textContent = opt.dataset.desc || '';
     }
 })();
+
+// ═══════════════════════════════════════
+// AI Signal Prediction
+// ═══════════════════════════════════════
+async function fetchSignal() {
+    const badge = document.getElementById('signalBadge');
+    const sym = document.getElementById('modalSymbol').value;
+    if (!sym) { badge.style.display = 'none'; return; }
+
+    // Show loading state
+    badge.style.display = 'block';
+    badge.style.background = 'rgba(255,255,255,0.03)';
+    badge.style.borderColor = 'var(--border)';
+    document.getElementById('signalIcon').textContent = '';
+    document.getElementById('signalText').textContent = 'Analyzing...';
+    document.getElementById('signalText').style.color = 'var(--text-secondary)';
+    document.getElementById('signalConfidence').textContent = '';
+    document.getElementById('signalReason').textContent = '';
+
+    try {
+        const safeSym = sym.replace('/', '-');
+        const resp = await fetch('/api/signal/' + safeSym);
+        if (!resp.ok) { badge.style.display = 'none'; return; }
+        const data = await resp.json();
+
+        const sig = data.signal || 'HOLD';
+        const conf = Math.round((data.confidence || 0) * 100);
+        const reason = data.reason || '';
+
+        if (sig === 'BUY') {
+            badge.style.background = 'rgba(0,220,90,0.08)';
+            badge.style.borderColor = 'rgba(0,220,90,0.3)';
+            document.getElementById('signalIcon').textContent = '\u25B2';
+            document.getElementById('signalText').textContent = 'BUY';
+            document.getElementById('signalText').style.color = 'var(--green)';
+        } else if (sig === 'SELL') {
+            badge.style.background = 'rgba(255,59,48,0.08)';
+            badge.style.borderColor = 'rgba(255,59,48,0.3)';
+            document.getElementById('signalIcon').textContent = '\u25BC';
+            document.getElementById('signalText').textContent = 'SELL';
+            document.getElementById('signalText').style.color = 'var(--red)';
+        } else {
+            badge.style.background = 'rgba(255,255,255,0.03)';
+            badge.style.borderColor = 'var(--border)';
+            document.getElementById('signalIcon').textContent = '\u25CF';
+            document.getElementById('signalText').textContent = 'HOLD';
+            document.getElementById('signalText').style.color = 'var(--text-secondary)';
+        }
+        document.getElementById('signalConfidence').textContent = conf > 0 ? ' \u2014 ' + conf + '% confidence' : '';
+        document.getElementById('signalReason').textContent = reason;
+    } catch(e) {
+        badge.style.display = 'none';
+    }
+}
+
+// Fetch signal when asset changes
+document.getElementById('modalSymbol').addEventListener('change', fetchSignal);
 
 function updateMaxWinLoss() {
     const amount = parseFloat(document.getElementById('modalAmount').value) || 0;

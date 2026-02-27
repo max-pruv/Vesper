@@ -136,6 +136,19 @@ STRATEGY_CATALOG: list[StrategyInfo] = [
         icon="🤖",
         default_mode="continuous",
     ),
+    StrategyInfo(
+        id="trend_scanner",
+        name="Trend Scanner",
+        description="Scans the top 20 cryptocurrencies for strong trends. Auto-opens positions on the best opportunities and closes when momentum fades. Fully automated multi-asset scanning.",
+        timeframe="Ongoing",
+        risk_level="medium",
+        min_return_pct=1.0,
+        max_return_pct=8.0,
+        default_stop_loss_pct=2.0,
+        auto_managed=True,
+        icon="🔍",
+        default_mode="continuous",
+    ),
 ]
 
 

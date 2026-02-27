@@ -27,6 +27,8 @@ from vesper.dashboard.database import (
     add_trusted_device, is_device_trusted, remove_trusted_device,
 )
 from vesper.strategies.catalog import get_strategy_catalog, get_strategy_by_id
+from vesper.strategies import EnsembleStrategy
+from vesper.market_data import get_market_snapshot
 from vesper.portfolio import Portfolio, Position
 from vesper.risk import PositionLimits
 
@@ -466,11 +468,35 @@ async def toggle_mode(request: Request):
 
 # --- Price Cache ---
 
-TICKER_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT",
-                  "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "BNB/USDT"]
+TICKER_SYMBOLS = [
+    "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT",
+    "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "BNB/USDT",
+    "LINK/USDT", "DOT/USDT", "MATIC/USDT", "UNI/USDT",
+    "ATOM/USDT", "LTC/USDT", "NEAR/USDT", "APT/USDT",
+    "ARB/USDT", "OP/USDT", "FIL/USDT", "AAVE/USDT",
+]
 _price_cache: dict = {}
 _price_cache_time: float = 0
 _CACHE_TTL = 10  # seconds
+
+# Signal cache: {symbol: {"data": {...}, "time": float}}
+_signal_cache: dict = {}
+_SIGNAL_CACHE_TTL = 30  # seconds
+
+
+def _fetch_signal_sync(symbol: str) -> dict:
+    """Run ensemble analysis on a symbol (sync, for run_in_executor)."""
+    try:
+        ex = _get_public_exchange()
+        snapshot = get_market_snapshot(ex, symbol)
+        result = EnsembleStrategy().analyze(snapshot)
+        return {
+            "signal": result.signal.value,
+            "confidence": round(result.confidence, 2),
+            "reason": result.reason,
+        }
+    except Exception:
+        return {"signal": "HOLD", "confidence": 0, "reason": "Unable to analyze — data unavailable"}
 
 
 def _get_public_exchange() -> ccxt.coinbase:
@@ -571,6 +597,25 @@ async def api_strategies(request: Request):
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     return get_strategy_catalog()
+
+
+@app.get("/api/signal/{symbol}")
+async def api_signal(request: Request, symbol: str):
+    """AI signal prediction for a symbol (BUY/HOLD/SELL + confidence)."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    symbol = symbol.replace("-", "/")
+    # Check cache
+    now = time.time()
+    cached = _signal_cache.get(symbol)
+    if cached and (now - cached["time"]) < _SIGNAL_CACHE_TTL:
+        return cached["data"]
+    # Fetch fresh signal
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(None, _fetch_signal_sync, symbol)
+    _signal_cache[symbol] = {"data": data, "time": now}
+    return data
 
 
 @app.get("/api/portfolio-stats")
