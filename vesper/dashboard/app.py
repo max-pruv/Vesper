@@ -447,6 +447,14 @@ async def save_keys(request: Request, api_key: str = Form(...), api_secret: str 
     update_api_keys(user.id, api_key, api_secret)
     return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
 
+@app.post("/settings/api-keys/remove")
+async def remove_keys(request: Request):
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    update_api_keys(user.id, "", "")
+    return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
+
 @app.post("/settings/trading")
 async def save_config(request: Request, paper_balance: float = Form(500),
                       trading_mode: str = Form("paper"),

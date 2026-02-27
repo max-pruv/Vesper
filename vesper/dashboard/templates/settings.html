@@ -40,19 +40,26 @@
             </div>
         </div>
 
+        {% if has_api_keys %}
+        <form method="POST" action="/settings/api-keys/remove" style="margin-top:4px;">
+            <button type="submit" class="btn btn-sm" style="background:rgba(255,59,48,0.1);color:var(--red);border:1px solid rgba(255,59,48,0.2);"
+                    onclick="return confirm('Disconnect Coinbase? This will delete your API keys.')">Disconnect</button>
+        </form>
+        {% else %}
         <form method="POST" action="/settings/api-keys">
             <div class="input-group">
                 <label class="input-label" for="api_key">API Key</label>
                 <input class="input" type="password" name="api_key" id="api_key"
-                       placeholder="{{ 'Saved \u2022 enter new to replace' if has_api_keys else 'Paste your API key' }}" required>
+                       placeholder="Paste your API key" required>
             </div>
             <div class="input-group">
                 <label class="input-label" for="api_secret">Private Key</label>
                 <input class="input" type="password" name="api_secret" id="api_secret"
-                       placeholder="{{ 'Saved \u2022 enter new to replace' if has_api_keys else 'Paste your private key' }}" required>
+                       placeholder="Paste your private key" required>
             </div>
             <button type="submit" class="btn btn-accent btn-sm">Save Keys</button>
         </form>
+        {% endif %}
     </div>
 
     <!-- Trading Config -->
