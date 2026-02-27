@@ -37,7 +37,7 @@
         <div style="font-size:14px;color:var(--text-muted);margin-bottom:4px;">Portfolio Value</div>
         <div style="font-size:48px;font-weight:700;letter-spacing:-2px;line-height:1;" id="portfolioValue">${{ "%.2f"|format(cash) }}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
-            <span class="{{ 'positive' if total_pnl >= 0 else 'negative' }}" style="font-size:16px;font-weight:600;">
+            <span id="totalPnl" class="{{ 'positive' if total_pnl >= 0 else 'negative' }}" style="font-size:16px;font-weight:600;">
                 ${{ "%+.2f"|format(total_pnl) }} ({{ "%+.2f"|format(total_pnl_pct) }}%)
             </span>
             <span style="font-size:13px;color:var(--text-muted);">all time</span>
@@ -93,15 +93,15 @@
 
         <div style="display:flex;gap:16px;">
             <div style="text-align:center;">
-                <div style="font-size:20px;font-weight:700;">{{ "%.0f"|format(win_rate) }}%</div>
+                <div style="font-size:20px;font-weight:700;" id="statWinRate">{{ "%.0f"|format(win_rate) }}%</div>
                 <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Win Rate</div>
             </div>
             <div style="text-align:center;">
-                <div style="font-size:20px;font-weight:700;">{{ total_trades }}</div>
+                <div style="font-size:20px;font-weight:700;" id="statTrades">{{ total_trades }}</div>
                 <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Trades</div>
             </div>
             <div style="text-align:center;">
-                <div style="font-size:20px;font-weight:700;">{{ positions|length }}</div>
+                <div style="font-size:20px;font-weight:700;" id="statOpen">{{ positions|length }}</div>
                 <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Open</div>
             </div>
         </div>
@@ -247,11 +247,17 @@
         </div>
     </div>
 
-    <!-- Equity Curve -->
+    <!-- Cumulative P&L Chart -->
     <div class="card">
-        <div class="card-title">Equity Curve</div>
-        <div style="height:200px;">
-            <canvas id="equityChart"></canvas>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div class="card-title" style="margin-bottom:0;">Profit & Loss</div>
+            <div style="display:flex;gap:12px;font-size:13px;">
+                <span style="color:var(--text-muted);">Realized: <span id="pnlRealized" style="font-weight:600;">${{ "%+.2f"|format(total_pnl) }}</span></span>
+                <span style="color:var(--text-muted);">Unrealized: <span id="pnlUnrealized" style="font-weight:600;">$0.00</span></span>
+            </div>
+        </div>
+        <div style="height:220px;">
+            <canvas id="pnlChart"></canvas>
         </div>
     </div>
 
@@ -654,46 +660,119 @@ document.getElementById('tradeModal').addEventListener('click', function(e) {
 });
 
 // ═══════════════════════════════════════
-// Equity Curve (Chart.js — keep existing)
+// Live Portfolio Stats + P&L Chart
 // ═══════════════════════════════════════
-const eqData = {{ equity_curve|safe }};
-const eqValues = eqData.map(d => d.value);
-const eqInitial = eqValues[0] || 0;
-const eqCurrent = eqValues[eqValues.length - 1] || 0;
-const eqPositive = eqCurrent >= eqInitial;
+let pnlChart = null;
 
-new Chart(document.getElementById('equityChart'), {
-    type: 'line',
-    data: {
-        labels: eqData.map((d, i) => i === 0 ? '' : new Date(d.time * 1000).toLocaleDateString('en', {month:'short',day:'numeric'})),
-        datasets: [{
-            data: eqValues,
-            borderColor: eqPositive ? '#00dc5a' : '#ff3b30',
-            backgroundColor: eqPositive ? 'rgba(0,220,90,0.06)' : 'rgba(255,59,48,0.06)',
-            fill: true,
-            tension: 0.4,
-            pointRadius: 0,
-            pointHoverRadius: 6,
-            pointHoverBackgroundColor: eqPositive ? '#00dc5a' : '#ff3b30',
-            borderWidth: 2,
-        }]
-    },
-    options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: { display: false },
-            tooltip: {
-                mode: 'index', intersect: false,
-                backgroundColor: '#1a1a1a', borderColor: '#2a2a2a', borderWidth: 1,
-                titleColor: '#9ca3af', bodyColor: '#fff', bodyFont: { weight: '600' },
-                padding: 12, cornerRadius: 8,
-                callbacks: { label: ctx => '$' + ctx.parsed.y.toFixed(2) }
-            }
+function initPnlChart(history) {
+    const ctx = document.getElementById('pnlChart');
+    const labels = history.map(d => d.time ? new Date(d.time * 1000).toLocaleDateString('en', {month:'short', day:'numeric'}) : '');
+    const values = history.map(d => d.pnl);
+    const lastVal = values.length > 0 ? values[values.length - 1] : 0;
+    const positive = lastVal >= 0;
+
+    // Bar colors: green for cumulative profit, red when dipping below zero
+    const barColors = values.map(v => v >= 0 ? 'rgba(0,220,90,0.7)' : 'rgba(255,59,48,0.7)');
+
+    pnlChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: values,
+                backgroundColor: barColors,
+                borderRadius: 3,
+                barPercentage: 0.8,
+            }]
         },
-        scales: { x: { display: false }, y: { display: false } },
-        interaction: { mode: 'nearest', axis: 'x', intersect: false }
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    mode: 'index', intersect: false,
+                    backgroundColor: '#1a1a1a', borderColor: '#2a2a2a', borderWidth: 1,
+                    titleColor: '#9ca3af', bodyColor: '#fff', bodyFont: { weight: '600' },
+                    padding: 12, cornerRadius: 8,
+                    callbacks: { label: ctx => '$' + ctx.parsed.y.toFixed(2) + ' cumulative P&L' }
+                }
+            },
+            scales: {
+                x: { display: true, ticks: { color: '#555', font: { size: 10 } }, grid: { display: false } },
+                y: {
+                    display: true,
+                    ticks: { color: '#555', font: { size: 10 }, callback: v => '$' + v },
+                    grid: { color: '#1a1a1a' },
+                }
+            },
+            interaction: { mode: 'nearest', axis: 'x', intersect: false }
+        }
+    });
+}
+
+function updatePnlChart(history) {
+    if (!pnlChart) {
+        initPnlChart(history);
+        return;
     }
-});
+    pnlChart.data.labels = history.map(d => d.time ? new Date(d.time * 1000).toLocaleDateString('en', {month:'short', day:'numeric'}) : '');
+    pnlChart.data.datasets[0].data = history.map(d => d.pnl);
+    pnlChart.data.datasets[0].backgroundColor = history.map(d => d.pnl >= 0 ? 'rgba(0,220,90,0.7)' : 'rgba(255,59,48,0.7)');
+    pnlChart.update('none');
+}
+
+async function updatePortfolioStats() {
+    try {
+        const resp = await fetch('/api/portfolio-stats');
+        if (!resp.ok) return;
+        const s = await resp.json();
+
+        // Portfolio value (cash + positions + unrealized P&L)
+        document.getElementById('portfolioValue').textContent = '$' + s.portfolio_value.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+        // Total P&L
+        const pnlEl = document.getElementById('totalPnl');
+        const sign = s.total_pnl >= 0 ? '+' : '';
+        pnlEl.textContent = '$' + sign + s.total_pnl.toFixed(2) + ' (' + sign + s.total_pnl_pct.toFixed(2) + '%)';
+        pnlEl.className = s.total_pnl >= 0 ? 'positive' : 'negative';
+
+        // Stats
+        document.getElementById('statWinRate').textContent = Math.round(s.win_rate) + '%';
+        document.getElementById('statTrades').textContent = s.total_trades;
+        document.getElementById('statOpen').textContent = s.open_count;
+
+        // P&L breakdown
+        const rSign = s.realized_pnl >= 0 ? '+' : '';
+        const uSign = s.unrealized_pnl >= 0 ? '+' : '';
+        document.getElementById('pnlRealized').textContent = '$' + rSign + s.realized_pnl.toFixed(2);
+        document.getElementById('pnlRealized').style.color = s.realized_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+        document.getElementById('pnlUnrealized').textContent = '$' + uSign + s.unrealized_pnl.toFixed(2);
+        document.getElementById('pnlUnrealized').style.color = s.unrealized_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+
+        // P&L chart
+        if (s.pnl_history && s.pnl_history.length > 0) {
+            updatePnlChart(s.pnl_history);
+        }
+    } catch(e) {}
+}
+
+// Initialize P&L chart from server-rendered data, then switch to live
+const initialPnlData = {{ equity_curve|safe }};
+if (initialPnlData.length > 1) {
+    // Convert equity curve to cumulative P&L format
+    const initial = initialPnlData[0].value;
+    const pnlHistory = initialPnlData.slice(1).map(d => ({
+        time: d.time,
+        pnl: +(d.value - initial).toFixed(2),
+    }));
+    initPnlChart(pnlHistory);
+} else {
+    initPnlChart([]);
+}
+
+// Fetch live stats immediately and every 10s
+updatePortfolioStats();
+setInterval(updatePortfolioStats, 10000);
 </script>
 {% endblock %}

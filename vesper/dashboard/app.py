@@ -543,6 +543,71 @@ async def api_strategies(request: Request):
     return get_strategy_catalog()
 
 
+@app.get("/api/portfolio-stats")
+async def api_portfolio_stats(request: Request):
+    """Live portfolio stats: value, P&L (realized + unrealized), win rate."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    portfolio = _load_portfolio(user.id)
+    cash = portfolio.get("cash", user.paper_balance)
+    initial = portfolio.get("initial_balance", user.paper_balance)
+    positions = portfolio.get("positions", {})
+    trades = portfolio.get("trade_history", [])
+
+    # Realized P&L from closed trades
+    realized_pnl = sum(t.get("pnl_usd", 0) for t in trades)
+    wins = sum(1 for t in trades if t.get("pnl_usd", 0) > 0)
+    total_trades = len(trades)
+    win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+
+    # Unrealized P&L from open positions
+    unrealized_pnl = 0
+    if positions:
+        prices = await _get_cached_prices()
+        price_map = {p["symbol"]: p["price"] for p in prices}
+        for p in positions.values():
+            entry = p.get("entry_price", 0)
+            current = price_map.get(p.get("symbol", ""), entry)
+            amount = p.get("amount", 0)
+            side = p.get("side", "buy")
+            if side == "buy":
+                unrealized_pnl += (current - entry) * amount
+            else:
+                unrealized_pnl += (entry - current) * amount
+
+    total_pnl = realized_pnl + unrealized_pnl
+    portfolio_value = cash + sum(
+        p.get("cost_usd", 0) for p in positions.values()
+    ) + unrealized_pnl
+
+    # P&L history for chart: each closed trade as a cumulative data point
+    pnl_history = []
+    running_pnl = 0
+    for t in trades:
+        running_pnl += t.get("pnl_usd", 0)
+        pnl_history.append({
+            "time": t.get("exit_time", 0),
+            "pnl": round(running_pnl, 2),
+            "trade_pnl": round(t.get("pnl_usd", 0), 2),
+            "symbol": t.get("symbol", ""),
+        })
+
+    return {
+        "portfolio_value": round(portfolio_value, 2),
+        "cash": round(cash, 2),
+        "total_pnl": round(total_pnl, 2),
+        "realized_pnl": round(realized_pnl, 2),
+        "unrealized_pnl": round(unrealized_pnl, 2),
+        "total_pnl_pct": round((total_pnl / initial * 100) if initial > 0 else 0, 2),
+        "win_rate": round(win_rate, 1),
+        "total_trades": total_trades,
+        "open_count": len(positions),
+        "pnl_history": pnl_history,
+    }
+
+
 @app.get("/api/positions")
 async def api_positions(request: Request):
     """Open positions with live unrealized P&L."""
