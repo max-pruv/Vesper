@@ -152,11 +152,157 @@
         .oauth-btn:hover { border-color: var(--text-secondary); background: var(--surface); opacity: 1; }
         .oauth-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
 
+        /* Ticker Bar */
+        .ticker-bar {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+            height: 36px; background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            overflow: hidden; display: flex; align-items: center;
+        }
+        .ticker-track {
+            display: inline-flex; gap: 32px; align-items: center;
+            height: 100%; animation: ticker-scroll 40s linear infinite;
+            padding: 0 16px; white-space: nowrap;
+        }
+        .ticker-item {
+            display: inline-flex; align-items: center; gap: 6px;
+            font-size: 12px; font-weight: 500; flex-shrink: 0;
+        }
+        .ticker-name { color: var(--text); font-weight: 600; }
+        .ticker-price { color: var(--text-secondary); }
+        .ticker-change { font-weight: 600; font-size: 11px; }
+        @keyframes ticker-scroll {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); }
+        }
+
+        /* Adjust layout for ticker */
+        .nav { top: 36px; }
+        body { padding-top: 0; }
+        .page-wrapper { padding-top: 92px; }
+
+        /* Strategy Cards */
+        .strategy-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+        }
+        .strategy-card {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 16px; padding: 20px; cursor: pointer;
+            transition: all 0.2s; display: flex; flex-direction: column;
+        }
+        .strategy-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+        .strategy-header {
+            display: flex; justify-content: space-between; align-items: center;
+            margin-bottom: 10px;
+        }
+        .strategy-name { font-size: 15px; font-weight: 600; }
+        .strategy-icon { font-size: 20px; }
+        .strategy-desc {
+            font-size: 13px; color: var(--text-secondary); line-height: 1.4;
+            margin-bottom: 14px; flex: 1;
+        }
+        .strategy-meta {
+            display: flex; gap: 16px; font-size: 12px;
+        }
+        .strategy-meta-label { color: var(--text-muted); margin-bottom: 2px; }
+        .strategy-meta-value { font-weight: 600; }
+
+        /* Risk Badges */
+        .risk-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 12px;
+            font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .risk-low { background: var(--green-dim); color: var(--green); }
+        .risk-medium { background: rgba(255,165,0,0.15); color: #ffa500; }
+        .risk-high { background: var(--red-dim); color: var(--red); }
+
+        /* Mode Badge */
+        .mode-badge {
+            display: inline-block; padding: 2px 8px; border-radius: 12px;
+            font-size: 10px; font-weight: 600; text-transform: uppercase;
+        }
+        .mode-one_off { background: rgba(100,100,255,0.15); color: #8888ff; }
+        .mode-continuous { background: rgba(0,220,90,0.1); color: var(--green); }
+
+        /* Bet Cards */
+        .bet-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+        .bet-card {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 12px; padding: 16px;
+        }
+        .bet-pnl { font-size: 22px; font-weight: 700; }
+        .bet-progress {
+            height: 4px; background: var(--border); border-radius: 2px;
+            overflow: hidden; margin-top: 12px;
+        }
+        .bet-progress-fill {
+            height: 100%; border-radius: 2px; transition: width 0.3s;
+        }
+
+        /* Chart Tabs */
+        .chart-tabs {
+            display: flex; gap: 4px; padding: 16px 20px 0;
+        }
+        .chart-tab {
+            padding: 6px 14px; border-radius: 20px; font-size: 13px;
+            font-weight: 500; color: var(--text-secondary); background: none;
+            border: 1px solid var(--border); cursor: pointer; transition: all 0.2s;
+        }
+        .chart-tab:hover { color: var(--text); border-color: var(--text-secondary); }
+        .chart-tab.active { color: var(--text); background: var(--card); border-color: var(--accent); }
+
+        /* Modal */
+        .modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 1000;
+            background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+            align-items: center; justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 20px; padding: 32px; width: 90%; max-width: 480px;
+            max-height: 90vh; overflow-y: auto;
+        }
+        .modal-title {
+            font-size: 20px; font-weight: 700; margin-bottom: 24px;
+        }
+        .modal-close {
+            float: right; background: none; border: none; color: var(--text-muted);
+            font-size: 24px; cursor: pointer; padding: 0; line-height: 1;
+        }
+        .modal-close:hover { color: var(--text); }
+
+        /* Mode Toggle */
+        .mode-toggle {
+            display: flex; border: 1px solid var(--border); border-radius: 12px;
+            overflow: hidden; margin-bottom: 20px;
+        }
+        .mode-toggle-btn {
+            flex: 1; padding: 10px 16px; text-align: center; font-size: 13px;
+            font-weight: 600; cursor: pointer; transition: all 0.2s;
+            background: none; border: none; color: var(--text-muted);
+            font-family: inherit;
+        }
+        .mode-toggle-btn.active {
+            background: var(--accent); color: #000;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center; padding: 40px 24px; color: var(--text-muted);
+        }
+        .empty-state-icon { font-size: 40px; margin-bottom: 12px; }
+
         @media (max-width: 768px) {
             .container { padding: 16px; }
             .nav { padding: 0 16px; }
             table { font-size: 13px; }
             td, th { padding: 10px 12px; }
+            .strategy-grid { grid-template-columns: repeat(2, 1fr); }
+            .bet-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 480px) {
+            .strategy-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>

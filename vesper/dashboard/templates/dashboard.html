@@ -1,7 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Vesper{% endblock %}
-{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>{% endblock %}
+{% block head %}
+<script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
 {% block body %}
+
+<!-- Scrolling Ticker Bar -->
+<div class="ticker-bar" id="tickerBar">
+    <div class="ticker-track" id="tickerTrack">
+        <span class="ticker-item"><span class="ticker-name">Loading prices...</span></span>
+    </div>
+</div>
+
 <div class="nav">
     <span class="nav-logo">vesper</span>
     <div class="nav-links">
@@ -11,6 +22,7 @@
     </div>
 </div>
 
+<div class="page-wrapper">
 <div class="container">
 
     {% if not has_api_keys %}
@@ -20,10 +32,10 @@
     </div>
     {% endif %}
 
-    <!-- Header: Portfolio Value (Robinhood-style big number) -->
+    <!-- Portfolio Header -->
     <div style="margin-bottom:32px;">
         <div style="font-size:14px;color:var(--text-muted);margin-bottom:4px;">Portfolio Value</div>
-        <div style="font-size:48px;font-weight:700;letter-spacing:-2px;line-height:1;">${{ "%.2f"|format(cash) }}</div>
+        <div style="font-size:48px;font-weight:700;letter-spacing:-2px;line-height:1;" id="portfolioValue">${{ "%.2f"|format(cash) }}</div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
             <span class="{{ 'positive' if total_pnl >= 0 else 'negative' }}" style="font-size:16px;font-weight:600;">
                 ${{ "%+.2f"|format(total_pnl) }} ({{ "%+.2f"|format(total_pnl_pct) }}%)
@@ -32,15 +44,9 @@
         </div>
     </div>
 
-    <!-- Chart -->
-    <div style="margin-bottom:32px;height:280px;">
-        <canvas id="equityChart"></canvas>
-    </div>
-
-    <!-- Controls row: Bot toggle + Paper/Live switch -->
+    <!-- Controls Row -->
     <div class="card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
         <div style="display:flex;align-items:center;gap:20px;">
-            <!-- Bot toggle -->
             <form method="POST" action="/settings/bot-toggle" id="botForm"
                   style="display:flex;align-items:center;gap:12px;">
                 <label class="toggle">
@@ -63,7 +69,6 @@
 
             <div style="width:1px;height:32px;background:var(--border);"></div>
 
-            <!-- Paper/Live switch -->
             <form method="POST" action="/settings/trading-mode" id="modeForm"
                   style="display:flex;align-items:center;gap:12px;">
                 <label class="toggle">
@@ -102,30 +107,128 @@
         </div>
     </div>
 
-    <!-- Open Positions -->
-    {% if positions %}
-    <div class="card">
-        <div class="card-title">Open Positions</div>
-        <table>
-            <thead><tr>
-                <th>Asset</th><th>Entry</th><th>Size</th>
-                <th>Stop-Loss</th><th>Target</th><th>Time</th>
-            </tr></thead>
-            <tbody>
-                {% for p in positions %}
-                <tr>
-                    <td style="font-weight:600;">{{ p.symbol.split('/')[0] }}</td>
-                    <td>${{ "{:,.2f}".format(p.entry_price) }}</td>
-                    <td>${{ "%.2f"|format(p.cost_usd) }}</td>
-                    <td class="negative">${{ "{:,.2f}".format(p.stop_loss) }}</td>
-                    <td class="positive">${{ "{:,.2f}".format(p.tp_min) }} - ${{ "{:,.2f}".format(p.tp_max) }}</td>
-                    <td style="color:var(--text-muted);">{{ p.entry_time }}</td>
-                </tr>
+    <!-- Real-Time Price Chart -->
+    <div class="card" style="padding:0;overflow:hidden;">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px 0;flex-wrap:wrap;gap:8px;">
+            <div class="chart-tabs" style="padding:0;">
+                {% set symbols = user.symbols.split(',') %}
+                {% for sym in symbols %}
+                <button class="chart-tab {{ 'active' if loop.first }}"
+                        data-symbol="{{ sym.strip() }}"
+                        onclick="switchChart(this, '{{ sym.strip() }}')">
+                    {{ sym.strip().split('/')[0] }}
+                </button>
                 {% endfor %}
-            </tbody>
-        </table>
+            </div>
+            <div class="chart-tabs" style="padding:0;">
+                <button class="chart-tab" data-tf="15m" onclick="switchTimeframe(this, '15m')">15m</button>
+                <button class="chart-tab active" data-tf="1h" onclick="switchTimeframe(this, '1h')">1H</button>
+                <button class="chart-tab" data-tf="4h" onclick="switchTimeframe(this, '4h')">4H</button>
+                <button class="chart-tab" data-tf="1d" onclick="switchTimeframe(this, '1d')">1D</button>
+            </div>
+        </div>
+        <div id="priceChart" style="height:400px;"></div>
     </div>
-    {% endif %}
+
+    <!-- Active Bets -->
+    <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+            <div class="card-title" style="margin-bottom:0;">Active Bets</div>
+            <button class="btn btn-accent btn-sm" onclick="openTradeModal()">+ New Bet</button>
+        </div>
+        <div id="activeBets">
+            {% if positions %}
+            <div class="bet-grid">
+                {% for p in positions %}
+                <div class="bet-card" id="bet-{{ p.id }}">
+                    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                        <div>
+                            <div style="font-size:16px;font-weight:700;">{{ p.symbol.split('/')[0] }}</div>
+                            <div style="display:flex;gap:6px;margin-top:4px;">
+                                <span class="mode-badge mode-{{ 'continuous' if p.get('bet_mode', 'one_off') == 'continuous' else 'one_off' }}">
+                                    {{ p.get('bet_mode', 'one_off') | replace('_', ' ') }}
+                                </span>
+                            </div>
+                        </div>
+                        <div style="text-align:right;">
+                            <div class="bet-pnl" id="pnl-{{ p.id }}">...</div>
+                            <div style="font-size:12px;color:var(--text-muted);" id="pnlpct-{{ p.id }}"></div>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:16px;margin-top:12px;font-size:13px;color:var(--text-secondary);">
+                        <span>Entry ${{ "{:,.2f}".format(p.entry_price) }}</span>
+                        <span>Size ${{ "%.2f"|format(p.cost_usd) }}</span>
+                        <span style="color:var(--text-muted);">{{ p.entry_time }}</span>
+                    </div>
+                    <div class="bet-progress">
+                        <div class="bet-progress-fill" id="progress-{{ p.id }}" style="width:50%;background:var(--green);"></div>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
+                        <span>SL ${{ "{:,.2f}".format(p.stop_loss) }}</span>
+                        <span>TP ${{ "{:,.2f}".format(p.tp_min) }} – ${{ "{:,.2f}".format(p.tp_max) }}</span>
+                    </div>
+                    <button class="btn btn-outline btn-sm" style="width:100%;margin-top:12px;"
+                            onclick="closeTrade('{{ p.id }}')">Close Position</button>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="empty-state">
+                <div class="empty-state-icon">~</div>
+                No active bets — pick a strategy below to start
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Strategy Catalog -->
+    <div class="card">
+        <div class="card-title">Strategies</div>
+        <div class="strategy-grid">
+            {% for s in strategies %}
+            <div class="strategy-card" onclick="openTradeModal('{{ s.id }}')">
+                <div class="strategy-header">
+                    <div>
+                        <span class="strategy-icon">{{ s.icon }}</span>
+                        <span class="strategy-name">{{ s.name }}</span>
+                    </div>
+                    <span class="risk-badge risk-{{ s.risk_level }}">{{ s.risk_level }}</span>
+                </div>
+                <div class="strategy-desc">{{ s.description }}</div>
+                <div class="strategy-meta">
+                    <div>
+                        <div class="strategy-meta-label">Timeframe</div>
+                        <div class="strategy-meta-value">{{ s.timeframe }}</div>
+                    </div>
+                    {% if s.min_return_pct > 0 or s.max_return_pct > 0 %}
+                    <div>
+                        <div class="strategy-meta-label">Expected</div>
+                        <div class="strategy-meta-value positive">+{{ s.min_return_pct }}% to +{{ s.max_return_pct }}%</div>
+                    </div>
+                    {% endif %}
+                    {% if s.default_stop_loss_pct > 0 %}
+                    <div>
+                        <div class="strategy-meta-label">Stop-Loss</div>
+                        <div class="strategy-meta-value negative">-{{ s.default_stop_loss_pct }}%</div>
+                    </div>
+                    {% endif %}
+                    <div>
+                        <div class="strategy-meta-label">Mode</div>
+                        <div class="strategy-meta-value">{{ s.default_mode | replace('_', ' ') | title }}</div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Equity Curve -->
+    <div class="card">
+        <div class="card-title">Equity Curve</div>
+        <div style="height:200px;">
+            <canvas id="equityChart"></canvas>
+        </div>
+    </div>
 
     <!-- Trade History -->
     <div class="card">
@@ -133,13 +236,14 @@
         {% if trades %}
         <table>
             <thead><tr>
-                <th>Asset</th><th>Entry</th><th>Exit</th>
+                <th>Asset</th><th>Strategy</th><th>Entry</th><th>Exit</th>
                 <th>Return</th><th>Time</th>
             </tr></thead>
             <tbody>
                 {% for t in trades %}
                 <tr>
                     <td style="font-weight:600;">{{ t.symbol.split('/')[0] }}</td>
+                    <td style="font-size:12px;color:var(--text-secondary);">{{ t.reason }}</td>
                     <td>${{ "{:,.2f}".format(t.entry_price) }}</td>
                     <td>${{ "{:,.2f}".format(t.exit_price) }}</td>
                     <td>
@@ -156,34 +260,330 @@
             </tbody>
         </table>
         {% else %}
-        <div style="text-align:center;padding:48px 24px;color:var(--text-muted);">
-            <div style="font-size:32px;margin-bottom:8px;">~</div>
+        <div class="empty-state">
+            <div class="empty-state-icon">~</div>
             No trades yet
         </div>
         {% endif %}
     </div>
+
+</div>
+</div>
+
+<!-- Trade Modal -->
+<div class="modal-overlay" id="tradeModal">
+    <div class="modal">
+        <button class="modal-close" onclick="closeTradeModal()">&times;</button>
+        <div class="modal-title" id="modalTitle">New Bet</div>
+
+        <div class="input-group">
+            <label class="input-label">Strategy</label>
+            <select class="input" id="modalStrategy" onchange="updateModalDefaults()">
+                {% for s in strategies %}
+                <option value="{{ s.id }}"
+                        data-sl="{{ s.default_stop_loss_pct }}"
+                        data-tpmin="{{ s.min_return_pct }}"
+                        data-tpmax="{{ s.max_return_pct }}"
+                        data-mode="{{ s.default_mode }}">
+                    {{ s.icon }} {{ s.name }} — {{ s.timeframe }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="input-group">
+            <label class="input-label">Asset</label>
+            <select class="input" id="modalSymbol">
+                {% set symbols = user.symbols.split(',') %}
+                {% for sym in symbols %}
+                <option value="{{ sym.strip() }}">{{ sym.strip() }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <!-- One-Off / Continuous Toggle -->
+        <div class="input-group">
+            <label class="input-label">Bet Mode</label>
+            <div class="mode-toggle">
+                <button type="button" class="mode-toggle-btn active" id="modeOneOff"
+                        onclick="setBetMode('one_off')">One-Off</button>
+                <button type="button" class="mode-toggle-btn" id="modeContinuous"
+                        onclick="setBetMode('continuous')">Continuous</button>
+            </div>
+        </div>
+
+        <div class="input-group">
+            <label class="input-label">Position Size ($)</label>
+            <input type="number" class="input" id="modalAmount" value="50" min="1" step="1">
+        </div>
+
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+            <div class="input-group">
+                <label class="input-label">Stop-Loss %</label>
+                <input type="number" class="input" id="modalSL" value="2" min="0.1" step="0.1">
+            </div>
+            <div class="input-group">
+                <label class="input-label">TP Min %</label>
+                <input type="number" class="input" id="modalTPMin" value="1.5" min="0.1" step="0.1">
+            </div>
+            <div class="input-group">
+                <label class="input-label">TP Max %</label>
+                <input type="number" class="input" id="modalTPMax" value="5" min="0.1" step="0.1">
+            </div>
+        </div>
+
+        <div id="modalError" class="alert alert-error" style="display:none;"></div>
+        <div id="modalSuccess" class="alert alert-success" style="display:none;"></div>
+
+        <button class="btn btn-accent btn-full" id="placeBetBtn" onclick="placeBet()" style="margin-top:8px;">
+            Place Bet
+        </button>
+    </div>
 </div>
 
 <script>
-const data = {{ equity_curve|safe }};
-const values = data.map(d => d.value);
-const initial = values[0] || 0;
-const current = values[values.length - 1] || 0;
-const isPositive = current >= initial;
+// ═══════════════════════════════════════
+// State
+// ═══════════════════════════════════════
+let currentSymbol = '{{ user.symbols.split(",")[0].strip() }}';
+let currentTimeframe = '1h';
+let currentBetMode = 'one_off';
+let chart, candleSeries;
+
+// ═══════════════════════════════════════
+// Ticker Bar
+// ═══════════════════════════════════════
+async function updateTicker() {
+    try {
+        const resp = await fetch('/api/ticker');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const track = document.getElementById('tickerTrack');
+        let html = '';
+        data.forEach(d => {
+            const cls = d.change_pct >= 0 ? 'positive' : 'negative';
+            const arrow = d.change_pct >= 0 ? '\u25B2' : '\u25BC';
+            const price = d.price >= 1 ? d.price.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : d.price.toFixed(4);
+            html += `<span class="ticker-item">
+                <span class="ticker-name">${d.name}</span>
+                <span class="ticker-price">$${price}</span>
+                <span class="ticker-change ${cls}">${arrow} ${d.change_pct.toFixed(2)}%</span>
+            </span>`;
+        });
+        // Duplicate for seamless loop
+        track.innerHTML = html + html;
+    } catch(e) {}
+}
+updateTicker();
+setInterval(updateTicker, 10000);
+
+// ═══════════════════════════════════════
+// Price Chart (TradingView Lightweight)
+// ═══════════════════════════════════════
+function initChart() {
+    const container = document.getElementById('priceChart');
+    chart = LightweightCharts.createChart(container, {
+        layout: { background: { color: '#111111' }, textColor: '#9ca3af' },
+        grid: { vertLines: { color: '#1a1a1a' }, horzLines: { color: '#1a1a1a' } },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+        rightPriceScale: { borderColor: '#1a1a1a' },
+        timeScale: { borderColor: '#1a1a1a', timeVisible: true },
+        width: container.clientWidth,
+        height: 400,
+    });
+    candleSeries = chart.addCandlestickSeries({
+        upColor: '#00dc5a', downColor: '#ff3b30',
+        borderUpColor: '#00dc5a', borderDownColor: '#ff3b30',
+        wickUpColor: '#00dc5a', wickDownColor: '#ff3b30',
+    });
+    // Responsive
+    new ResizeObserver(() => {
+        chart.applyOptions({ width: container.clientWidth });
+    }).observe(container);
+}
+
+async function loadChart(symbol, timeframe) {
+    try {
+        const safeSym = symbol.replace('/', '-');
+        const resp = await fetch(`/api/chart/${safeSym}?timeframe=${timeframe}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.length > 0) {
+            candleSeries.setData(data);
+            chart.timeScale().fitContent();
+        }
+    } catch(e) {}
+}
+
+function switchChart(btn, symbol) {
+    document.querySelectorAll('.chart-tab[data-symbol]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentSymbol = symbol;
+    loadChart(symbol, currentTimeframe);
+}
+
+function switchTimeframe(btn, tf) {
+    document.querySelectorAll('.chart-tab[data-tf]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentTimeframe = tf;
+    loadChart(currentSymbol, tf);
+}
+
+initChart();
+loadChart(currentSymbol, currentTimeframe);
+// Refresh chart every 30s
+setInterval(() => loadChart(currentSymbol, currentTimeframe), 30000);
+
+// ═══════════════════════════════════════
+// Active Bets — Live P&L Updates
+// ═══════════════════════════════════════
+async function updatePositions() {
+    try {
+        const resp = await fetch('/api/positions');
+        if (!resp.ok) return;
+        const positions = await resp.json();
+        positions.forEach(p => {
+            const pnlEl = document.getElementById('pnl-' + CSS.escape(p.id));
+            const pctEl = document.getElementById('pnlpct-' + CSS.escape(p.id));
+            const progressEl = document.getElementById('progress-' + CSS.escape(p.id));
+            if (pnlEl) {
+                const cls = p.pnl_usd >= 0 ? 'positive' : 'negative';
+                pnlEl.className = 'bet-pnl ' + cls;
+                pnlEl.textContent = '$' + (p.pnl_usd >= 0 ? '+' : '') + p.pnl_usd.toFixed(2);
+            }
+            if (pctEl) {
+                pctEl.textContent = (p.pnl_pct >= 0 ? '+' : '') + p.pnl_pct.toFixed(2) + '%';
+            }
+            if (progressEl) {
+                const pct = Math.max(0, Math.min(100, p.progress));
+                progressEl.style.width = pct + '%';
+                progressEl.style.background = p.pnl_usd >= 0 ? 'var(--green)' : 'var(--red)';
+            }
+        });
+    } catch(e) {}
+}
+updatePositions();
+setInterval(updatePositions, 10000);
+
+// ═══════════════════════════════════════
+// Trade Modal
+// ═══════════════════════════════════════
+function openTradeModal(strategyId) {
+    document.getElementById('tradeModal').classList.add('active');
+    document.getElementById('modalError').style.display = 'none';
+    document.getElementById('modalSuccess').style.display = 'none';
+    if (strategyId) {
+        document.getElementById('modalStrategy').value = strategyId;
+        updateModalDefaults();
+    }
+}
+
+function closeTradeModal() {
+    document.getElementById('tradeModal').classList.remove('active');
+}
+
+function updateModalDefaults() {
+    const sel = document.getElementById('modalStrategy');
+    const opt = sel.options[sel.selectedIndex];
+    document.getElementById('modalSL').value = opt.dataset.sl || 2;
+    document.getElementById('modalTPMin').value = opt.dataset.tpmin || 1.5;
+    document.getElementById('modalTPMax').value = opt.dataset.tpmax || 5;
+    const mode = opt.dataset.mode || 'one_off';
+    setBetMode(mode);
+}
+
+function setBetMode(mode) {
+    currentBetMode = mode;
+    document.getElementById('modeOneOff').classList.toggle('active', mode === 'one_off');
+    document.getElementById('modeContinuous').classList.toggle('active', mode === 'continuous');
+}
+
+async function placeBet() {
+    const btn = document.getElementById('placeBetBtn');
+    const errEl = document.getElementById('modalError');
+    const okEl = document.getElementById('modalSuccess');
+    errEl.style.display = 'none';
+    okEl.style.display = 'none';
+    btn.disabled = true;
+    btn.textContent = 'Placing...';
+
+    try {
+        const resp = await fetch('/api/open-trade', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                symbol: document.getElementById('modalSymbol').value,
+                strategy_id: document.getElementById('modalStrategy').value,
+                amount_usd: parseFloat(document.getElementById('modalAmount').value),
+                stop_loss_pct: parseFloat(document.getElementById('modalSL').value),
+                tp_min_pct: parseFloat(document.getElementById('modalTPMin').value),
+                tp_max_pct: parseFloat(document.getElementById('modalTPMax').value),
+                bet_mode: currentBetMode,
+            }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            okEl.textContent = `Bet placed at $${data.entry_price.toLocaleString()}`;
+            okEl.style.display = 'block';
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            errEl.textContent = data.error || 'Failed to place bet';
+            errEl.style.display = 'block';
+        }
+    } catch(e) {
+        errEl.textContent = 'Network error';
+        errEl.style.display = 'block';
+    }
+    btn.disabled = false;
+    btn.textContent = 'Place Bet';
+}
+
+async function closeTrade(positionId) {
+    if (!confirm('Close this position at market price?')) return;
+    try {
+        const resp = await fetch('/api/close-trade', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ position_id: positionId }),
+        });
+        const data = await resp.json();
+        if (data.ok) {
+            location.reload();
+        } else {
+            alert(data.error || 'Failed to close');
+        }
+    } catch(e) {
+        alert('Network error');
+    }
+}
+
+// Close modal on overlay click
+document.getElementById('tradeModal').addEventListener('click', function(e) {
+    if (e.target === this) closeTradeModal();
+});
+
+// ═══════════════════════════════════════
+// Equity Curve (Chart.js — keep existing)
+// ═══════════════════════════════════════
+const eqData = {{ equity_curve|safe }};
+const eqValues = eqData.map(d => d.value);
+const eqInitial = eqValues[0] || 0;
+const eqCurrent = eqValues[eqValues.length - 1] || 0;
+const eqPositive = eqCurrent >= eqInitial;
 
 new Chart(document.getElementById('equityChart'), {
     type: 'line',
     data: {
-        labels: data.map((d, i) => i === 0 ? '' : new Date(d.time * 1000).toLocaleDateString('en', {month:'short',day:'numeric'})),
+        labels: eqData.map((d, i) => i === 0 ? '' : new Date(d.time * 1000).toLocaleDateString('en', {month:'short',day:'numeric'})),
         datasets: [{
-            data: values,
-            borderColor: isPositive ? '#00dc5a' : '#ff3b30',
-            backgroundColor: isPositive ? 'rgba(0,220,90,0.06)' : 'rgba(255,59,48,0.06)',
+            data: eqValues,
+            borderColor: eqPositive ? '#00dc5a' : '#ff3b30',
+            backgroundColor: eqPositive ? 'rgba(0,220,90,0.06)' : 'rgba(255,59,48,0.06)',
             fill: true,
             tension: 0.4,
             pointRadius: 0,
             pointHoverRadius: 6,
-            pointHoverBackgroundColor: isPositive ? '#00dc5a' : '#ff3b30',
+            pointHoverBackgroundColor: eqPositive ? '#00dc5a' : '#ff3b30',
             borderWidth: 2,
         }]
     },
@@ -193,34 +593,16 @@ new Chart(document.getElementById('equityChart'), {
         plugins: {
             legend: { display: false },
             tooltip: {
-                mode: 'index',
-                intersect: false,
-                backgroundColor: '#1a1a1a',
-                borderColor: '#2a2a2a',
-                borderWidth: 1,
-                titleColor: '#9ca3af',
-                bodyColor: '#fff',
-                bodyFont: { weight: '600' },
-                padding: 12,
-                cornerRadius: 8,
+                mode: 'index', intersect: false,
+                backgroundColor: '#1a1a1a', borderColor: '#2a2a2a', borderWidth: 1,
+                titleColor: '#9ca3af', bodyColor: '#fff', bodyFont: { weight: '600' },
+                padding: 12, cornerRadius: 8,
                 callbacks: { label: ctx => '$' + ctx.parsed.y.toFixed(2) }
             }
         },
-        scales: {
-            x: {
-                display: false,
-            },
-            y: {
-                display: false,
-            }
-        },
-        interaction: {
-            mode: 'nearest',
-            axis: 'x',
-            intersect: false
-        }
+        scales: { x: { display: false }, y: { display: false } },
+        interaction: { mode: 'nearest', axis: 'x', intersect: false }
     }
 });
-setTimeout(() => location.reload(), 30000);
 </script>
 {% endblock %}

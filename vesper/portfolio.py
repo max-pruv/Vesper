@@ -18,6 +18,8 @@ class Position:
     entry_time: float = field(default_factory=time.time)
     strategy_reason: str = ""
     id: str = ""
+    strategy_id: str = ""
+    bet_mode: str = "one_off"  # "one_off" or "continuous"
 
     def __post_init__(self):
         if not self.id:
@@ -157,6 +159,8 @@ class Portfolio:
                     "entry_time": p.entry_time,
                     "strategy_reason": p.strategy_reason,
                     "id": p.id,
+                    "strategy_id": p.strategy_id,
+                    "bet_mode": p.bet_mode,
                     "limits": asdict(p.limits),
                 }
                 for pid, p in self.positions.items()
@@ -190,6 +194,8 @@ class Portfolio:
                 entry_time=p["entry_time"],
                 strategy_reason=p.get("strategy_reason", ""),
                 id=p["id"],
+                strategy_id=p.get("strategy_id", ""),
+                bet_mode=p.get("bet_mode", "one_off"),
             )
 
         self.trade_history = [TradeRecord(**t) for t in state.get("trade_history", [])]

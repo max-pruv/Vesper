@@ -1,5 +1,6 @@
 """Vesper Dashboard — SaaS with OAuth, 2FA, HTTPS."""
 
+import asyncio
 import base64
 import hmac
 import io
@@ -10,11 +11,12 @@ import time
 from datetime import datetime
 
 import bcrypt
+import ccxt
 import httpx
 import pyotp
 import qrcode
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 from vesper.dashboard.database import (
@@ -22,6 +24,9 @@ from vesper.dashboard.database import (
     verify_password, update_api_keys, update_trading_config,
     set_bot_active, update_trading_mode, create_oauth_user, User,
 )
+from vesper.strategies.catalog import get_strategy_catalog, get_strategy_by_id
+from vesper.portfolio import Portfolio, Position
+from vesper.risk import PositionLimits
 
 app = FastAPI(title="Vesper", docs_url=None, redoc_url=None)
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
@@ -342,6 +347,8 @@ async def dashboard(request: Request):
             "tp_max": p.get("limits", {}).get("take_profit_max_price", 0),
         })
 
+    strategies = get_strategy_catalog()
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request, "user": user, "cash": cash,
         "initial_balance": initial, "total_pnl": total_pnl,
@@ -351,6 +358,7 @@ async def dashboard(request: Request):
         "positions": fmt_pos, "trades": fmt_trades,
         "equity_curve": json.dumps(equity),
         "has_api_keys": bool(user.coinbase_api_key),
+        "strategies": strategies,
     })
 
 
@@ -409,8 +417,305 @@ async def toggle_mode(request: Request):
     return RedirectResponse(url="/dashboard", status_code=303)
 
 
-# --- API ---
+# --- Price Cache ---
+
+TICKER_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT",
+                  "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "BNB/USDT"]
+_price_cache: dict = {}
+_price_cache_time: float = 0
+_CACHE_TTL = 10  # seconds
+
+
+def _get_public_exchange() -> ccxt.coinbase:
+    """Public (no auth) exchange for price data."""
+    return ccxt.coinbase({"enableRateLimit": True, "options": {"defaultType": "spot"}})
+
+
+def _fetch_tickers_sync() -> list[dict]:
+    """Fetch ticker data for all symbols (sync, run in executor)."""
+    ex = _get_public_exchange()
+    result = []
+    try:
+        tickers = ex.fetch_tickers(TICKER_SYMBOLS)
+        for sym in TICKER_SYMBOLS:
+            t = tickers.get(sym)
+            if t:
+                result.append({
+                    "symbol": sym,
+                    "name": sym.split("/")[0],
+                    "price": t.get("last", 0),
+                    "change_pct": t.get("percentage", 0) or 0,
+                })
+    except Exception:
+        # Fallback: fetch individually
+        for sym in TICKER_SYMBOLS:
+            try:
+                t = ex.fetch_ticker(sym)
+                result.append({
+                    "symbol": sym,
+                    "name": sym.split("/")[0],
+                    "price": t.get("last", 0),
+                    "change_pct": t.get("percentage", 0) or 0,
+                })
+            except Exception:
+                pass
+    return result
+
+
+def _fetch_ohlcv_sync(symbol: str, timeframe: str = "1h", limit: int = 100) -> list[dict]:
+    """Fetch OHLCV candles formatted for lightweight-charts."""
+    ex = _get_public_exchange()
+    try:
+        raw = ex.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
+        return [
+            {"time": int(c[0] / 1000), "open": c[1], "high": c[2], "low": c[3], "close": c[4]}
+            for c in raw
+        ]
+    except Exception:
+        return []
+
+
+async def _get_cached_prices() -> list[dict]:
+    """Return cached ticker prices, refreshing if stale."""
+    global _price_cache, _price_cache_time
+    now = time.time()
+    if _price_cache and (now - _price_cache_time) < _CACHE_TTL:
+        return _price_cache
+    loop = asyncio.get_event_loop()
+    _price_cache = await loop.run_in_executor(None, _fetch_tickers_sync)
+    _price_cache_time = now
+    return _price_cache
+
+
+# --- API Endpoints ---
 
 @app.get("/api/health")
 async def health():
     return {"status": "running", "time": datetime.now().isoformat()}
+
+
+@app.get("/api/ticker")
+async def api_ticker(request: Request):
+    """Live prices for the scrolling ticker bar."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    prices = await _get_cached_prices()
+    return prices
+
+
+@app.get("/api/chart/{symbol}")
+async def api_chart(request: Request, symbol: str, timeframe: str = "1h"):
+    """OHLCV candles for the price chart."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    # URL uses dash: BTC-USDT -> BTC/USDT
+    symbol = symbol.replace("-", "/")
+    loop = asyncio.get_event_loop()
+    candles = await loop.run_in_executor(None, _fetch_ohlcv_sync, symbol, timeframe)
+    return candles
+
+
+@app.get("/api/strategies")
+async def api_strategies(request: Request):
+    """Strategy catalog with metadata."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return get_strategy_catalog()
+
+
+@app.get("/api/positions")
+async def api_positions(request: Request):
+    """Open positions with live unrealized P&L."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    portfolio = _load_portfolio(user.id)
+    positions = portfolio.get("positions", {})
+    if not positions:
+        return []
+
+    prices = await _get_cached_prices()
+    price_map = {p["symbol"]: p["price"] for p in prices}
+
+    result = []
+    for pid, p in positions.items():
+        sym = p.get("symbol", "")
+        entry = p.get("entry_price", 0)
+        current = price_map.get(sym, entry)
+        amount = p.get("amount", 0)
+        side = p.get("side", "buy")
+
+        if side == "buy":
+            pnl_usd = (current - entry) * amount
+            pnl_pct = ((current - entry) / entry * 100) if entry > 0 else 0
+        else:
+            pnl_usd = (entry - current) * amount
+            pnl_pct = ((entry - current) / entry * 100) if entry > 0 else 0
+
+        limits = p.get("limits", {})
+        sl = limits.get("stop_loss_price", 0)
+        tp_max = limits.get("take_profit_max_price", 0)
+        # Progress: 0% at stop-loss, 100% at take-profit
+        price_range = tp_max - sl if tp_max > sl else 1
+        progress = max(0, min(100, ((current - sl) / price_range) * 100))
+
+        result.append({
+            "id": pid,
+            "symbol": sym,
+            "name": sym.split("/")[0] if sym else "",
+            "side": side,
+            "entry_price": entry,
+            "current_price": current,
+            "cost_usd": p.get("cost_usd", 0),
+            "amount": amount,
+            "pnl_usd": round(pnl_usd, 2),
+            "pnl_pct": round(pnl_pct, 2),
+            "progress": round(progress, 1),
+            "stop_loss": sl,
+            "tp_min": limits.get("take_profit_min_price", 0),
+            "tp_max": tp_max,
+            "strategy_id": p.get("strategy_id", "ensemble"),
+            "bet_mode": p.get("bet_mode", "one_off"),
+            "entry_time": p.get("entry_time", 0),
+        })
+    return result
+
+
+@app.post("/api/open-trade")
+async def api_open_trade(request: Request):
+    """Open a new manual trade from the dashboard."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    body = await request.json()
+    symbol = body.get("symbol", "")
+    strategy_id = body.get("strategy_id", "set_and_forget")
+    amount_usd = float(body.get("amount_usd", 0))
+    stop_loss_pct = float(body.get("stop_loss_pct", 2.0))
+    tp_min_pct = float(body.get("tp_min_pct", 1.5))
+    tp_max_pct = float(body.get("tp_max_pct", 5.0))
+    bet_mode = body.get("bet_mode", "one_off")
+
+    if not symbol or amount_usd <= 0:
+        return JSONResponse({"error": "Invalid symbol or amount"}, status_code=400)
+
+    # Load portfolio
+    portfolio_path = os.path.join(DATA_DIR, f"portfolio_{user.id}.json")
+    if os.path.exists(portfolio_path):
+        with open(portfolio_path) as f:
+            pdata = json.load(f)
+    else:
+        pdata = {"cash": user.paper_balance, "initial_balance": user.paper_balance,
+                 "positions": {}, "trade_history": []}
+
+    cash = pdata.get("cash", 0)
+    if amount_usd > cash:
+        return JSONResponse({"error": f"Insufficient funds. Available: ${cash:.2f}"}, status_code=400)
+
+    # Get current price
+    prices = await _get_cached_prices()
+    price_map = {p["symbol"]: p["price"] for p in prices}
+    current_price = price_map.get(symbol, 0)
+    if current_price <= 0:
+        return JSONResponse({"error": "Could not fetch price for " + symbol}, status_code=400)
+
+    # Calculate position
+    asset_amount = amount_usd / current_price
+    stop_loss_price = current_price * (1 - stop_loss_pct / 100)
+    tp_min_price = current_price * (1 + tp_min_pct / 100)
+    tp_max_price = current_price * (1 + tp_max_pct / 100)
+
+    pos_id = f"{symbol}-{int(time.time())}"
+    position = {
+        "symbol": symbol,
+        "side": "buy",
+        "entry_price": current_price,
+        "amount": asset_amount,
+        "cost_usd": amount_usd,
+        "entry_time": time.time(),
+        "strategy_reason": f"Manual: {strategy_id}",
+        "id": pos_id,
+        "strategy_id": strategy_id,
+        "bet_mode": bet_mode,
+        "limits": {
+            "stop_loss_price": stop_loss_price,
+            "take_profit_min_price": tp_min_price,
+            "take_profit_max_price": tp_max_price,
+            "position_size_usd": amount_usd,
+            "position_size_asset": asset_amount,
+        },
+    }
+
+    # Save
+    pdata["cash"] = cash - amount_usd
+    pdata["positions"][pos_id] = position
+    with open(portfolio_path, "w") as f:
+        json.dump(pdata, f, indent=2)
+
+    return {"ok": True, "position_id": pos_id, "entry_price": current_price}
+
+
+@app.post("/api/close-trade")
+async def api_close_trade(request: Request):
+    """Manually close an open position."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    body = await request.json()
+    position_id = body.get("position_id", "")
+
+    portfolio_path = os.path.join(DATA_DIR, f"portfolio_{user.id}.json")
+    if not os.path.exists(portfolio_path):
+        return JSONResponse({"error": "No portfolio found"}, status_code=404)
+
+    with open(portfolio_path) as f:
+        pdata = json.load(f)
+
+    pos = pdata.get("positions", {}).get(position_id)
+    if not pos:
+        return JSONResponse({"error": "Position not found"}, status_code=404)
+
+    # Get current price
+    prices = await _get_cached_prices()
+    price_map = {p["symbol"]: p["price"] for p in prices}
+    current_price = price_map.get(pos["symbol"], pos["entry_price"])
+
+    # Calculate P&L
+    entry = pos["entry_price"]
+    amount = pos["amount"]
+    if pos.get("side", "buy") == "buy":
+        pnl_usd = (current_price - entry) * amount
+        pnl_pct = ((current_price - entry) / entry * 100) if entry > 0 else 0
+    else:
+        pnl_usd = (entry - current_price) * amount
+        pnl_pct = ((entry - current_price) / entry * 100) if entry > 0 else 0
+
+    # Record trade
+    trade = {
+        "symbol": pos["symbol"],
+        "side": pos.get("side", "buy"),
+        "entry_price": entry,
+        "exit_price": current_price,
+        "amount": amount,
+        "pnl_usd": round(pnl_usd, 2),
+        "pnl_pct": round(pnl_pct, 2),
+        "entry_time": pos.get("entry_time", 0),
+        "exit_time": time.time(),
+        "reason": "Manual close",
+        "strategy_reason": pos.get("strategy_reason", ""),
+    }
+
+    pdata["cash"] = pdata.get("cash", 0) + pos.get("cost_usd", 0) + pnl_usd
+    pdata.setdefault("trade_history", []).append(trade)
+    del pdata["positions"][position_id]
+
+    with open(portfolio_path, "w") as f:
+        json.dump(pdata, f, indent=2)
+
+    return {"ok": True, "pnl_usd": round(pnl_usd, 2), "pnl_pct": round(pnl_pct, 2)}
