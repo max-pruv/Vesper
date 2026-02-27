@@ -703,6 +703,12 @@ def _fetch_reasoning_sync(symbol: str, strategy_id: str, entry_price: float,
                 snapshot["fear_greed"] = fetch_fear_greed()
             except Exception:
                 snapshot["fear_greed"] = 50
+            # Enrich with whale + sentiment for AI reasoning
+            try:
+                from vesper.market_data import enrich_with_intelligence
+                enrich_with_intelligence(ex, symbol, snapshot)
+            except Exception:
+                pass
         else:
             snapshot = get_market_snapshot(ex, symbol, timeframe=timeframe)
 
@@ -762,6 +768,24 @@ def _fetch_reasoning_sync(symbol: str, strategy_id: str, entry_price: float,
         if adx > 0:
             strength = "strong trend" if adx > 25 else "weak/no trend"
             details.append(f"ADX {adx:.0f} ({strength})")
+
+        # Whale activity
+        whale_score = snapshot.get("whale_score")
+        if whale_score is not None and abs(whale_score) > 0.05:
+            direction = "bullish (accumulating)" if whale_score > 0 else "bearish (distributing)"
+            details.append(f"Whale activity: {direction} ({whale_score:+.2f})")
+        whale_details = snapshot.get("whale_details", [])
+        for wd in whale_details[:2]:
+            details.append(f"  {wd}")
+
+        # Composite sentiment
+        sentiment_score = snapshot.get("sentiment_score")
+        if sentiment_score is not None and abs(sentiment_score) > 0.05:
+            direction = "bullish" if sentiment_score > 0 else "bearish"
+            details.append(f"Crowd sentiment: {direction} ({sentiment_score:+.2f})")
+        sentiment_details = snapshot.get("sentiment_details", [])
+        for sd in sentiment_details[:3]:
+            details.append(f"  {sd}")
 
         # Decision summary
         sig = result.signal.value
@@ -1189,3 +1213,88 @@ async def api_logs(request: Request, lines: int = 100):
         return {"lines": [l.rstrip() for l in tail], "file": os.path.basename(log_path)}
     except Exception as e:
         return {"lines": [f"Error reading logs: {e}"], "file": ""}
+
+
+# ═══════════════════════════════════════
+# Autopilot API
+# ═══════════════════════════════════════
+
+@app.get("/api/autopilot")
+async def api_autopilot_status(request: Request):
+    """Get autopilot status and positions."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    portfolio = _load_portfolio(user.id)
+    autopilot = portfolio.get("autopilot", {})
+    positions = portfolio.get("positions", {})
+
+    # Autopilot positions
+    ap_positions = []
+    deployed = 0.0
+    for pid, p in positions.items():
+        if p.get("strategy_id") == "autopilot":
+            deployed += p.get("cost_usd", 0)
+            ap_positions.append({
+                "id": pid,
+                "symbol": p.get("symbol", ""),
+                "entry_price": p.get("entry_price", 0),
+                "cost_usd": p.get("cost_usd", 0),
+                "entry_time": p.get("entry_time", 0),
+            })
+
+    fund_total = autopilot.get("fund_usd", 0)
+    return {
+        "enabled": autopilot.get("enabled", False),
+        "fund_usd": fund_total,
+        "deployed_usd": round(deployed, 2),
+        "available_usd": round(fund_total - deployed, 2),
+        "max_positions": autopilot.get("max_positions", 3),
+        "positions": ap_positions,
+    }
+
+
+@app.post("/api/autopilot")
+async def api_autopilot_toggle(request: Request):
+    """Enable/disable autopilot or update fund amount."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    body = await request.json()
+    action = body.get("action", "")
+    amount = float(body.get("amount_usd", 0))
+
+    portfolio_path = os.path.join(
+        os.environ.get("VESPER_DATA_DIR", "data"),
+        f"portfolio_{user.id}.json",
+    )
+    pdata = {}
+    if os.path.exists(portfolio_path):
+        with open(portfolio_path) as f:
+            pdata = json.load(f)
+
+    if action == "start":
+        if amount < 10:
+            return JSONResponse({"error": "Minimum $10"}, status_code=400)
+        pdata["autopilot"] = {
+            "enabled": True,
+            "fund_usd": amount,
+            "max_positions": int(body.get("max_positions", 3)),
+            "started_at": time.time(),
+        }
+    elif action == "stop":
+        if "autopilot" in pdata:
+            pdata["autopilot"]["enabled"] = False
+    elif action == "update":
+        if "autopilot" not in pdata:
+            pdata["autopilot"] = {}
+        if amount > 0:
+            pdata["autopilot"]["fund_usd"] = amount
+        mp = body.get("max_positions")
+        if mp:
+            pdata["autopilot"]["max_positions"] = int(mp)
+
+    with open(portfolio_path, "w") as f:
+        json.dump(pdata, f, indent=2)
+
+    return {"ok": True, "autopilot": pdata.get("autopilot", {})}

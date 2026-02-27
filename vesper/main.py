@@ -17,6 +17,7 @@ from vesper.exchange import create_exchange
 from vesper.market_data import (
     get_market_snapshot, get_multi_tf_snapshot,
     get_order_book_pressure, fetch_fear_greed,
+    enrich_with_intelligence,
 )
 from vesper.strategies import (
     Signal, EnsembleStrategy, EnhancedEnsemble,
@@ -35,6 +36,7 @@ STRATEGY_MAP = {
     "mean_revert":    {"strategy": MeanReversionStrategy,   "timeframe": "1h"},
     "smart_auto":     {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
     "trend_scanner":  {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
+    "autopilot":      {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
     "set_and_forget": {"strategy": None,                    "timeframe": None},
 }
 
@@ -81,6 +83,9 @@ class UserBot:
         # Trend Scanner: scan broader market for opportunities
         self._run_trend_scanner(prices)
 
+        # Autopilot: AI fully manages allocated funds
+        self._run_autopilot(prices)
+
         summary = self.portfolio.summary(prices)
         self.logger.info(
             f"[User:{self.email}] Portfolio: ${summary['total_value']:,.2f} | "
@@ -117,6 +122,11 @@ class UserBot:
                 snapshot["fear_greed"] = fetch_fear_greed()
             except Exception:
                 snapshot["fear_greed"] = 50
+            # Enrich with whale tracking + composite sentiment (AI intelligence layer)
+            try:
+                enrich_with_intelligence(self.exchange, symbol, snapshot)
+            except Exception:
+                pass
         elif timeframe:
             snapshot = get_market_snapshot(self.exchange, symbol, timeframe=timeframe)
         else:
@@ -168,12 +178,41 @@ class UserBot:
                 if closed_continuous is None:
                     return  # One-off: done
             else:
-                # Update trailing stop tracking
-                if new_highest > existing_pos.highest_price_seen:
-                    existing_pos.highest_price_seen = new_highest
-                    existing_pos.limits.highest_price_seen = new_highest
-                    self.portfolio._save_state()
-                return  # Position still open, nothing to do
+                # ── AI-driven exit: check if AI recommends closing ──
+                # The AI can detect whale dumping / bearish sentiment shift
+                # before the stop-loss is hit, protecting profits
+                strategy = self._get_strategy(strategy_id)
+                if strategy:
+                    result = strategy.analyze(snapshot)
+                    if result.signal == Signal.SELL and result.confidence >= 0.6:
+                        pnl_pct = ((snapshot["price"] - existing_pos.entry_price)
+                                   / existing_pos.entry_price) * 100
+                        ai_reason = (
+                            f"AI EXIT ({result.confidence:.0%}): {result.reason[:100]}"
+                        )
+                        self.logger.info(
+                            f"[User:{self.email}] AI recommends exit for "
+                            f"{symbol} (P&L: {pnl_pct:+.1f}%) — {ai_reason[:80]}"
+                        )
+                        if existing_pos.bet_mode == "continuous":
+                            closed_continuous = existing_pos
+                        self._close_position(existing_pos, snapshot["price"], ai_reason)
+                        if closed_continuous is None:
+                            return
+                    else:
+                        # Update trailing stop tracking
+                        if new_highest > existing_pos.highest_price_seen:
+                            existing_pos.highest_price_seen = new_highest
+                            existing_pos.limits.highest_price_seen = new_highest
+                            self.portfolio._save_state()
+                        return  # Position still open, nothing to do
+                else:
+                    # Update trailing stop tracking
+                    if new_highest > existing_pos.highest_price_seen:
+                        existing_pos.highest_price_seen = new_highest
+                        existing_pos.limits.highest_price_seen = new_highest
+                        self.portfolio._save_state()
+                    return
 
         # Analyze with the correct strategy
         strategy = self._get_strategy(strategy_id)
@@ -393,6 +432,132 @@ class UserBot:
                     f"[User:{self.email}] TREND SCANNER: {best_symbol} "
                     f"BUY ${amount_usd:.2f} @ ${new_price:,.2f} "
                     f"(confidence: {best_signal.confidence:.0%})"
+                )
+
+    def _run_autopilot(self, prices: dict):
+        """AI Autopilot — fully autonomous portfolio management.
+
+        Scans all major symbols, picks the best opportunities using the
+        full AI brain (technicals + whale + sentiment), and allocates
+        the autopilot fund across up to 3 positions.
+
+        The autopilot fund is stored in portfolio as 'autopilot_fund'.
+        """
+        pdata = self.portfolio._load_raw()
+        autopilot = pdata.get("autopilot")
+        if not autopilot or not autopilot.get("enabled"):
+            return
+
+        fund_total = autopilot.get("fund_usd", 0)
+        if fund_total <= 0:
+            return
+
+        max_positions = autopilot.get("max_positions", 3)
+
+        # Count existing autopilot positions
+        autopilot_positions = [
+            pos for pos in self.portfolio.positions.values()
+            if pos.strategy_id == "autopilot"
+        ]
+
+        # Calculate how much is currently deployed vs available
+        deployed = sum(pos.cost_usd for pos in autopilot_positions)
+        available = fund_total - deployed
+        slots_open = max_positions - len(autopilot_positions)
+
+        if slots_open <= 0 or available < 10:
+            return  # Fully deployed or not enough funds
+
+        # Scan all symbols for the best opportunity
+        strategy = self._get_strategy("autopilot") or EnhancedEnsemble()
+        candidates = []
+
+        for sym in TICKER_SYMBOLS:
+            try:
+                # Skip symbols we already have autopilot positions on
+                if any(pos.symbol == sym for pos in autopilot_positions):
+                    continue
+                snap = self._get_snapshot(sym, "autopilot")
+                prices[sym] = snap["price"]
+                result = strategy.analyze(snap)
+                if result.signal == Signal.BUY and result.confidence >= 0.55:
+                    candidates.append((result.confidence, sym, snap, result))
+            except Exception:
+                continue
+
+        if not candidates:
+            return
+
+        # Sort by confidence, pick the top N to fill available slots
+        candidates.sort(reverse=True, key=lambda x: x[0])
+        to_open = candidates[:slots_open]
+
+        # Allocate funds evenly across new positions
+        per_position = available / len(to_open)
+
+        for confidence, sym, snap, result in to_open:
+            new_price = snap["price"]
+            amount_usd = min(per_position, available)
+            if amount_usd < 10:
+                break
+
+            # Dynamic SL based on ATR
+            atr = snap.get("atr", 0)
+            if atr and new_price > 0:
+                sl_pct = min(max((2 * atr / new_price) * 100, 1.0), 4.0)
+            else:
+                sl_pct = 2.5
+
+            # Dynamic TP scaled by confidence
+            tp_min_pct = 1.5 + confidence * 1.0  # 1.5% - 2.5%
+            tp_max_pct = 5.0 + confidence * 5.0  # 5% - 10%
+
+            limits = PositionLimits(
+                stop_loss_price=new_price * (1 - sl_pct / 100),
+                take_profit_min_price=new_price * (1 + tp_min_pct / 100),
+                take_profit_max_price=new_price * (1 + tp_max_pct / 100),
+                position_size_usd=amount_usd,
+                position_size_asset=amount_usd / new_price,
+                trailing_stop_pct=1.5,  # Autopilot always uses trailing stop
+                highest_price_seen=new_price,
+            )
+
+            position = Position(
+                symbol=sym, side="buy",
+                entry_price=new_price,
+                amount=limits.position_size_asset,
+                cost_usd=amount_usd,
+                limits=limits,
+                strategy_reason=f"Autopilot AI: {result.reason[:120]}",
+                strategy_id="autopilot",
+                bet_mode="continuous",
+                trade_mode=self.mode if self.mode == "live" else "paper",
+                stop_loss_pct=sl_pct,
+                tp_min_pct=tp_min_pct,
+                tp_max_pct=tp_max_pct,
+                trailing_stop_pct=1.5,
+                highest_price_seen=new_price,
+            )
+
+            if self.mode == "live":
+                try:
+                    from vesper.exchange import place_market_buy
+                    order = place_market_buy(self.exchange, sym, limits.position_size_asset)
+                    position.entry_price = float(order.get("average", new_price))
+                    position.amount = float(order.get("filled", limits.position_size_asset))
+                    position.cost_usd = position.entry_price * position.amount
+                except Exception as e:
+                    self.logger.error(f"[User:{self.email}] Autopilot BUY failed {sym}: {e}")
+                    continue
+
+            if self.portfolio.open_position(position):
+                available -= amount_usd
+                self.logger.info(
+                    f"[User:{self.email}] AUTOPILOT: {sym} "
+                    f"BUY ${amount_usd:.2f} @ ${new_price:,.2f} "
+                    f"(AI confidence: {confidence:.0%}, "
+                    f"whale: {snap.get('whale_score', 0):+.2f}, "
+                    f"sentiment: {snap.get('sentiment_score', 0):+.2f})"
                 )
 
 

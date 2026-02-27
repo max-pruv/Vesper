@@ -151,7 +151,18 @@ class Portfolio:
             "win_rate": win_rate,
         }
 
+    def _load_raw(self) -> dict:
+        """Load the raw portfolio JSON (includes autopilot config and other metadata)."""
+        path = os.path.join(self.data_dir, self.filename)
+        if not os.path.exists(path):
+            return {}
+        with open(path) as f:
+            return json.load(f)
+
     def _save_state(self):
+        # Preserve any extra keys (e.g., autopilot config) from the existing file
+        existing = self._load_raw()
+
         state = {
             "cash": self.cash,
             "initial_balance": self.initial_balance,
@@ -179,6 +190,11 @@ class Portfolio:
             },
             "trade_history": [asdict(t) for t in self.trade_history],
         }
+        # Carry over extra keys like "autopilot"
+        for key in existing:
+            if key not in state:
+                state[key] = existing[key]
+
         path = os.path.join(self.data_dir, self.filename)
         with open(path, "w") as f:
             json.dump(state, f, indent=2)

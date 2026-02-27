@@ -7,6 +7,9 @@ import httpx
 import pandas as pd
 import ta
 
+from vesper.whale_tracker import fetch_whale_activity
+from vesper.sentiment import fetch_composite_sentiment
+
 
 def fetch_ohlcv(
     exchange: ccxt.Exchange,
@@ -150,6 +153,42 @@ def get_multi_tf_snapshot(exchange: ccxt.Exchange, symbol: str) -> dict:
         snapshot["tf_4h"] = {}
         snapshot["tf_alignment"] = 0.5
         snapshot["adx_4h"] = 0
+
+    return snapshot
+
+
+def enrich_with_intelligence(exchange: ccxt.Exchange, symbol: str, snapshot: dict) -> dict:
+    """Enrich a snapshot with whale tracking + composite sentiment.
+
+    Adds to snapshot:
+        whale_score: -1.0 to +1.0 (whale buying/selling pressure)
+        whale_details: list of whale activity descriptions
+        sentiment_score: -1.0 to +1.0 (composite crowd sentiment)
+        sentiment_details: list of sentiment source descriptions
+    """
+    # Whale tracking
+    try:
+        whale = fetch_whale_activity(exchange, symbol)
+        snapshot["whale_score"] = whale["whale_score"]
+        snapshot["whale_details"] = whale["details"]
+        snapshot["large_buys"] = whale["large_buys"]
+        snapshot["large_sells"] = whale["large_sells"]
+        snapshot["volume_anomaly"] = whale["volume_anomaly"]
+    except Exception:
+        snapshot["whale_score"] = 0.0
+        snapshot["whale_details"] = []
+
+    # Composite sentiment (uses fear_greed if already in snapshot)
+    try:
+        fg = snapshot.get("fear_greed", 50)
+        sentiment = fetch_composite_sentiment(symbol, fear_greed=fg)
+        snapshot["sentiment_score"] = sentiment["composite_score"]
+        snapshot["sentiment_details"] = sentiment["details"]
+        snapshot["reddit_score"] = sentiment.get("reddit_score", 0.0)
+        snapshot["momentum_score"] = sentiment.get("momentum_score", 0.0)
+    except Exception:
+        snapshot["sentiment_score"] = 0.0
+        snapshot["sentiment_details"] = []
 
     return snapshot
 

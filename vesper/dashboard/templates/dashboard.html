@@ -61,6 +61,53 @@
         </div>
     </div>
 
+    <!-- AI Autopilot -->
+    <div class="card" id="autopilotCard" style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(168,85,247,0.06));border:1px solid rgba(99,102,241,0.2);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div>
+                <div class="card-title" style="margin-bottom:2px;display:flex;align-items:center;gap:8px;">
+                    AI Autopilot
+                    <span id="apStatus" style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:600;">OFF</span>
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);">Give Vesper a budget — AI manages entries, exits, and allocation using whale tracking + sentiment</div>
+            </div>
+        </div>
+        <div id="apOff" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div style="position:relative;">
+                <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px;">$</span>
+                <input type="number" id="apAmount" placeholder="500" min="10" step="10"
+                       style="padding:8px 8px 8px 24px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:120px;font-size:14px;">
+            </div>
+            <select id="apSlots" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px;">
+                <option value="2">2 positions max</option>
+                <option value="3" selected>3 positions max</option>
+                <option value="5">5 positions max</option>
+            </select>
+            <button class="btn btn-accent" onclick="startAutopilot()">Start Autopilot</button>
+        </div>
+        <div id="apOn" style="display:none;">
+            <div style="display:flex;gap:24px;margin-bottom:12px;flex-wrap:wrap;">
+                <div>
+                    <div style="font-size:24px;font-weight:700;" id="apFund">$0</div>
+                    <div style="font-size:11px;color:var(--text-muted);">Total Fund</div>
+                </div>
+                <div>
+                    <div style="font-size:24px;font-weight:700;color:var(--green);" id="apDeployed">$0</div>
+                    <div style="font-size:11px;color:var(--text-muted);">Deployed</div>
+                </div>
+                <div>
+                    <div style="font-size:24px;font-weight:700;color:var(--text-muted);" id="apAvailable">$0</div>
+                    <div style="font-size:11px;color:var(--text-muted);">Available</div>
+                </div>
+                <div>
+                    <div style="font-size:24px;font-weight:700;" id="apPositions">0/3</div>
+                    <div style="font-size:11px;color:var(--text-muted);">Positions</div>
+                </div>
+            </div>
+            <button class="btn" style="background:var(--border);font-size:12px;padding:6px 16px;" onclick="stopAutopilot()">Stop Autopilot</button>
+        </div>
+    </div>
+
     <!-- Real-Time Price Chart -->
     <div class="card" style="padding:0;overflow:hidden;">
         <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px 0;flex-wrap:wrap;gap:8px;">
@@ -976,6 +1023,72 @@ if (initialPnlData.length > 1) {
 // Fetch live stats immediately and every 5s
 updatePortfolioStats();
 setInterval(updatePortfolioStats, 5000);
+
+// ═══════════════════════════════════════
+// Autopilot
+// ═══════════════════════════════════════
+
+async function fetchAutopilotStatus() {
+    try {
+        const resp = await fetch('/api/autopilot');
+        if (!resp.ok) return;
+        const ap = await resp.json();
+        const statusEl = document.getElementById('apStatus');
+        const onEl = document.getElementById('apOn');
+        const offEl = document.getElementById('apOff');
+
+        if (ap.enabled) {
+            statusEl.textContent = 'ACTIVE';
+            statusEl.style.background = 'var(--green)';
+            statusEl.style.color = '#000';
+            onEl.style.display = 'block';
+            offEl.style.display = 'none';
+            document.getElementById('apFund').textContent = '$' + ap.fund_usd.toFixed(0);
+            document.getElementById('apDeployed').textContent = '$' + ap.deployed_usd.toFixed(0);
+            document.getElementById('apAvailable').textContent = '$' + ap.available_usd.toFixed(0);
+            document.getElementById('apPositions').textContent =
+                ap.positions.length + '/' + ap.max_positions;
+        } else {
+            statusEl.textContent = 'OFF';
+            statusEl.style.background = 'var(--border)';
+            statusEl.style.color = 'var(--text-muted)';
+            onEl.style.display = 'none';
+            offEl.style.display = 'flex';
+        }
+    } catch(e) {}
+}
+
+async function startAutopilot() {
+    const amount = parseFloat(document.getElementById('apAmount').value);
+    const slots = parseInt(document.getElementById('apSlots').value);
+    if (!amount || amount < 10) {
+        alert('Minimum $10 for autopilot');
+        return;
+    }
+    try {
+        const resp = await fetch('/api/autopilot', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action: 'start', amount_usd: amount, max_positions: slots}),
+        });
+        if (resp.ok) fetchAutopilotStatus();
+    } catch(e) {}
+}
+
+async function stopAutopilot() {
+    if (!confirm('Stop autopilot? Existing positions will be closed by AI on next cycle.')) return;
+    try {
+        const resp = await fetch('/api/autopilot', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action: 'stop'}),
+        });
+        if (resp.ok) fetchAutopilotStatus();
+    } catch(e) {}
+}
+
+fetchAutopilotStatus();
+setInterval(fetchAutopilotStatus, 10000);
 
 // ═══════════════════════════════════════
 // Logs Drawer

@@ -70,14 +70,17 @@ class EnsembleStrategy(Strategy):
 
 
 class EnhancedEnsemble(EnsembleStrategy):
-    """Enhanced ensemble that uses multi-timeframe, order book, and sentiment data.
+    """AI Brain — combines technical analysis + whale tracking + sentiment.
 
-    Reads extra fields from the snapshot:
-    - tf_alignment: 0.0-1.0 (multi-timeframe EMA alignment)
-    - buy_pressure: 0.0-1.0 (order book bid/ask ratio)
-    - fear_greed: 0-100 (crypto Fear & Greed Index)
-    - adx: trend strength (>25 = strong trend)
-    - adx_4h: 4h trend strength
+    Uses 6 signal layers to decide entry AND exit:
+    1. Technical ensemble (trend + mean-reversion + momentum)
+    2. Multi-timeframe alignment (1h + 4h EMA agreement)
+    3. Order book pressure (bid/ask imbalance)
+    4. Whale activity (large trades, on-chain flows)
+    5. Composite sentiment (Reddit + news + Fear&Greed + momentum)
+    6. ADX trend strength
+
+    The AI can override technical signals when whale + sentiment diverge.
     """
 
     name = "smart_auto"
@@ -85,19 +88,53 @@ class EnhancedEnsemble(EnsembleStrategy):
     def analyze(self, snapshot: dict) -> StrategyResult:
         base = super().analyze(snapshot)
 
-        # Extra signals from enhanced snapshot
+        # ── Layer 1: Technical base (from parent ensemble) ──
         alignment = snapshot.get("tf_alignment", 0.5)
         buy_pressure = snapshot.get("buy_pressure", 0.5)
         fear_greed = snapshot.get("fear_greed", 50)
         adx = snapshot.get("adx", 0)
         adx_4h = snapshot.get("adx_4h", 0)
 
+        # ── Layer 4-5: Whale + Sentiment (NEW) ──
+        whale_score = snapshot.get("whale_score", 0.0)     # -1 to +1
+        sentiment_score = snapshot.get("sentiment_score", 0.0)  # -1 to +1
+
         confidence = base.confidence
+        signal = base.signal
         extra_reasons = []
 
-        if base.signal in (Signal.BUY, Signal.SELL):
-            # Modifier 1: Multi-TF alignment (+/- 0.15)
-            if base.signal == Signal.BUY:
+        # ── AI Override: Whale + Sentiment can flip HOLD → BUY or BUY → HOLD ──
+        # If technicals say HOLD but whales are buying AND sentiment is bullish,
+        # the AI can initiate a BUY (forward-looking edge)
+        if signal == Signal.HOLD and whale_score > 0.3 and sentiment_score > 0.2:
+            signal = Signal.BUY
+            confidence = 0.50 + whale_score * 0.25 + sentiment_score * 0.25
+            extra_reasons.append(
+                f"AI override: whale accumulation ({whale_score:+.2f}) "
+                f"+ bullish sentiment ({sentiment_score:+.2f}) → entering"
+            )
+
+        # If technicals say BUY but whales are dumping AND sentiment is bearish,
+        # the AI blocks the entry
+        elif signal == Signal.BUY and whale_score < -0.3 and sentiment_score < -0.1:
+            signal = Signal.HOLD
+            confidence = 0.0
+            extra_reasons.append(
+                f"AI override: whale distribution ({whale_score:+.2f}) "
+                f"+ bearish sentiment ({sentiment_score:+.2f}) → blocking entry"
+            )
+
+        # If technicals say BUY but whales are heavily dumping, convert to SELL
+        elif signal == Signal.BUY and whale_score < -0.5:
+            signal = Signal.SELL
+            confidence = abs(whale_score) * 0.5 + abs(sentiment_score) * 0.3
+            extra_reasons.append(
+                f"AI override: heavy whale selling ({whale_score:+.2f}) → exit signal"
+            )
+
+        if signal in (Signal.BUY, Signal.SELL):
+            # ── Layer 2: Multi-TF alignment (±0.15) ──
+            if signal == Signal.BUY:
                 tf_boost = (alignment - 0.5) * 0.3
             else:
                 tf_boost = (0.5 - alignment) * 0.3
@@ -109,8 +146,8 @@ class EnhancedEnsemble(EnsembleStrategy):
             else:
                 extra_reasons.append("timeframes mixed")
 
-            # Modifier 2: Order book pressure (+/- 0.10)
-            if base.signal == Signal.BUY:
+            # ── Layer 3: Order book pressure (±0.10) ──
+            if signal == Signal.BUY:
                 ob_boost = (buy_pressure - 0.5) * 0.2
             else:
                 ob_boost = (0.5 - buy_pressure) * 0.2
@@ -120,18 +157,38 @@ class EnhancedEnsemble(EnsembleStrategy):
             elif buy_pressure < 0.4:
                 extra_reasons.append(f"order book bearish ({buy_pressure:.0%})")
 
-            # Modifier 3: Fear/Greed contrarian (+/- 0.10)
-            if base.signal == Signal.BUY and fear_greed < 25:
+            # ── Layer 4: Whale activity (±0.20 — high weight, forward-looking) ──
+            if signal == Signal.BUY:
+                whale_boost = whale_score * 0.20
+            else:
+                whale_boost = -whale_score * 0.20
+            confidence += whale_boost
+            if abs(whale_score) > 0.1:
+                direction = "bullish" if whale_score > 0 else "bearish"
+                extra_reasons.append(f"whale activity {direction} ({whale_score:+.2f})")
+
+            # ── Layer 5: Composite sentiment (±0.15) ──
+            if signal == Signal.BUY:
+                sent_boost = sentiment_score * 0.15
+            else:
+                sent_boost = -sentiment_score * 0.15
+            confidence += sent_boost
+            if abs(sentiment_score) > 0.1:
+                direction = "bullish" if sentiment_score > 0 else "bearish"
+                extra_reasons.append(f"sentiment {direction} ({sentiment_score:+.2f})")
+
+            # ── Layer 5b: Contrarian Fear/Greed (±0.10) ──
+            if signal == Signal.BUY and fear_greed < 25:
                 confidence += 0.10
                 extra_reasons.append(f"extreme fear ({fear_greed}) — contrarian buy")
-            elif base.signal == Signal.BUY and fear_greed > 75:
+            elif signal == Signal.BUY and fear_greed > 75:
                 confidence -= 0.10
                 extra_reasons.append(f"extreme greed ({fear_greed}) — caution")
-            elif base.signal == Signal.SELL and fear_greed > 75:
+            elif signal == Signal.SELL and fear_greed > 75:
                 confidence += 0.10
                 extra_reasons.append(f"extreme greed ({fear_greed}) — confirms sell")
 
-            # Modifier 4: ADX trend strength (+/- 0.05)
+            # ── Layer 6: ADX trend strength (+0.05) ──
             strong_trend = adx > 25 or adx_4h > 25
             if strong_trend:
                 confidence += 0.05
@@ -145,7 +202,7 @@ class EnhancedEnsemble(EnsembleStrategy):
             reason += " | " + ", ".join(extra_reasons)
 
         return StrategyResult(
-            signal=base.signal,
+            signal=signal,
             confidence=confidence,
             reason=reason,
             strategy_name=self.name,
