@@ -591,7 +591,8 @@ async function fetchSignal() {
 
     try {
         const safeSym = sym.replace('/', '-');
-        const resp = await fetch('/api/signal/' + safeSym);
+        const strategyId = document.getElementById('modalStrategy').value || 'smart_auto';
+        const resp = await fetch('/api/signal/' + safeSym + '?strategy=' + strategyId);
         if (!resp.ok) { badge.style.display = 'none'; return; }
         const data = await resp.json();
 
@@ -625,8 +626,9 @@ async function fetchSignal() {
     }
 }
 
-// Fetch signal when asset changes
+// Fetch signal when asset or strategy changes
 document.getElementById('modalSymbol').addEventListener('change', fetchSignal);
+document.getElementById('modalStrategy').addEventListener('change', fetchSignal);
 
 function updateMaxWinLoss() {
     const amount = parseFloat(document.getElementById('modalAmount').value) || 0;

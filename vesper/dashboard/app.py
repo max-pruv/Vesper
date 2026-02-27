@@ -27,10 +27,26 @@ from vesper.dashboard.database import (
     add_trusted_device, is_device_trusted, remove_trusted_device,
 )
 from vesper.strategies.catalog import get_strategy_catalog, get_strategy_by_id
-from vesper.strategies import EnsembleStrategy
-from vesper.market_data import get_market_snapshot
+from vesper.strategies import (
+    EnsembleStrategy, EnhancedEnsemble,
+    TrendFollowingStrategy, MeanReversionStrategy, MomentumStrategy,
+)
+from vesper.market_data import (
+    get_market_snapshot, get_multi_tf_snapshot,
+    get_order_book_pressure, fetch_fear_greed,
+)
 from vesper.portfolio import Portfolio, Position
 from vesper.risk import PositionLimits
+
+# Strategy routing for signal endpoint — same map as main.py
+_SIGNAL_STRATEGY_MAP = {
+    "scalper":        {"strategy": MomentumStrategy,       "timeframe": "15m"},
+    "trend_rider":    {"strategy": TrendFollowingStrategy,  "timeframe": "4h"},
+    "mean_revert":    {"strategy": MeanReversionStrategy,   "timeframe": "1h"},
+    "smart_auto":     {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
+    "trend_scanner":  {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
+    "set_and_forget": {"strategy": None,                    "timeframe": None},
+}
 
 app = FastAPI(title="Vesper", docs_url=None, redoc_url=None)
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
@@ -478,19 +494,47 @@ _signal_cache: dict = {}
 _SIGNAL_CACHE_TTL = 30  # seconds
 
 
-def _fetch_signal_sync(symbol: str) -> dict:
-    """Run ensemble analysis on a symbol (sync, for run_in_executor)."""
+def _fetch_signal_sync(symbol: str, strategy_id: str = "smart_auto") -> dict:
+    """Run per-strategy analysis on a symbol (sync, for run_in_executor)."""
     try:
+        config = _SIGNAL_STRATEGY_MAP.get(strategy_id)
+        if not config or config["strategy"] is None:
+            return {"signal": "HOLD", "confidence": 0,
+                    "reason": "Set & Forget — no AI analysis, monitors SL/TP only",
+                    "strategy": strategy_id}
+
         ex = _get_public_exchange()
-        snapshot = get_market_snapshot(ex, symbol)
-        result = EnsembleStrategy().analyze(snapshot)
+        timeframe = config["timeframe"]
+
+        if timeframe == "multi":
+            snapshot = get_multi_tf_snapshot(ex, symbol)
+            # Enrich with order book + sentiment
+            try:
+                ob = get_order_book_pressure(ex, symbol)
+                snapshot["buy_pressure"] = ob["buy_pressure"]
+                snapshot["spread_pct"] = ob["spread_pct"]
+            except Exception:
+                snapshot["buy_pressure"] = 0.5
+            try:
+                snapshot["fear_greed"] = fetch_fear_greed()
+            except Exception:
+                snapshot["fear_greed"] = 50
+        else:
+            snapshot = get_market_snapshot(ex, symbol, timeframe=timeframe)
+
+        strategy = config["strategy"]()
+        result = strategy.analyze(snapshot)
         return {
             "signal": result.signal.value,
             "confidence": round(result.confidence, 2),
             "reason": result.reason,
+            "strategy": strategy_id,
+            "timeframe": timeframe if timeframe != "multi" else "1h+4h",
         }
     except Exception:
-        return {"signal": "HOLD", "confidence": 0, "reason": "Unable to analyze — data unavailable"}
+        return {"signal": "HOLD", "confidence": 0,
+                "reason": "Unable to analyze — data unavailable",
+                "strategy": strategy_id}
 
 
 def _get_public_exchange() -> ccxt.coinbase:
@@ -606,21 +650,22 @@ async def api_strategies(request: Request):
 
 
 @app.get("/api/signal/{symbol}")
-async def api_signal(request: Request, symbol: str):
-    """AI signal prediction for a symbol (BUY/HOLD/SELL + confidence)."""
+async def api_signal(request: Request, symbol: str, strategy: str = "smart_auto"):
+    """AI signal prediction for a symbol using a specific strategy."""
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     symbol = symbol.replace("-", "/")
-    # Check cache
+    # Cache key includes strategy
+    cache_key = f"{symbol}:{strategy}"
     now = time.time()
-    cached = _signal_cache.get(symbol)
+    cached = _signal_cache.get(cache_key)
     if cached and (now - cached["time"]) < _SIGNAL_CACHE_TTL:
         return cached["data"]
-    # Fetch fresh signal
+    # Fetch fresh signal with the correct strategy
     loop = asyncio.get_event_loop()
-    data = await loop.run_in_executor(None, _fetch_signal_sync, symbol)
-    _signal_cache[symbol] = {"data": data, "time": now}
+    data = await loop.run_in_executor(None, _fetch_signal_sync, symbol, strategy)
+    _signal_cache[cache_key] = {"data": data, "time": now}
     return data
 
 

@@ -14,11 +14,29 @@ import uvicorn
 
 from config.settings import ExchangeConfig, RiskConfig, TICKER_SYMBOLS
 from vesper.exchange import create_exchange
-from vesper.market_data import get_market_snapshot
-from vesper.strategies import EnsembleStrategy, Signal
+from vesper.market_data import (
+    get_market_snapshot, get_multi_tf_snapshot,
+    get_order_book_pressure, fetch_fear_greed,
+)
+from vesper.strategies import (
+    Signal, EnsembleStrategy, EnhancedEnsemble,
+    TrendFollowingStrategy, MeanReversionStrategy, MomentumStrategy,
+)
 from vesper.risk import RiskManager, PositionLimits
 from vesper.portfolio import Portfolio, Position
 from vesper.logger import setup_logger, console
+
+
+# Maps strategy_id → (StrategyClass, timeframe)
+# Each strategy uses a genuinely different analysis engine + timeframe
+STRATEGY_MAP = {
+    "scalper":        {"strategy": MomentumStrategy,       "timeframe": "15m"},
+    "trend_rider":    {"strategy": TrendFollowingStrategy,  "timeframe": "4h"},
+    "mean_revert":    {"strategy": MeanReversionStrategy,   "timeframe": "1h"},
+    "smart_auto":     {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
+    "trend_scanner":  {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
+    "set_and_forget": {"strategy": None,                    "timeframe": None},
+}
 
 
 class UserBot:
@@ -32,8 +50,9 @@ class UserBot:
         self.mode = mode
         self.symbols = symbols
         self.logger = logger
-        self.strategy = EnsembleStrategy()
         self.risk_manager = RiskManager(risk_cfg)
+        # Strategy instances are resolved per-position from STRATEGY_MAP
+        self._strategy_cache: dict[str, object] = {}
 
         data_dir = os.environ.get("VESPER_DATA_DIR", "data")
         self.portfolio = Portfolio(
@@ -68,12 +87,69 @@ class UserBot:
             f"P&L: ${summary['total_pnl_usd']:+,.2f} ({summary['total_pnl_pct']:+.2f}%)"
         )
 
+    def _get_strategy(self, strategy_id: str):
+        """Get or create a strategy instance for the given strategy_id."""
+        if strategy_id in self._strategy_cache:
+            return self._strategy_cache[strategy_id]
+        config = STRATEGY_MAP.get(strategy_id)
+        if not config or config["strategy"] is None:
+            return None
+        instance = config["strategy"]()
+        self._strategy_cache[strategy_id] = instance
+        return instance
+
+    def _get_snapshot(self, symbol: str, strategy_id: str) -> dict:
+        """Fetch the right market snapshot for a strategy's timeframe."""
+        config = STRATEGY_MAP.get(strategy_id, {})
+        timeframe = config.get("timeframe", "1h")
+
+        if timeframe == "multi":
+            # Multi-timeframe: 1h + 4h with alignment
+            snapshot = get_multi_tf_snapshot(self.exchange, symbol)
+            # Enrich with order book + sentiment for enhanced strategies
+            try:
+                ob = get_order_book_pressure(self.exchange, symbol)
+                snapshot["buy_pressure"] = ob["buy_pressure"]
+                snapshot["spread_pct"] = ob["spread_pct"]
+            except Exception:
+                snapshot["buy_pressure"] = 0.5
+            try:
+                snapshot["fear_greed"] = fetch_fear_greed()
+            except Exception:
+                snapshot["fear_greed"] = 50
+        elif timeframe:
+            snapshot = get_market_snapshot(self.exchange, symbol, timeframe=timeframe)
+        else:
+            snapshot = get_market_snapshot(self.exchange, symbol)
+
+        return snapshot
+
     def _process_symbol(self, symbol: str, prices: dict):
-        snapshot = get_market_snapshot(self.exchange, symbol)
+        # Find existing position for this symbol (if any)
+        existing_pos = self.portfolio.get_position_for_symbol(symbol)
+        strategy_id = existing_pos.strategy_id if existing_pos else "smart_auto"
+
+        # Set & Forget: only check SL/TP, never auto-open
+        if strategy_id == "set_and_forget":
+            if not existing_pos:
+                return
+            snapshot = get_market_snapshot(self.exchange, symbol)
+            prices[symbol] = snapshot["price"]
+            should_close, reason = self.risk_manager.should_close_position(
+                current_price=snapshot["price"],
+                entry_price=existing_pos.entry_price,
+                limits=existing_pos.limits,
+                side=existing_pos.side,
+            )
+            if should_close:
+                self._close_position(existing_pos, snapshot["price"], reason)
+            return
+
+        # Fetch snapshot using the strategy's timeframe
+        snapshot = self._get_snapshot(symbol, strategy_id)
         prices[symbol] = snapshot["price"]
 
         closed_continuous = None
-        existing_pos = self.portfolio.get_position_for_symbol(symbol)
         if existing_pos:
             should_close, reason = self.risk_manager.should_close_position(
                 current_price=snapshot["price"],
@@ -82,18 +158,19 @@ class UserBot:
                 side=existing_pos.side,
             )
             if should_close:
-                # Remember continuous params before closing
                 if existing_pos.bet_mode == "continuous":
                     closed_continuous = existing_pos
                 self._close_position(existing_pos, snapshot["price"], reason)
-                # Continuous mode: fall through to re-evaluate
                 if closed_continuous is None:
                     return  # One-off: done
             else:
                 return  # Position still open, nothing to do
 
-        # Analyze market signal
-        result = self.strategy.analyze(snapshot)
+        # Analyze with the correct strategy
+        strategy = self._get_strategy(strategy_id)
+        if not strategy:
+            return
+        result = strategy.analyze(snapshot)
 
         if result.signal == Signal.HOLD:
             return
@@ -102,7 +179,6 @@ class UserBot:
             return
 
         if result.signal == Signal.BUY:
-            # Continuous re-entry: use original position parameters
             if closed_continuous:
                 self._reopen_continuous(closed_continuous, snapshot)
             else:
@@ -237,6 +313,9 @@ class UserBot:
         # Use the most recent trend_scanner trade for parameters
         last_scanner = scanner_history[-1]
 
+        # Use EnhancedEnsemble with multi-TF for scanning
+        scanner_strategy = self._get_strategy("trend_scanner") or EnhancedEnsemble()
+
         # Scan all major symbols for the strongest BUY signal
         best_signal = None
         best_snapshot = None
@@ -245,11 +324,10 @@ class UserBot:
         for sym in TICKER_SYMBOLS:
             try:
                 if sym in prices:
-                    # Already processed this symbol, skip fetching again
                     continue
-                snap = get_market_snapshot(self.exchange, sym)
+                snap = self._get_snapshot(sym, "trend_scanner")
                 prices[sym] = snap["price"]
-                result = self.strategy.analyze(snap)
+                result = scanner_strategy.analyze(snap)
                 if result.signal == Signal.BUY:
                     if best_signal is None or result.confidence > best_signal.confidence:
                         best_signal = result
