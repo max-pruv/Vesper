@@ -17,6 +17,7 @@
     <span class="nav-logo">vesper</span>
     <div class="nav-links">
         <a class="nav-link active" href="/dashboard">Dashboard</a>
+        <a class="nav-link" href="#" onclick="toggleLogsDrawer();return false;">Logs</a>
         <a class="nav-link" href="/settings">Settings</a>
         <a class="nav-link" href="/logout">Log out</a>
     </div>
@@ -810,7 +811,7 @@ async function fetchReasoning(posId) {
     status.style.color = 'var(--accent)';
 
     try {
-        const resp = await fetch('/api/reasoning/' + encodeURIComponent(posId));
+        const resp = await fetch('/api/reasoning?pid=' + encodeURIComponent(posId));
         if (!resp.ok) {
             status.textContent = 'Error';
             status.style.color = 'var(--red)';
@@ -975,5 +976,87 @@ if (initialPnlData.length > 1) {
 // Fetch live stats immediately and every 5s
 updatePortfolioStats();
 setInterval(updatePortfolioStats, 5000);
+
+// ═══════════════════════════════════════
+// Logs Drawer
+// ═══════════════════════════════════════
+let logsAutoRefresh = null;
+
+function toggleLogsDrawer() {
+    let drawer = document.getElementById('logsDrawer');
+    if (!drawer) {
+        // Create drawer on first click
+        drawer = document.createElement('div');
+        drawer.id = 'logsDrawer';
+        drawer.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface);">
+                <span style="font-weight:700;font-size:14px;">Bot Logs</span>
+                <div style="display:flex;gap:10px;align-items:center;">
+                    <span id="logsFile" style="font-size:11px;color:var(--text-muted);"></span>
+                    <button onclick="fetchLogs()" style="background:var(--accent);color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;">Refresh</button>
+                    <button onclick="toggleLogsDrawer()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;">&#10005;</button>
+                </div>
+            </div>
+            <pre id="logsContent" style="margin:0;padding:12px 16px;font-size:11px;line-height:1.6;color:var(--text-secondary);overflow-y:auto;flex:1;font-family:monospace;white-space:pre-wrap;word-break:break-all;"></pre>
+        `;
+        Object.assign(drawer.style, {
+            position: 'fixed', bottom: '0', left: '0', right: '0',
+            height: '40vh', background: 'var(--bg)', borderTop: '2px solid var(--accent)',
+            display: 'flex', flexDirection: 'column', zIndex: '1000',
+            transition: 'transform 0.3s ease', boxShadow: '0 -4px 20px rgba(0,0,0,0.4)',
+        });
+        document.body.appendChild(drawer);
+        fetchLogs();
+        logsAutoRefresh = setInterval(fetchLogs, 10000);
+        return;
+    }
+
+    if (drawer.style.display === 'none') {
+        drawer.style.display = 'flex';
+        fetchLogs();
+        logsAutoRefresh = setInterval(fetchLogs, 10000);
+    } else {
+        drawer.style.display = 'none';
+        if (logsAutoRefresh) { clearInterval(logsAutoRefresh); logsAutoRefresh = null; }
+    }
+}
+
+async function fetchLogs() {
+    try {
+        const resp = await fetch('/api/logs?lines=200');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const el = document.getElementById('logsContent');
+        if (!el) return;
+
+        // Color-code log lines
+        el.innerHTML = data.lines.map(line => {
+            if (line.includes('[ERROR]') || line.includes('Error') || line.includes('failed'))
+                return `<span style="color:var(--red);">${escapeHtml(line)}</span>`;
+            if (line.includes('CLOSED') || line.includes('STOP-LOSS') || line.includes('TRAILING'))
+                return `<span style="color:#f80;">${escapeHtml(line)}</span>`;
+            if (line.includes('BUY') || line.includes('RE-ENTRY') || line.includes('TREND SCANNER'))
+                return `<span style="color:var(--green);">${escapeHtml(line)}</span>`;
+            if (line.includes('====') || line.includes('Trading cycle'))
+                return `<span style="color:var(--accent);">${escapeHtml(line)}</span>`;
+            return escapeHtml(line);
+        }).join('\n');
+
+        // Auto-scroll to bottom
+        el.scrollTop = el.scrollHeight;
+
+        const fileEl = document.getElementById('logsFile');
+        if (fileEl && data.file) fileEl.textContent = data.file;
+    } catch(e) {
+        const el = document.getElementById('logsContent');
+        if (el) el.textContent = 'Failed to load logs.';
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
 </script>
 {% endblock %}
