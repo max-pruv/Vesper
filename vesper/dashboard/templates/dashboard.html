@@ -32,66 +32,19 @@
     </div>
     {% endif %}
 
-    <!-- Portfolio Header -->
-    <div style="margin-bottom:32px;">
-        <div style="font-size:14px;color:var(--text-muted);margin-bottom:4px;">Portfolio Value</div>
-        <div style="font-size:48px;font-weight:700;letter-spacing:-2px;line-height:1;" id="portfolioValue">${{ "%.2f"|format(cash) }}</div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
-            <span id="totalPnl" class="{{ 'positive' if total_pnl >= 0 else 'negative' }}" style="font-size:16px;font-weight:600;">
-                ${{ "%+.2f"|format(total_pnl) }} ({{ "%+.2f"|format(total_pnl_pct) }}%)
-            </span>
-            <span style="font-size:13px;color:var(--text-muted);">all time</span>
+    <!-- Portfolio Header + Stats -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:32px;flex-wrap:wrap;gap:16px;">
+        <div>
+            <div style="font-size:14px;color:var(--text-muted);margin-bottom:4px;">Portfolio Value</div>
+            <div style="font-size:48px;font-weight:700;letter-spacing:-2px;line-height:1;" id="portfolioValue">${{ "%.2f"|format(cash) }}</div>
+            <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                <span id="totalPnl" class="{{ 'positive' if total_pnl >= 0 else 'negative' }}" style="font-size:16px;font-weight:600;">
+                    ${{ "%+.2f"|format(total_pnl) }} ({{ "%+.2f"|format(total_pnl_pct) }}%)
+                </span>
+                <span style="font-size:13px;color:var(--text-muted);">all time</span>
+            </div>
         </div>
-    </div>
-
-    <!-- Controls Row -->
-    <div class="card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
-        <div style="display:flex;align-items:center;gap:20px;">
-            <form method="POST" action="/settings/bot-toggle" id="botForm"
-                  style="display:flex;align-items:center;gap:12px;">
-                <label class="toggle">
-                    <input type="checkbox" onchange="document.getElementById('botForm').submit()"
-                           {{ 'checked' if user.bot_active }}
-                           {{ 'disabled' if not has_api_keys }}>
-                    <span class="toggle-slider"></span>
-                </label>
-                <div>
-                    <div style="font-size:14px;font-weight:600;">
-                        {% if user.bot_active %}
-                            <span style="color:var(--green);">Bot Active</span>
-                        {% else %}
-                            <span style="color:var(--text-muted);">Bot Inactive</span>
-                        {% endif %}
-                    </div>
-                    <div style="font-size:12px;color:var(--text-muted);">{{ user.symbols }}</div>
-                </div>
-            </form>
-
-            <div style="width:1px;height:32px;background:var(--border);"></div>
-
-            <form method="POST" action="/settings/trading-mode" id="modeForm"
-                  style="display:flex;align-items:center;gap:12px;">
-                <label class="toggle">
-                    <input type="checkbox" name="live_mode" onchange="document.getElementById('modeForm').submit()"
-                           {{ 'checked' if user.trading_mode == 'live' }}>
-                    <span class="toggle-slider" style="{{ 'background:var(--red)' if user.trading_mode == 'live' else '' }}"></span>
-                </label>
-                <div>
-                    <div style="font-size:14px;font-weight:600;">
-                        {% if user.trading_mode == 'live' %}
-                            <span style="color:var(--red);">Live Trading</span>
-                        {% else %}
-                            <span style="color:var(--text-secondary);">Paper Trading</span>
-                        {% endif %}
-                    </div>
-                    <div style="font-size:12px;color:var(--text-muted);">
-                        {{ 'Real money' if user.trading_mode == 'live' else 'Simulated' }}
-                    </div>
-                </div>
-            </form>
-        </div>
-
-        <div style="display:flex;gap:16px;">
+        <div style="display:flex;gap:24px;">
             <div style="text-align:center;">
                 <div style="font-size:20px;font-weight:700;" id="statWinRate">{{ "%.0f"|format(win_rate) }}%</div>
                 <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Win Rate</div>
@@ -101,7 +54,7 @@
                 <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Trades</div>
             </div>
             <div style="text-align:center;">
-                <div style="font-size:20px;font-weight:700;" id="statOpen">{{ positions|length }}</div>
+                <div style="font-size:20px;font-weight:700;" id="statOpen">0</div>
                 <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Open</div>
             </div>
         </div>
@@ -137,72 +90,10 @@
             <button class="btn btn-accent btn-sm" onclick="openTradeModal()">+ New Bet</button>
         </div>
         <div id="activeBets">
-            {% if positions %}
-            <div class="bet-grid">
-                {% for p in positions %}
-                <div class="bet-card" id="bet-{{ p.id }}">
-                    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-                        <div>
-                            <div style="font-size:16px;font-weight:700;">{{ p.symbol.split('/')[0] }}</div>
-                            <div style="display:flex;gap:6px;margin-top:4px;">
-                                <span class="mode-badge mode-{{ 'continuous' if p.get('bet_mode', 'one_off') == 'continuous' else 'one_off' }}">
-                                    {{ p.get('bet_mode', 'one_off') | replace('_', ' ') }}
-                                </span>
-                                <span class="mode-badge trade-mode-{{ p.get('trade_mode', 'paper') }}">
-                                    {{ p.get('trade_mode', 'paper') }}
-                                </span>
-                            </div>
-                        </div>
-                        <div style="text-align:right;">
-                            <div class="bet-pnl" id="pnl-{{ p.id }}">...</div>
-                            <div style="font-size:12px;color:var(--text-muted);" id="pnlpct-{{ p.id }}"></div>
-                        </div>
-                    </div>
-                    <!-- P/L View: Max Win / Max Loss + Fee + Risk:Reward -->
-                    <div class="bet-pl-row">
-                        <div class="bet-pl-item">
-                            <span class="bet-pl-label">Max Loss</span>
-                            <span class="bet-pl-value" style="color:var(--red);" id="maxloss-{{ p.id }}">-${{ "%.2f"|format(p.max_loss) }}</span>
-                        </div>
-                        <div class="bet-pl-item">
-                            <span class="bet-pl-label">Fee</span>
-                            <span class="bet-pl-value" style="color:var(--text-muted);" id="fee-{{ p.id }}">~${{ "%.2f"|format(p.est_fee) }}</span>
-                        </div>
-                        <div class="bet-pl-item">
-                            <span class="bet-pl-label">Max Win</span>
-                            <span class="bet-pl-value" style="color:var(--green);" id="maxwin-{{ p.id }}">+${{ "%.2f"|format(p.max_win) }}</span>
-                        </div>
-                        <div class="bet-pl-item">
-                            <span class="bet-pl-label">R:R</span>
-                            {% set rr = (p.max_win / p.max_loss) if p.max_loss > 0 else 0 %}
-                            <span class="bet-pl-value bet-rr {{ 'positive' if rr >= 2 else 'neutral' if rr >= 1 else 'negative' }}" id="rr-{{ p.id }}">
-                                1:{{ "%.1f"|format(rr) }}
-                            </span>
-                        </div>
-                    </div>
-                    <div style="display:flex;gap:16px;margin-top:8px;font-size:13px;color:var(--text-secondary);">
-                        <span>Entry ${{ "{:,.2f}".format(p.entry_price) }}</span>
-                        <span>Size ${{ "%.2f"|format(p.cost_usd) }}</span>
-                        <span style="color:var(--text-muted);">{{ p.entry_time }}</span>
-                    </div>
-                    <div class="bet-progress">
-                        <div class="bet-progress-fill" id="progress-{{ p.id }}" style="width:50%;background:var(--green);"></div>
-                    </div>
-                    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
-                        <span>SL ${{ "{:,.2f}".format(p.stop_loss) }}</span>
-                        <span>TP ${{ "{:,.2f}".format(p.tp_min) }} – ${{ "{:,.2f}".format(p.tp_max) }}</span>
-                    </div>
-                    <button class="btn btn-outline btn-sm" style="width:100%;margin-top:12px;"
-                            onclick="closeTrade('{{ p.id }}')">Close Position</button>
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
             <div class="empty-state">
                 <div class="empty-state-icon">~</div>
                 No active bets — pick a strategy below to start
             </div>
-            {% endif %}
         </div>
     </div>
 
@@ -398,9 +289,13 @@ let currentTimeframe = '1h';
 let currentBetMode = 'one_off';
 let currentTradeMode = 'paper';
 let chart, candleSeries;
+// Track previous P&L values for flash animations
+let prevPnlMap = {};
+// Track known position IDs for detecting new cards
+let knownPositionIds = new Set();
 
 // ═══════════════════════════════════════
-// Ticker Bar
+// Ticker Bar (refresh every 5s)
 // ═══════════════════════════════════════
 async function updateTicker() {
     try {
@@ -424,10 +319,10 @@ async function updateTicker() {
     } catch(e) {}
 }
 updateTicker();
-setInterval(updateTicker, 10000);
+setInterval(updateTicker, 5000);
 
 // ═══════════════════════════════════════
-// Price Chart (TradingView Lightweight)
+// Price Chart (TradingView Lightweight, refresh every 10s)
 // ═══════════════════════════════════════
 function initChart() {
     const container = document.getElementById('priceChart');
@@ -480,58 +375,133 @@ function switchTimeframe(btn, tf) {
 
 initChart();
 loadChart(currentSymbol, currentTimeframe);
-// Refresh chart every 30s
-setInterval(() => loadChart(currentSymbol, currentTimeframe), 30000);
+// Refresh chart every 10s
+setInterval(() => loadChart(currentSymbol, currentTimeframe), 10000);
 
 // ═══════════════════════════════════════
-// Active Bets — Live P&L Updates
+// Active Bets — Full Dynamic Rendering (every 3s)
 // ═══════════════════════════════════════
+function formatPrice(price) {
+    if (price >= 1) return price.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    return price.toFixed(4);
+}
+
+function renderBetCard(p, isNew) {
+    const pnlCls = p.pnl_usd >= 0 ? 'positive' : 'negative';
+    const pnlSign = p.pnl_usd >= 0 ? '+' : '';
+    const pctSign = p.pnl_pct >= 0 ? '+' : '';
+    const rr = p.max_loss > 0 ? (p.max_win / p.max_loss) : 0;
+    const rrCls = rr >= 2 ? 'positive' : rr >= 1 ? 'neutral' : 'negative';
+    const progressPct = Math.max(0, Math.min(100, p.progress));
+    const progressColor = p.pnl_usd >= 0 ? 'var(--green)' : 'var(--red)';
+    const betMode = p.bet_mode || 'one_off';
+    const tradeMode = p.trade_mode || 'paper';
+    const modeCls = betMode === 'continuous' ? 'continuous' : 'one_off';
+
+    // Flash animation class
+    let flashClass = '';
+    const prevPnl = prevPnlMap[p.id];
+    if (prevPnl !== undefined && prevPnl !== p.pnl_usd) {
+        flashClass = p.pnl_usd > prevPnl ? 'pnl-flash-positive' : 'pnl-flash-negative';
+    }
+
+    const entryDate = p.entry_time ? new Date(p.entry_time * 1000).toLocaleDateString('en', {month:'2-digit', day:'2-digit'}) + ' ' + new Date(p.entry_time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '';
+
+    return `<div class="bet-card ${isNew ? 'new-card' : ''} ${flashClass}" data-pid="${p.id}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div>
+                <div style="font-size:16px;font-weight:700;">${p.name || p.symbol.split('/')[0]}</div>
+                <div style="display:flex;gap:6px;margin-top:4px;">
+                    <span class="mode-badge mode-${modeCls}">${betMode.replace('_', ' ')}</span>
+                    <span class="mode-badge trade-mode-${tradeMode}">${tradeMode}</span>
+                </div>
+            </div>
+            <div style="text-align:right;">
+                <div class="bet-pnl ${pnlCls}">$${pnlSign}${p.pnl_usd.toFixed(2)}</div>
+                <div style="font-size:12px;color:var(--text-muted);">${pctSign}${p.pnl_pct.toFixed(2)}%</div>
+            </div>
+        </div>
+        <!-- Current Price (live) -->
+        <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+            <span class="bet-current-price"><span class="live-dot"></span> Now $${formatPrice(p.current_price)}</span>
+            <span style="font-size:12px;color:var(--text-muted);">${p.current_price >= p.entry_price ? '\u25B2' : '\u25BC'} ${Math.abs(p.pnl_pct).toFixed(2)}% from entry</span>
+        </div>
+        <!-- P/L View -->
+        <div class="bet-pl-row">
+            <div class="bet-pl-item">
+                <span class="bet-pl-label">Max Loss</span>
+                <span class="bet-pl-value" style="color:var(--red);">-$${p.max_loss.toFixed(2)}</span>
+            </div>
+            <div class="bet-pl-item">
+                <span class="bet-pl-label">Fee</span>
+                <span class="bet-pl-value" style="color:var(--text-muted);">~$${(p.est_fee || 0).toFixed(2)}</span>
+            </div>
+            <div class="bet-pl-item">
+                <span class="bet-pl-label">Max Win</span>
+                <span class="bet-pl-value" style="color:var(--green);">+$${p.max_win.toFixed(2)}</span>
+            </div>
+            <div class="bet-pl-item">
+                <span class="bet-pl-label">R:R</span>
+                <span class="bet-pl-value bet-rr ${rrCls}">1:${rr.toFixed(1)}</span>
+            </div>
+        </div>
+        <div style="display:flex;gap:16px;margin-top:8px;font-size:13px;color:var(--text-secondary);">
+            <span>Entry $${formatPrice(p.entry_price)}</span>
+            <span>Size $${p.cost_usd.toFixed(2)}</span>
+            <span style="color:var(--text-muted);">${entryDate}</span>
+        </div>
+        <div class="bet-progress">
+            <div class="bet-progress-fill" style="width:${progressPct}%;background:${progressColor};"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
+            <span>SL $${formatPrice(p.stop_loss)}</span>
+            <span>TP $${formatPrice(p.tp_min)} &ndash; $${formatPrice(p.tp_max)}</span>
+        </div>
+        <button class="btn btn-outline btn-sm" style="width:100%;margin-top:12px;"
+                onclick="closeTrade('${p.id}')">Close Position</button>
+    </div>`;
+}
+
 async function updatePositions() {
     try {
         const resp = await fetch('/api/positions');
         if (!resp.ok) return;
         const positions = await resp.json();
+        const container = document.getElementById('activeBets');
+
+        if (positions.length === 0) {
+            container.innerHTML = `<div class="empty-state">
+                <div class="empty-state-icon">~</div>
+                No active bets — pick a strategy below to start
+            </div>`;
+            knownPositionIds.clear();
+            prevPnlMap = {};
+            return;
+        }
+
+        // Build new position ID set
+        const newIds = new Set(positions.map(p => p.id));
+
+        // Render all cards
+        let html = '<div class="bet-grid">';
         positions.forEach(p => {
-            const eid = CSS.escape(p.id);
-            const pnlEl = document.getElementById('pnl-' + eid);
-            const pctEl = document.getElementById('pnlpct-' + eid);
-            const progressEl = document.getElementById('progress-' + eid);
-            const maxLossEl = document.getElementById('maxloss-' + eid);
-            const maxWinEl = document.getElementById('maxwin-' + eid);
-            const rrEl = document.getElementById('rr-' + eid);
-            const feeEl = document.getElementById('fee-' + eid);
-            if (pnlEl) {
-                const cls = p.pnl_usd >= 0 ? 'positive' : 'negative';
-                pnlEl.className = 'bet-pnl ' + cls;
-                pnlEl.textContent = '$' + (p.pnl_usd >= 0 ? '+' : '') + p.pnl_usd.toFixed(2);
-            }
-            if (pctEl) {
-                pctEl.textContent = (p.pnl_pct >= 0 ? '+' : '') + p.pnl_pct.toFixed(2) + '%';
-            }
-            if (progressEl) {
-                const pct = Math.max(0, Math.min(100, p.progress));
-                progressEl.style.width = pct + '%';
-                progressEl.style.background = p.pnl_usd >= 0 ? 'var(--green)' : 'var(--red)';
-            }
-            if (maxLossEl) {
-                maxLossEl.textContent = '-$' + p.max_loss.toFixed(2);
-            }
-            if (maxWinEl) {
-                maxWinEl.textContent = '+$' + p.max_win.toFixed(2);
-            }
-            if (feeEl) {
-                feeEl.textContent = '~$' + (p.est_fee || 0).toFixed(2);
-            }
-            if (rrEl) {
-                const rr = p.max_loss > 0 ? (p.max_win / p.max_loss) : 0;
-                rrEl.textContent = '1:' + rr.toFixed(1);
-                rrEl.className = 'bet-pl-value bet-rr ' + (rr >= 2 ? 'positive' : rr >= 1 ? 'neutral' : 'negative');
-            }
+            const isNew = !knownPositionIds.has(p.id);
+            html += renderBetCard(p, isNew);
         });
+        html += '</div>';
+        container.innerHTML = html;
+
+        // Update tracking state
+        positions.forEach(p => { prevPnlMap[p.id] = p.pnl_usd; });
+        // Clean up removed positions from prevPnlMap
+        Object.keys(prevPnlMap).forEach(id => {
+            if (!newIds.has(id)) delete prevPnlMap[id];
+        });
+        knownPositionIds = newIds;
     } catch(e) {}
 }
 updatePositions();
-setInterval(updatePositions, 10000);
+setInterval(updatePositions, 3000);
 
 // ═══════════════════════════════════════
 // Trade Modal
@@ -622,7 +592,10 @@ async function placeBet() {
         if (data.ok) {
             okEl.textContent = `Bet placed at $${data.entry_price.toLocaleString()}`;
             okEl.style.display = 'block';
-            setTimeout(() => location.reload(), 1500);
+            // Immediately refresh positions & portfolio — no page reload needed
+            updatePositions();
+            updatePortfolioStats();
+            setTimeout(closeTradeModal, 1200);
         } else {
             errEl.textContent = data.error || 'Failed to place bet';
             errEl.style.display = 'block';
@@ -645,7 +618,9 @@ async function closeTrade(positionId) {
         });
         const data = await resp.json();
         if (data.ok) {
-            location.reload();
+            // Immediately refresh — no page reload needed
+            updatePositions();
+            updatePortfolioStats();
         } else {
             alert(data.error || 'Failed to close');
         }
@@ -660,7 +635,7 @@ document.getElementById('tradeModal').addEventListener('click', function(e) {
 });
 
 // ═══════════════════════════════════════
-// Live Portfolio Stats + P&L Chart
+// Live Portfolio Stats + P&L Chart (every 5s)
 // ═══════════════════════════════════════
 let pnlChart = null;
 
@@ -771,8 +746,8 @@ if (initialPnlData.length > 1) {
     initPnlChart([]);
 }
 
-// Fetch live stats immediately and every 10s
+// Fetch live stats immediately and every 5s
 updatePortfolioStats();
-setInterval(updatePortfolioStats, 10000);
+setInterval(updatePortfolioStats, 5000);
 </script>
 {% endblock %}

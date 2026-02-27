@@ -230,7 +230,7 @@
         .bet-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
         .bet-card {
             background: var(--surface); border: 1px solid var(--border);
-            border-radius: 12px; padding: 16px;
+            border-radius: 12px; padding: 16px; transition: all 0.3s ease;
         }
         .bet-pnl { font-size: 22px; font-weight: 700; }
         .bet-progress {
@@ -304,6 +304,36 @@
             text-align: center; padding: 40px 24px; color: var(--text-muted);
         }
         .empty-state-icon { font-size: 40px; margin-bottom: 12px; }
+
+        /* Real-time P&L flash animations */
+        @keyframes flash-green {
+            0% { background-color: rgba(0,220,90,0.25); }
+            100% { background-color: transparent; }
+        }
+        @keyframes flash-red {
+            0% { background-color: rgba(255,59,48,0.25); }
+            100% { background-color: transparent; }
+        }
+        .pnl-flash-positive { animation: flash-green 0.6s ease-out; }
+        .pnl-flash-negative { animation: flash-red 0.6s ease-out; }
+        .bet-card.new-card { animation: card-appear 0.4s ease-out; }
+        @keyframes card-appear {
+            from { opacity: 0; transform: translateY(10px) scale(0.97); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .bet-current-price {
+            font-size: 13px; color: var(--text-secondary); font-weight: 600;
+            display: inline-flex; align-items: center; gap: 4px;
+        }
+        .bet-current-price .live-dot {
+            width: 6px; height: 6px; border-radius: 50%;
+            background: var(--green); display: inline-block;
+            animation: pulse-dot 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
 
         @media (max-width: 768px) {
             .container { padding: 16px; }
