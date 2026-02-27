@@ -5,8 +5,11 @@
 set -e
 
 REPO_DIR="/opt/vesper"
-BRANCH="main"
 LOG="/opt/vesper/deploy.log"
+
+# Use whatever branch is currently checked out on the server
+cd "$REPO_DIR"
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 echo "$(date) — Deploy triggered" >> "$LOG"
 
