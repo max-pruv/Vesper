@@ -1,11 +1,14 @@
 """Vesper Dashboard — Web UI for monitoring and managing the bot."""
 
+import hashlib
+import hmac
 import os
 import json
+import secrets
 from datetime import datetime
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 app = FastAPI(title="Vesper Dashboard")
@@ -15,6 +18,15 @@ templates = Jinja2Templates(
 )
 
 DATA_DIR = os.environ.get("VESPER_DATA_DIR", "data")
+DASHBOARD_PASSWORD = os.environ.get("DASHBOARD_PASSWORD", "changeme123")
+
+# Session tokens stored in memory (cleared on restart)
+_valid_sessions: set[str] = set()
+
+
+def _check_session(request: Request) -> bool:
+    token = request.cookies.get("vesper_session")
+    return token is not None and token in _valid_sessions
 
 
 def _load_portfolio() -> dict:
@@ -30,8 +42,46 @@ def _load_portfolio() -> dict:
         return json.load(f)
 
 
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: str = ""):
+    return templates.TemplateResponse("login.html", {
+        "request": request,
+        "error": error,
+    })
+
+
+@app.post("/login")
+async def login(request: Request, password: str = Form(...)):
+    if hmac.compare_digest(password, DASHBOARD_PASSWORD):
+        token = secrets.token_hex(32)
+        _valid_sessions.add(token)
+        response = RedirectResponse(url="/", status_code=303)
+        response.set_cookie(
+            key="vesper_session",
+            value=token,
+            httponly=True,
+            max_age=86400 * 7,  # 7 days
+            samesite="strict",
+        )
+        return response
+    return RedirectResponse(url="/login?error=wrong_password", status_code=303)
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    token = request.cookies.get("vesper_session")
+    if token:
+        _valid_sessions.discard(token)
+    response = RedirectResponse(url="/login", status_code=303)
+    response.delete_cookie("vesper_session")
+    return response
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
+    if not _check_session(request):
+        return RedirectResponse(url="/login", status_code=303)
+
     portfolio = _load_portfolio()
 
     # Compute stats
@@ -109,7 +159,9 @@ async def index(request: Request):
 
 
 @app.get("/api/portfolio")
-async def api_portfolio():
+async def api_portfolio(request: Request):
+    if not _check_session(request):
+        return {"error": "unauthorized"}, 401
     return _load_portfolio()
 
 
