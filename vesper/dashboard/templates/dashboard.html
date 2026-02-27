@@ -1,173 +1,223 @@
 {% extends "base.html" %}
-{% block title %}Vesper — Dashboard{% endblock %}
+{% block title %}Vesper{% endblock %}
 {% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>{% endblock %}
 {% block body %}
-<div class="navbar">
-    <span class="logo">Vesper</span>
-    <nav>
-        <a href="/dashboard" class="active">Dashboard</a>
-        <a href="/settings">Settings</a>
-        <a href="/logout">Logout</a>
-    </nav>
+<div class="nav">
+    <span class="nav-logo">vesper</span>
+    <div class="nav-links">
+        <a class="nav-link active" href="/dashboard">Dashboard</a>
+        <a class="nav-link" href="/settings">Settings</a>
+        <a class="nav-link" href="/logout">Log out</a>
+    </div>
 </div>
 
 <div class="container">
+
     {% if not has_api_keys %}
-    <div class="alert alert-warning">
-        You need to add your Coinbase API keys to start trading.
-        <a href="/settings">Go to Settings</a>
+    <div class="alert" style="background:rgba(255,255,255,0.04);color:var(--text-secondary);border:1px solid var(--border);border-radius:12px;">
+        Connect your Coinbase API keys to start trading.
+        <a href="/settings" style="margin-left:8px;font-weight:600;">Setup</a>
     </div>
     {% endif %}
 
-    <!-- Bot control + status -->
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-        <div>
-            <span style="font-size:20px;font-weight:700;">{{ user.email }}</span>
-            <span style="margin-left:8px;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;
-                {% if user.trading_mode == 'paper' %}
-                    background:#1f6feb33;color:var(--blue);border:1px solid var(--blue);
-                {% else %}
-                    background:#f8514933;color:var(--red);border:1px solid var(--red);
-                {% endif %}
-            ">{{ user.trading_mode|upper }}</span>
-        </div>
-        <form method="POST" action="/settings/bot-toggle" style="display:inline;">
-            {% if user.bot_active %}
-            <button type="submit" class="btn btn-red" style="padding:8px 20px;font-size:13px;">
-                Stop Bot
-            </button>
-            {% else %}
-            <button type="submit" class="btn btn-green" style="padding:8px 20px;font-size:13px;"
-                    {% if not has_api_keys %}disabled title="Add API keys first"{% endif %}>
-                Start Bot
-            </button>
-            {% endif %}
-        </form>
-    </div>
-
-    <!-- Stats -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;">
-        <div class="card" style="margin-bottom:0;">
-            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Portfolio Value</div>
-            <div style="font-size:24px;font-weight:700;">${{ "%.2f"|format(cash) }}</div>
-            <div style="font-size:13px;color:var(--muted);">Initial: ${{ "%.2f"|format(initial_balance) }}</div>
-        </div>
-        <div class="card" style="margin-bottom:0;">
-            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Total P&L</div>
-            <div style="font-size:24px;font-weight:700;" class="{{ 'positive' if total_pnl >= 0 else 'negative' }}">
-                ${{ "%+.2f"|format(total_pnl) }}
-            </div>
-            <div class="{{ 'positive' if total_pnl_pct >= 0 else 'negative' }}" style="font-size:13px;">
-                {{ "%+.2f"|format(total_pnl_pct) }}%
-            </div>
-        </div>
-        <div class="card" style="margin-bottom:0;">
-            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Win Rate</div>
-            <div style="font-size:24px;font-weight:700;">{{ "%.1f"|format(win_rate) }}%</div>
-            <div style="font-size:13px;color:var(--muted);">{{ wins }}W / {{ losses }}L</div>
-        </div>
-        <div class="card" style="margin-bottom:0;">
-            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Total Trades</div>
-            <div style="font-size:24px;font-weight:700;">{{ total_trades }}</div>
-            <div style="font-size:13px;color:var(--muted);">Open: {{ positions|length }}</div>
+    <!-- Header: Portfolio Value (Robinhood-style big number) -->
+    <div style="margin-bottom:32px;">
+        <div style="font-size:14px;color:var(--text-muted);margin-bottom:4px;">Portfolio Value</div>
+        <div style="font-size:48px;font-weight:700;letter-spacing:-2px;line-height:1;">${{ "%.2f"|format(cash) }}</div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+            <span class="{{ 'positive' if total_pnl >= 0 else 'negative' }}" style="font-size:16px;font-weight:600;">
+                ${{ "%+.2f"|format(total_pnl) }} ({{ "%+.2f"|format(total_pnl_pct) }}%)
+            </span>
+            <span style="font-size:13px;color:var(--text-muted);">all time</span>
         </div>
     </div>
 
-    <!-- Equity chart -->
-    <div class="card">
-        <h2>Equity Curve</h2>
-        <canvas id="equityChart" style="max-height:300px;"></canvas>
+    <!-- Chart -->
+    <div style="margin-bottom:32px;height:280px;">
+        <canvas id="equityChart"></canvas>
+    </div>
+
+    <!-- Controls row: Bot toggle + Paper/Live switch -->
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
+        <div style="display:flex;align-items:center;gap:20px;">
+            <!-- Bot toggle -->
+            <form method="POST" action="/settings/bot-toggle" id="botForm"
+                  style="display:flex;align-items:center;gap:12px;">
+                <label class="toggle">
+                    <input type="checkbox" onchange="document.getElementById('botForm').submit()"
+                           {{ 'checked' if user.bot_active }}
+                           {{ 'disabled' if not has_api_keys }}>
+                    <span class="toggle-slider"></span>
+                </label>
+                <div>
+                    <div style="font-size:14px;font-weight:600;">
+                        {% if user.bot_active %}
+                            <span style="color:var(--green);">Bot Active</span>
+                        {% else %}
+                            <span style="color:var(--text-muted);">Bot Inactive</span>
+                        {% endif %}
+                    </div>
+                    <div style="font-size:12px;color:var(--text-muted);">{{ user.symbols }}</div>
+                </div>
+            </form>
+
+            <div style="width:1px;height:32px;background:var(--border);"></div>
+
+            <!-- Paper/Live switch -->
+            <form method="POST" action="/settings/trading-mode" id="modeForm"
+                  style="display:flex;align-items:center;gap:12px;">
+                <label class="toggle">
+                    <input type="checkbox" name="live_mode" onchange="document.getElementById('modeForm').submit()"
+                           {{ 'checked' if user.trading_mode == 'live' }}>
+                    <span class="toggle-slider" style="{{ 'background:var(--red)' if user.trading_mode == 'live' else '' }}"></span>
+                </label>
+                <div>
+                    <div style="font-size:14px;font-weight:600;">
+                        {% if user.trading_mode == 'live' %}
+                            <span style="color:var(--red);">Live Trading</span>
+                        {% else %}
+                            <span style="color:var(--text-secondary);">Paper Trading</span>
+                        {% endif %}
+                    </div>
+                    <div style="font-size:12px;color:var(--text-muted);">
+                        {{ 'Real money' if user.trading_mode == 'live' else 'Simulated' }}
+                    </div>
+                </div>
+            </form>
+        </div>
+
+        <div style="display:flex;gap:16px;">
+            <div style="text-align:center;">
+                <div style="font-size:20px;font-weight:700;">{{ "%.0f"|format(win_rate) }}%</div>
+                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Win Rate</div>
+            </div>
+            <div style="text-align:center;">
+                <div style="font-size:20px;font-weight:700;">{{ total_trades }}</div>
+                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Trades</div>
+            </div>
+            <div style="text-align:center;">
+                <div style="font-size:20px;font-weight:700;">{{ positions|length }}</div>
+                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Open</div>
+            </div>
+        </div>
     </div>
 
     <!-- Open Positions -->
+    {% if positions %}
     <div class="card">
-        <h2>Open Positions</h2>
-        {% if positions %}
+        <div class="card-title">Open Positions</div>
         <table>
             <thead><tr>
-                <th>Symbol</th><th>Side</th><th>Entry</th><th>Amount</th>
-                <th>Stop-Loss</th><th>TP Min</th><th>TP Max</th><th>Opened</th>
+                <th>Asset</th><th>Entry</th><th>Size</th>
+                <th>Stop-Loss</th><th>Target</th><th>Time</th>
             </tr></thead>
             <tbody>
                 {% for p in positions %}
                 <tr>
-                    <td><strong>{{ p.symbol }}</strong></td>
-                    <td class="positive">{{ p.side|upper }}</td>
-                    <td>${{ "%.2f"|format(p.entry_price) }}</td>
-                    <td>{{ "%.6f"|format(p.amount) }}</td>
-                    <td class="negative">${{ "%.2f"|format(p.stop_loss) }}</td>
-                    <td class="positive">${{ "%.2f"|format(p.tp_min) }}</td>
-                    <td class="positive">${{ "%.2f"|format(p.tp_max) }}</td>
-                    <td style="color:var(--muted);">{{ p.entry_time }}</td>
+                    <td style="font-weight:600;">{{ p.symbol.split('/')[0] }}</td>
+                    <td>${{ "{:,.2f}".format(p.entry_price) }}</td>
+                    <td>${{ "%.2f"|format(p.cost_usd) }}</td>
+                    <td class="negative">${{ "{:,.2f}".format(p.stop_loss) }}</td>
+                    <td class="positive">${{ "{:,.2f}".format(p.tp_min) }} - ${{ "{:,.2f}".format(p.tp_max) }}</td>
+                    <td style="color:var(--text-muted);">{{ p.entry_time }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
-        {% else %}
-        <p style="text-align:center;padding:24px;color:var(--muted);">No open positions</p>
-        {% endif %}
     </div>
+    {% endif %}
 
     <!-- Trade History -->
     <div class="card">
-        <h2>Trade History</h2>
+        <div class="card-title">Trade History</div>
         {% if trades %}
         <table>
             <thead><tr>
-                <th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th>
-                <th>P&L</th><th>%</th><th>Opened</th><th>Closed</th>
+                <th>Asset</th><th>Entry</th><th>Exit</th>
+                <th>Return</th><th>Time</th>
             </tr></thead>
             <tbody>
                 {% for t in trades %}
                 <tr>
-                    <td><strong>{{ t.symbol }}</strong></td>
-                    <td class="positive">{{ t.side|upper }}</td>
-                    <td>${{ "%.2f"|format(t.entry_price) }}</td>
-                    <td>${{ "%.2f"|format(t.exit_price) }}</td>
-                    <td class="{{ 'positive' if t.pnl_usd >= 0 else 'negative' }}">${{ "%+.2f"|format(t.pnl_usd) }}</td>
-                    <td class="{{ 'positive' if t.pnl_pct >= 0 else 'negative' }}">{{ "%+.2f"|format(t.pnl_pct) }}%</td>
-                    <td style="color:var(--muted);">{{ t.entry_time }}</td>
-                    <td style="color:var(--muted);">{{ t.exit_time }}</td>
+                    <td style="font-weight:600;">{{ t.symbol.split('/')[0] }}</td>
+                    <td>${{ "{:,.2f}".format(t.entry_price) }}</td>
+                    <td>${{ "{:,.2f}".format(t.exit_price) }}</td>
+                    <td>
+                        <span class="{{ 'positive' if t.pnl_usd >= 0 else 'negative' }}" style="font-weight:600;">
+                            ${{ "%+.2f"|format(t.pnl_usd) }}
+                        </span>
+                        <span style="color:var(--text-muted);font-size:12px;margin-left:4px;">
+                            {{ "%+.1f"|format(t.pnl_pct) }}%
+                        </span>
+                    </td>
+                    <td style="color:var(--text-muted);">{{ t.exit_time }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
         {% else %}
-        <p style="text-align:center;padding:24px;color:var(--muted);">No trades yet — start the bot to begin</p>
+        <div style="text-align:center;padding:48px 24px;color:var(--text-muted);">
+            <div style="font-size:32px;margin-bottom:8px;">~</div>
+            No trades yet
+        </div>
         {% endif %}
     </div>
-
-    <div style="text-align:center;padding:8px;color:var(--muted);font-size:12px;">Auto-refreshes every 30s</div>
 </div>
 
 <script>
 const data = {{ equity_curve|safe }};
-const labels = data.map((d, i) => {
-    if (d.time === 0) return 'Start';
-    const dt = new Date(d.time * 1000);
-    return dt.toLocaleDateString('en', {month:'short',day:'numeric'}) + ' ' +
-           dt.toLocaleTimeString('en', {hour:'2-digit',minute:'2-digit'});
-});
+const values = data.map(d => d.value);
+const initial = values[0] || 0;
+const current = values[values.length - 1] || 0;
+const isPositive = current >= initial;
+
 new Chart(document.getElementById('equityChart'), {
     type: 'line',
     data: {
-        labels,
+        labels: data.map((d, i) => i === 0 ? '' : new Date(d.time * 1000).toLocaleDateString('en', {month:'short',day:'numeric'})),
         datasets: [{
-            label: 'Portfolio ($)',
-            data: data.map(d => d.value),
-            borderColor: '#58a6ff',
-            backgroundColor: 'rgba(88,166,255,0.1)',
-            fill: true, tension: 0.3,
-            pointRadius: data.length > 20 ? 0 : 4,
+            data: values,
+            borderColor: isPositive ? '#00dc5a' : '#ff3b30',
+            backgroundColor: isPositive ? 'rgba(0,220,90,0.06)' : 'rgba(255,59,48,0.06)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 0,
+            pointHoverRadius: 6,
+            pointHoverBackgroundColor: isPositive ? '#00dc5a' : '#ff3b30',
             borderWidth: 2,
         }]
     },
     options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                mode: 'index',
+                intersect: false,
+                backgroundColor: '#1a1a1a',
+                borderColor: '#2a2a2a',
+                borderWidth: 1,
+                titleColor: '#9ca3af',
+                bodyColor: '#fff',
+                bodyFont: { weight: '600' },
+                padding: 12,
+                cornerRadius: 8,
+                callbacks: { label: ctx => '$' + ctx.parsed.y.toFixed(2) }
+            }
+        },
         scales: {
-            x: { ticks: { color: '#8b949e', maxTicksLimit: 10 }, grid: { color: '#21262d' } },
-            y: { ticks: { color: '#8b949e', callback: v => '$' + v }, grid: { color: '#21262d' } }
+            x: {
+                display: false,
+            },
+            y: {
+                display: false,
+            }
+        },
+        interaction: {
+            mode: 'nearest',
+            axis: 'x',
+            intersect: false
         }
     }
 });

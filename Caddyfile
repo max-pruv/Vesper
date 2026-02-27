@@ -1,0 +1,3 @@
+{$DOMAIN:localhost} {
+	reverse_proxy vesper:8080
+}

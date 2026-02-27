@@ -1,12 +1,24 @@
 services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: vesper-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - vesper
+
   vesper:
     build: .
     container_name: vesper-bot
     restart: unless-stopped
     env_file:
       - .env
-    ports:
-      - "8080:8080"
     environment:
       - VESPER_DATA_DIR=/app/data
     volumes:
@@ -19,3 +31,5 @@ services:
 
 volumes:
   vesper-data:
+  caddy-data:
+  caddy-config:

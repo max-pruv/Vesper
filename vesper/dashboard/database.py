@@ -2,11 +2,13 @@
 
 import base64
 import os
+import secrets
 import sqlite3
 import time
 from dataclasses import dataclass
 
 import bcrypt
+import pyotp
 from cryptography.fernet import Fernet
 
 DATA_DIR = os.environ.get("VESPER_DATA_DIR", "data")
@@ -210,6 +212,32 @@ def update_trading_config(
 def set_bot_active(user_id: int, active: bool):
     conn = sqlite3.connect(DB_PATH)
     conn.execute("UPDATE users SET bot_active = ? WHERE id = ?", (int(active), user_id))
+    conn.commit()
+    conn.close()
+
+
+def create_oauth_user(email: str) -> User | None:
+    """Create a user from OAuth sign-in (no password/TOTP required)."""
+    placeholder_hash = bcrypt.hashpw(secrets.token_hex(32).encode(), bcrypt.gensalt()).decode()
+    placeholder_totp = pyotp.random_base32()
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(
+            "INSERT INTO users (email, password_hash, totp_secret, created_at) VALUES (?, ?, ?, ?)",
+            (email.lower().strip(), placeholder_hash, placeholder_totp, time.time()),
+        )
+        conn.commit()
+        return get_user_by_email(email)
+    except sqlite3.IntegrityError:
+        return None
+    finally:
+        conn.close()
+
+
+def update_trading_mode(user_id: int, mode: str):
+    """Update just the trading mode (paper/live)."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("UPDATE users SET trading_mode = ? WHERE id = ?", (mode, user_id))
     conn.commit()
     conn.close()
 

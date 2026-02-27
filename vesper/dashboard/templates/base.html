@@ -4,88 +4,159 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Vesper{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     {% block head %}{% endblock %}
     <style>
         :root {
-            --bg: #0d1117; --card: #161b22; --border: #30363d;
-            --text: #e6edf3; --muted: #8b949e; --green: #3fb950;
-            --red: #f85149; --blue: #58a6ff; --purple: #bc8cff;
-            --yellow: #d29922;
+            --bg: #000000;
+            --surface: #0a0a0a;
+            --card: #111111;
+            --border: #1a1a1a;
+            --border-hover: #2a2a2a;
+            --text: #ffffff;
+            --text-secondary: #9ca3af;
+            --text-muted: #6b7280;
+            --green: #00dc5a;
+            --green-dim: #00dc5a22;
+            --red: #ff3b30;
+            --red-dim: #ff3b3022;
+            --accent: #00dc5a;
+            --accent-dim: #00dc5a15;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             background: var(--bg); color: var(--text);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            min-height: 100vh;
+            font-family: 'Inter', -apple-system, sans-serif;
+            min-height: 100vh; -webkit-font-smoothing: antialiased;
         }
-        a { color: var(--blue); text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { opacity: 0.8; }
 
-        .navbar {
+        .nav {
+            position: sticky; top: 0; z-index: 100;
             display: flex; justify-content: space-between; align-items: center;
-            padding: 12px 24px; border-bottom: 1px solid var(--border);
-            background: var(--card);
+            padding: 0 32px; height: 56px;
+            background: rgba(0,0,0,0.8); backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
         }
-        .navbar .logo { font-size: 20px; font-weight: 700; color: var(--purple); }
-        .navbar nav { display: flex; gap: 16px; align-items: center; }
-        .navbar nav a { color: var(--muted); font-size: 14px; }
-        .navbar nav a:hover { color: var(--text); text-decoration: none; }
-        .navbar nav a.active { color: var(--text); }
+        .nav-logo { font-size: 18px; font-weight: 700; letter-spacing: -0.5px; color: var(--text); }
+        .nav-links { display: flex; gap: 8px; align-items: center; }
+        .nav-link {
+            padding: 6px 14px; border-radius: 20px; font-size: 13px;
+            font-weight: 500; color: var(--text-secondary); transition: all 0.2s;
+        }
+        .nav-link:hover { color: var(--text); background: var(--card); text-decoration: none; }
+        .nav-link.active { color: var(--text); background: var(--card); }
 
-        .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+        .container { max-width: 1080px; margin: 0 auto; padding: 32px 24px; }
 
         .card {
             background: var(--card); border: 1px solid var(--border);
-            border-radius: 8px; padding: 24px; margin-bottom: 20px;
+            border-radius: 16px; padding: 24px; margin-bottom: 16px;
+            transition: border-color 0.2s;
         }
-        .card h2 { font-size: 16px; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+        .card:hover { border-color: var(--border-hover); }
+        .card-title {
+            font-size: 13px; font-weight: 500; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 16px;
+        }
 
         .btn {
-            display: inline-block; padding: 10px 20px; border: none;
-            border-radius: 6px; font-size: 14px; font-weight: 600;
-            cursor: pointer; text-align: center;
+            display: inline-flex; align-items: center; justify-content: center;
+            padding: 12px 24px; border: none; border-radius: 28px;
+            font-size: 14px; font-weight: 600; cursor: pointer;
+            font-family: inherit; transition: all 0.2s; gap: 8px;
         }
-        .btn-primary { background: var(--blue); color: #fff; }
-        .btn-green { background: var(--green); color: #fff; }
-        .btn-red { background: var(--red); color: #fff; }
-        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
-        .btn:hover { opacity: 0.9; }
+        .btn-accent { background: var(--accent); color: #000; }
+        .btn-accent:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-danger { background: var(--red); color: #fff; }
+        .btn-outline {
+            background: transparent; border: 1px solid var(--border);
+            color: var(--text);
+        }
+        .btn-outline:hover { border-color: var(--text-secondary); }
+        .btn-ghost { background: transparent; color: var(--text-secondary); padding: 8px 16px; }
+        .btn-full { width: 100%; }
+        .btn-sm { padding: 8px 16px; font-size: 13px; }
 
-        .form-group { margin-bottom: 16px; }
-        .form-group label {
-            display: block; font-size: 12px; color: var(--muted);
-            text-transform: uppercase; margin-bottom: 4px;
+        .input-group { margin-bottom: 20px; }
+        .input-label {
+            display: block; font-size: 12px; font-weight: 500;
+            color: var(--text-muted); letter-spacing: 0.3px;
+            text-transform: uppercase; margin-bottom: 6px;
         }
-        .form-group input, .form-group select {
-            width: 100%; padding: 10px 14px; background: var(--bg);
-            border: 1px solid var(--border); border-radius: 6px;
-            color: var(--text); font-size: 14px; outline: none;
+        .input {
+            width: 100%; padding: 14px 16px; background: var(--bg);
+            border: 1px solid var(--border); border-radius: 12px;
+            color: var(--text); font-size: 15px; font-family: inherit;
+            outline: none; transition: border-color 0.2s;
         }
-        .form-group input:focus, .form-group select:focus { border-color: var(--blue); }
+        .input:focus { border-color: var(--accent); }
+        .input::placeholder { color: var(--text-muted); }
+        select.input { appearance: none; cursor: pointer; }
+
+        .toggle { position: relative; display: inline-block; width: 52px; height: 28px; }
+        .toggle input { opacity: 0; width: 0; height: 0; }
+        .toggle-slider {
+            position: absolute; cursor: pointer; inset: 0;
+            background: var(--border-hover); border-radius: 28px; transition: 0.3s;
+        }
+        .toggle-slider::before {
+            content: ''; position: absolute; height: 22px; width: 22px;
+            left: 3px; bottom: 3px; background: #fff;
+            border-radius: 50%; transition: 0.3s;
+        }
+        .toggle input:checked + .toggle-slider { background: var(--accent); }
+        .toggle input:checked + .toggle-slider::before { transform: translateX(24px); }
 
         .alert {
-            padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; font-size: 14px;
+            padding: 14px 18px; border-radius: 12px; font-size: 14px;
+            margin-bottom: 16px; font-weight: 500;
         }
-        .alert-error { background: #f8514922; border: 1px solid var(--red); color: var(--red); }
-        .alert-success { background: #3fb95022; border: 1px solid var(--green); color: var(--green); }
-        .alert-warning { background: #d2992222; border: 1px solid var(--yellow); color: var(--yellow); }
+        .alert-error { background: var(--red-dim); color: var(--red); }
+        .alert-success { background: var(--green-dim); color: var(--green); }
 
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            text-align: left; padding: 12px 16px; font-size: 11px;
+            font-weight: 600; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border);
+        }
+        td {
+            padding: 14px 16px; font-size: 14px;
+            border-bottom: 1px solid var(--border);
+        }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,255,255,0.02); }
         .positive { color: var(--green); }
         .negative { color: var(--red); }
 
-        table { width: 100%; border-collapse: collapse; font-size: 14px; }
-        th {
-            text-align: left; padding: 10px 12px; background: var(--card);
-            border-bottom: 2px solid var(--border); color: var(--muted);
-            font-size: 12px; text-transform: uppercase;
+        .divider {
+            display: flex; align-items: center; gap: 16px;
+            margin: 24px 0; color: var(--text-muted); font-size: 12px;
         }
-        td { padding: 10px 12px; border-bottom: 1px solid var(--border); }
-        tr:hover { background: #1c2333; }
+        .divider::before, .divider::after {
+            content: ''; flex: 1; height: 1px; background: var(--border);
+        }
+
+        .oauth-btn {
+            display: flex; align-items: center; justify-content: center;
+            width: 100%; padding: 14px; border: 1px solid var(--border);
+            border-radius: 12px; font-size: 14px; font-weight: 500;
+            cursor: pointer; transition: all 0.2s; gap: 10px;
+            background: var(--card); color: var(--text);
+            font-family: inherit; margin-bottom: 10px; text-decoration: none;
+        }
+        .oauth-btn:hover { border-color: var(--text-secondary); background: var(--surface); opacity: 1; }
+        .oauth-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
 
         @media (max-width: 768px) {
-            .container { padding: 12px; }
-            table { font-size: 12px; }
-            td, th { padding: 6px 8px; }
+            .container { padding: 16px; }
+            .nav { padding: 0 16px; }
+            table { font-size: 13px; }
+            td, th { padding: 10px 12px; }
         }
     </style>
 </head>

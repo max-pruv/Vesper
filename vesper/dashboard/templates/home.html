@@ -1,35 +1,38 @@
 {% extends "base.html" %}
-{% block title %}Vesper — Automated Crypto Trading{% endblock %}
+{% block title %}Vesper{% endblock %}
 {% block body %}
-<div style="display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px;">
-    <div style="text-align:center;max-width:500px;">
-        <h1 style="font-size:48px;color:var(--purple);margin-bottom:8px;">Vesper</h1>
-        <p style="color:var(--muted);font-size:18px;margin-bottom:40px;">
-            Automated crypto trading bot<br>
-            <span style="font-size:14px;">BTC & ETH — Hourly strategies — Full autopilot</span>
-        </p>
+<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:100vh;padding:24px;">
+    <div style="text-align:center;max-width:420px;width:100%;">
 
-        <div style="display:flex;gap:12px;justify-content:center;">
-            <a href="/register" class="btn btn-primary" style="padding:14px 32px;font-size:16px;">
-                Create Account
-            </a>
-            <a href="/login" class="btn btn-outline" style="padding:14px 32px;font-size:16px;">
-                Login
-            </a>
+        <!-- Logo -->
+        <div style="margin-bottom:48px;">
+            <div style="font-size:42px;font-weight:700;letter-spacing:-2px;margin-bottom:8px;">vesper</div>
+            <div style="font-size:15px;color:var(--text-secondary);font-weight:400;">
+                Automated crypto trading
+            </div>
         </div>
 
-        <div style="margin-top:48px;display:grid;grid-template-columns:repeat(3,1fr);gap:16px;text-align:center;">
+        <!-- CTA -->
+        <a href="/register" class="btn btn-accent btn-full" style="padding:16px;font-size:15px;margin-bottom:12px;">
+            Get Started
+        </a>
+        <a href="/login" class="btn btn-outline btn-full" style="padding:16px;font-size:15px;">
+            Log In
+        </a>
+
+        <!-- Stats -->
+        <div style="margin-top:64px;display:flex;justify-content:center;gap:48px;">
             <div>
-                <div style="font-size:24px;font-weight:700;color:var(--green);">3</div>
-                <div style="font-size:12px;color:var(--muted);">Strategies</div>
+                <div style="font-size:28px;font-weight:700;color:var(--green);">3</div>
+                <div style="font-size: 11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px;">Strategies</div>
             </div>
             <div>
-                <div style="font-size:24px;font-weight:700;color:var(--blue);">24/7</div>
-                <div style="font-size:12px;color:var(--muted);">Automated</div>
+                <div style="font-size:28px;font-weight:700;">24/7</div>
+                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px;">Uptime</div>
             </div>
             <div>
-                <div style="font-size:24px;font-weight:700;color:var(--purple);">2FA</div>
-                <div style="font-size:12px;color:var(--muted);">Secured</div>
+                <div style="font-size:28px;font-weight:700;">2FA</div>
+                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px;">Secured</div>
             </div>
         </div>
     </div>
