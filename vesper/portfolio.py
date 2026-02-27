@@ -1,0 +1,193 @@
+"""Portfolio tracker — manages positions and P&L tracking."""
+
+import json
+import os
+import time
+from dataclasses import dataclass, field, asdict
+from vesper.risk import PositionLimits
+
+
+@dataclass
+class Position:
+    symbol: str
+    side: str  # "buy" or "sell"
+    entry_price: float
+    amount: float
+    cost_usd: float
+    limits: PositionLimits
+    entry_time: float = field(default_factory=time.time)
+    strategy_reason: str = ""
+    id: str = ""
+
+    def __post_init__(self):
+        if not self.id:
+            self.id = f"{self.symbol}-{int(self.entry_time)}"
+
+    def unrealized_pnl(self, current_price: float) -> float:
+        if self.side == "buy":
+            return (current_price - self.entry_price) * self.amount
+        return (self.entry_price - current_price) * self.amount
+
+    def unrealized_pnl_pct(self, current_price: float) -> float:
+        if self.side == "buy":
+            return ((current_price - self.entry_price) / self.entry_price) * 100
+        return ((self.entry_price - current_price) / self.entry_price) * 100
+
+
+@dataclass
+class TradeRecord:
+    symbol: str
+    side: str
+    entry_price: float
+    exit_price: float
+    amount: float
+    pnl_usd: float
+    pnl_pct: float
+    entry_time: float
+    exit_time: float
+    reason: str
+    strategy_reason: str
+
+
+class Portfolio:
+    """Track open positions, closed trades, and overall P&L."""
+
+    def __init__(self, initial_balance: float, data_dir: str = "data"):
+        self.initial_balance = initial_balance
+        self.cash = initial_balance
+        self.positions: dict[str, Position] = {}
+        self.trade_history: list[TradeRecord] = []
+        self.data_dir = data_dir
+        os.makedirs(data_dir, exist_ok=True)
+        self._load_state()
+
+    def open_position(self, position: Position) -> bool:
+        """Open a new position. Returns False if insufficient funds."""
+        if position.cost_usd > self.cash:
+            return False
+
+        self.cash -= position.cost_usd
+        self.positions[position.id] = position
+        self._save_state()
+        return True
+
+    def close_position(
+        self, position_id: str, exit_price: float, reason: str
+    ) -> TradeRecord | None:
+        """Close a position and record the trade."""
+        pos = self.positions.get(position_id)
+        if not pos:
+            return None
+
+        pnl_usd = pos.unrealized_pnl(exit_price)
+        pnl_pct = pos.unrealized_pnl_pct(exit_price)
+
+        # Return capital + P&L
+        self.cash += pos.cost_usd + pnl_usd
+
+        record = TradeRecord(
+            symbol=pos.symbol,
+            side=pos.side,
+            entry_price=pos.entry_price,
+            exit_price=exit_price,
+            amount=pos.amount,
+            pnl_usd=pnl_usd,
+            pnl_pct=pnl_pct,
+            entry_time=pos.entry_time,
+            exit_time=time.time(),
+            reason=reason,
+            strategy_reason=pos.strategy_reason,
+        )
+        self.trade_history.append(record)
+        del self.positions[position_id]
+        self._save_state()
+        return record
+
+    def total_value(self, prices: dict[str, float]) -> float:
+        """Total portfolio value = cash + open positions value."""
+        positions_value = sum(
+            pos.amount * prices.get(pos.symbol, pos.entry_price)
+            for pos in self.positions.values()
+        )
+        return self.cash + positions_value
+
+    def get_position_for_symbol(self, symbol: str) -> Position | None:
+        """Get open position for a symbol, if any."""
+        for pos in self.positions.values():
+            if pos.symbol == symbol:
+                return pos
+        return None
+
+    def summary(self, prices: dict[str, float]) -> dict:
+        """Portfolio summary stats."""
+        total = self.total_value(prices)
+        total_pnl = total - self.initial_balance
+        total_pnl_pct = (total_pnl / self.initial_balance) * 100
+
+        wins = [t for t in self.trade_history if t.pnl_usd > 0]
+        losses = [t for t in self.trade_history if t.pnl_usd <= 0]
+        total_trades = len(self.trade_history)
+        win_rate = (len(wins) / total_trades * 100) if total_trades > 0 else 0
+
+        return {
+            "total_value": total,
+            "cash": self.cash,
+            "total_pnl_usd": total_pnl,
+            "total_pnl_pct": total_pnl_pct,
+            "open_positions": len(self.positions),
+            "total_trades": total_trades,
+            "wins": len(wins),
+            "losses": len(losses),
+            "win_rate": win_rate,
+        }
+
+    def _save_state(self):
+        state = {
+            "cash": self.cash,
+            "initial_balance": self.initial_balance,
+            "positions": {
+                pid: {
+                    "symbol": p.symbol,
+                    "side": p.side,
+                    "entry_price": p.entry_price,
+                    "amount": p.amount,
+                    "cost_usd": p.cost_usd,
+                    "entry_time": p.entry_time,
+                    "strategy_reason": p.strategy_reason,
+                    "id": p.id,
+                    "limits": asdict(p.limits),
+                }
+                for pid, p in self.positions.items()
+            },
+            "trade_history": [asdict(t) for t in self.trade_history],
+        }
+        path = os.path.join(self.data_dir, "portfolio.json")
+        with open(path, "w") as f:
+            json.dump(state, f, indent=2)
+
+    def _load_state(self):
+        path = os.path.join(self.data_dir, "portfolio.json")
+        if not os.path.exists(path):
+            return
+        with open(path) as f:
+            state = json.load(f)
+
+        self.cash = state["cash"]
+        self.initial_balance = state["initial_balance"]
+
+        self.positions = {}
+        for pid, p in state.get("positions", {}).items():
+            limits = PositionLimits(**p["limits"])
+            self.positions[pid] = Position(
+                symbol=p["symbol"],
+                side=p["side"],
+                entry_price=p["entry_price"],
+                amount=p["amount"],
+                cost_usd=p["cost_usd"],
+                limits=limits,
+                entry_time=p["entry_time"],
+                strategy_reason=p.get("strategy_reason", ""),
+                id=p["id"],
+            )
+
+        self.trade_history = [TradeRecord(**t) for t in state.get("trade_history", [])]
