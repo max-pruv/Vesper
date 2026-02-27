@@ -7,7 +7,10 @@ import signal
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import threading
+
 from apscheduler.schedulers.blocking import BlockingScheduler
+import uvicorn
 
 from config.settings import TradingConfig
 from vesper.exchange import create_exchange, fetch_ticker
@@ -195,6 +198,9 @@ class Vesper:
         console.print(f"  Balance: ${self.config.paper_balance:,.2f}")
         console.print(f"[bold magenta]{'='*60}[/]\n")
 
+        # Start dashboard in background thread
+        self._start_dashboard()
+
         # Run first cycle immediately
         self.run_cycle()
 
@@ -217,7 +223,18 @@ class Vesper:
         self.logger.info(
             f"Scheduler started — next cycle in {self.config.interval_minutes} minutes"
         )
+        self.logger.info("Dashboard running at http://0.0.0.0:8080")
         scheduler.start()
+
+    def _start_dashboard(self):
+        """Start the web dashboard in a background thread."""
+        from vesper.dashboard.app import app as dashboard_app
+
+        def run_dashboard():
+            uvicorn.run(dashboard_app, host="0.0.0.0", port=8080, log_level="warning")
+
+        thread = threading.Thread(target=run_dashboard, daemon=True)
+        thread.start()
 
 
 def main():
