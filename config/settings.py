@@ -38,6 +38,15 @@ class RiskConfig:
         )
 
 
+TICKER_SYMBOLS = [
+    "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT",
+    "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "BNB/USDT",
+    "LINK/USDT", "DOT/USDT", "MATIC/USDT", "UNI/USDT",
+    "ATOM/USDT", "LTC/USDT", "NEAR/USDT", "APT/USDT",
+    "ARB/USDT", "OP/USDT", "FIL/USDT", "AAVE/USDT",
+]
+
+
 @dataclass
 class TradingConfig:
     mode: str = "paper"

@@ -20,6 +20,10 @@ class Position:
     id: str = ""
     strategy_id: str = ""
     bet_mode: str = "one_off"  # "one_off" or "continuous"
+    trade_mode: str = "paper"  # "paper" or "real"
+    stop_loss_pct: float = 2.0
+    tp_min_pct: float = 1.5
+    tp_max_pct: float = 5.0
 
     def __post_init__(self):
         if not self.id:
@@ -161,6 +165,10 @@ class Portfolio:
                     "id": p.id,
                     "strategy_id": p.strategy_id,
                     "bet_mode": p.bet_mode,
+                    "trade_mode": p.trade_mode,
+                    "stop_loss_pct": p.stop_loss_pct,
+                    "tp_min_pct": p.tp_min_pct,
+                    "tp_max_pct": p.tp_max_pct,
                     "limits": asdict(p.limits),
                 }
                 for pid, p in self.positions.items()
@@ -196,6 +204,10 @@ class Portfolio:
                 id=p["id"],
                 strategy_id=p.get("strategy_id", ""),
                 bet_mode=p.get("bet_mode", "one_off"),
+                trade_mode=p.get("trade_mode", "paper"),
+                stop_loss_pct=p.get("stop_loss_pct", 2.0),
+                tp_min_pct=p.get("tp_min_pct", 1.5),
+                tp_max_pct=p.get("tp_max_pct", 5.0),
             )
 
         self.trade_history = [TradeRecord(**t) for t in state.get("trade_history", [])]

@@ -468,13 +468,7 @@ async def toggle_mode(request: Request):
 
 # --- Price Cache ---
 
-TICKER_SYMBOLS = [
-    "BTC/USDT", "ETH/USDT", "SOL/USDT", "XRP/USDT",
-    "DOGE/USDT", "ADA/USDT", "AVAX/USDT", "BNB/USDT",
-    "LINK/USDT", "DOT/USDT", "MATIC/USDT", "UNI/USDT",
-    "ATOM/USDT", "LTC/USDT", "NEAR/USDT", "APT/USDT",
-    "ARB/USDT", "OP/USDT", "FIL/USDT", "AAVE/USDT",
-]
+from config.settings import TICKER_SYMBOLS
 _price_cache: dict = {}
 _price_cache_time: float = 0
 _CACHE_TTL = 10  # seconds
@@ -859,6 +853,9 @@ async def api_open_trade(request: Request):
         "strategy_id": strategy_id,
         "bet_mode": bet_mode,
         "trade_mode": trade_mode,
+        "stop_loss_pct": stop_loss_pct,
+        "tp_min_pct": tp_min_pct,
+        "tp_max_pct": tp_max_pct,
         "est_fee": est_fee,
         "limits": {
             "stop_loss_price": stop_loss_price,
