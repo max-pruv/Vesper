@@ -24,6 +24,8 @@ class Position:
     stop_loss_pct: float = 2.0
     tp_min_pct: float = 1.5
     tp_max_pct: float = 5.0
+    trailing_stop_pct: float = 0.0
+    highest_price_seen: float = 0.0
 
     def __post_init__(self):
         if not self.id:
@@ -169,6 +171,8 @@ class Portfolio:
                     "stop_loss_pct": p.stop_loss_pct,
                     "tp_min_pct": p.tp_min_pct,
                     "tp_max_pct": p.tp_max_pct,
+                    "trailing_stop_pct": p.trailing_stop_pct,
+                    "highest_price_seen": p.highest_price_seen,
                     "limits": asdict(p.limits),
                 }
                 for pid, p in self.positions.items()
@@ -191,7 +195,11 @@ class Portfolio:
 
         self.positions = {}
         for pid, p in state.get("positions", {}).items():
-            limits = PositionLimits(**p["limits"])
+            limits_data = p["limits"]
+            # Ensure backward compatibility for older positions without trailing fields
+            limits_data.setdefault("trailing_stop_pct", 0.0)
+            limits_data.setdefault("highest_price_seen", 0.0)
+            limits = PositionLimits(**limits_data)
             self.positions[pid] = Position(
                 symbol=p["symbol"],
                 side=p["side"],
@@ -208,6 +216,8 @@ class Portfolio:
                 stop_loss_pct=p.get("stop_loss_pct", 2.0),
                 tp_min_pct=p.get("tp_min_pct", 1.5),
                 tp_max_pct=p.get("tp_max_pct", 5.0),
+                trailing_stop_pct=p.get("trailing_stop_pct", 0.0),
+                highest_price_seen=p.get("highest_price_seen", 0.0),
             )
 
         self.trade_history = [TradeRecord(**t) for t in state.get("trade_history", [])]

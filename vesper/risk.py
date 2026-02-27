@@ -11,6 +11,8 @@ class PositionLimits:
     take_profit_max_price: float
     position_size_usd: float
     position_size_asset: float
+    trailing_stop_pct: float = 0.0       # 0 = disabled, >0 = active
+    highest_price_seen: float = 0.0      # updated every cycle
 
 
 class RiskManager:
@@ -77,27 +79,53 @@ class RiskManager:
         entry_price: float,
         limits: PositionLimits,
         side: str = "buy",
-    ) -> tuple[bool, str]:
-        """Check if a position should be closed based on risk limits."""
+    ) -> tuple[bool, str, float]:
+        """Check if a position should be closed based on risk limits.
+
+        Returns (should_close, reason, updated_highest_price_seen).
+        The 3rd value tracks the peak price for trailing stop positions.
+        """
+        trailing_pct = limits.trailing_stop_pct
+        highest = limits.highest_price_seen
+
         if side == "buy":
             pnl_pct = ((current_price - entry_price) / entry_price) * 100
+            new_highest = max(highest, current_price) if trailing_pct > 0 else 0.0
 
-            if current_price <= limits.stop_loss_price:
-                return True, f"STOP-LOSS hit at ${current_price:.2f} ({pnl_pct:+.2f}%)"
+            if trailing_pct > 0:
+                # Trailing stop mode: dynamic SL follows price up, no fixed TP max
+                trailing_sl = new_highest * (1 - trailing_pct / 100)
+                effective_sl = max(limits.stop_loss_price, trailing_sl)
 
-            if current_price >= limits.take_profit_max_price:
-                return True, f"MAX TAKE-PROFIT hit at ${current_price:.2f} ({pnl_pct:+.2f}%)"
+                if current_price <= effective_sl:
+                    if trailing_sl > limits.stop_loss_price:
+                        return (True,
+                                f"TRAILING STOP hit at ${current_price:.2f} "
+                                f"(peak ${new_highest:.2f}, {pnl_pct:+.2f}%)",
+                                new_highest)
+                    else:
+                        return (True,
+                                f"STOP-LOSS hit at ${current_price:.2f} ({pnl_pct:+.2f}%)",
+                                new_highest)
+                return False, "", new_highest
+            else:
+                # Static SL/TP mode (original behavior)
+                if current_price <= limits.stop_loss_price:
+                    return True, f"STOP-LOSS hit at ${current_price:.2f} ({pnl_pct:+.2f}%)", 0.0
+
+                if current_price >= limits.take_profit_max_price:
+                    return True, f"MAX TAKE-PROFIT hit at ${current_price:.2f} ({pnl_pct:+.2f}%)", 0.0
 
         else:
             pnl_pct = ((entry_price - current_price) / entry_price) * 100
 
             if current_price >= limits.stop_loss_price:
-                return True, f"STOP-LOSS hit at ${current_price:.2f} ({pnl_pct:+.2f}%)"
+                return True, f"STOP-LOSS hit at ${current_price:.2f} ({pnl_pct:+.2f}%)", 0.0
 
             if current_price <= limits.take_profit_max_price:
-                return True, f"MAX TAKE-PROFIT hit at ${current_price:.2f} ({pnl_pct:+.2f}%)"
+                return True, f"MAX TAKE-PROFIT hit at ${current_price:.2f} ({pnl_pct:+.2f}%)", 0.0
 
-        return False, ""
+        return False, "", new_highest if trailing_pct > 0 else 0.0
 
     def can_open_position(self, active_positions: int) -> bool:
         """Check if we can open a new position."""

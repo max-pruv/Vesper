@@ -291,6 +291,18 @@
             </div>
         </div>
 
+        <div style="display:flex;align-items:center;gap:12px;margin-top:8px;">
+            <label class="input-label tooltip-wrap" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;">
+                <input type="checkbox" id="modalTrailing" onchange="toggleTrailing()" style="width:16px;height:16px;">
+                <span>Trailing Stop</span>
+                <span class="tooltip-icon">?</span>
+                <span class="tooltip-text">Instead of closing at a fixed profit target, the stop-loss follows the price up. Locks in gains while letting winners run indefinitely.</span>
+            </label>
+            <input type="number" class="input" id="modalTrailingPct" value="3" min="0.5" step="0.5"
+                   style="width:80px;display:none;" placeholder="%">
+            <span id="trailingLabel" style="display:none;font-size:12px;color:var(--text-muted);">trail %</span>
+        </div>
+
         <div style="display:flex; justify-content:space-between; padding:10px 0; margin-top:4px; border-top:1px solid #222;">
             <span style="color:var(--red); font-weight:600;" id="maxLossDisplay">Max Loss: -$1.00</span>
             <span style="color:var(--text-muted); font-weight:600;" id="feeDisplay">Fee: ~$0.30</span>
@@ -423,6 +435,7 @@ function renderBetCard(p, isNew) {
     const betMode = p.bet_mode || 'one_off';
     const tradeMode = p.trade_mode || 'paper';
     const modeCls = betMode === 'continuous' ? 'continuous' : 'one_off';
+    const hasTrailing = p.trailing_stop_pct > 0;
 
     // Flash animation class
     let flashClass = '';
@@ -433,6 +446,28 @@ function renderBetCard(p, isNew) {
 
     const entryDate = p.entry_time ? new Date(p.entry_time * 1000).toLocaleDateString('en', {month:'2-digit', day:'2-digit'}) + ' ' + new Date(p.entry_time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '';
 
+    // SL/TP row: show trailing info when active
+    let slTpRow;
+    if (hasTrailing) {
+        slTpRow = `<div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px;">
+            <span style="color:var(--text-muted);">SL $${formatPrice(p.stop_loss)}</span>
+            <span style="color:var(--accent);font-weight:600;">Trailing ${p.trailing_stop_pct}% &mdash; SL $${formatPrice(p.trailing_sl_price)} (peak $${formatPrice(p.highest_price_seen)})</span>
+        </div>`;
+    } else {
+        slTpRow = `<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
+            <span>SL $${formatPrice(p.stop_loss)}</span>
+            <span>TP $${formatPrice(p.tp_min)} &ndash; $${formatPrice(p.tp_max)}</span>
+        </div>`;
+    }
+
+    // Max win display
+    const maxWinHtml = hasTrailing
+        ? '<span style="font-size:14px;">&#8734;</span> Unlimited'
+        : `+$${p.max_win.toFixed(2)}`;
+
+    // Strategy badge
+    const stratLabel = p.strategy_id ? p.strategy_id.replace('_', ' ') : '';
+
     return `<div class="bet-card ${isNew ? 'new-card' : ''} ${flashClass}" data-pid="${p.id}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div>
@@ -440,6 +475,8 @@ function renderBetCard(p, isNew) {
                 <div style="display:flex;gap:6px;margin-top:4px;">
                     <span class="mode-badge mode-${modeCls}">${betMode.replace('_', ' ')}</span>
                     <span class="mode-badge trade-mode-${tradeMode}">${tradeMode}</span>
+                    ${hasTrailing ? '<span class="mode-badge" style="background:rgba(0,180,255,0.15);color:#0af;border-color:rgba(0,180,255,0.3);">trailing</span>' : ''}
+                    ${stratLabel ? '<span class="mode-badge" style="background:rgba(255,255,255,0.04);color:var(--text-muted);border-color:var(--border);">' + stratLabel + '</span>' : ''}
                 </div>
             </div>
             <div style="text-align:right;">
@@ -464,11 +501,11 @@ function renderBetCard(p, isNew) {
             </div>
             <div class="bet-pl-item">
                 <span class="bet-pl-label">Max Win</span>
-                <span class="bet-pl-value" style="color:var(--green);">+$${p.max_win.toFixed(2)}</span>
+                <span class="bet-pl-value" style="color:var(--green);">${maxWinHtml}</span>
             </div>
             <div class="bet-pl-item">
                 <span class="bet-pl-label">R:R</span>
-                <span class="bet-pl-value bet-rr ${rrCls}">1:${rr.toFixed(1)}</span>
+                <span class="bet-pl-value bet-rr ${rrCls}">${hasTrailing ? '&#8734;' : '1:' + rr.toFixed(1)}</span>
             </div>
         </div>
         <div style="display:flex;gap:16px;margin-top:8px;font-size:13px;color:var(--text-secondary);">
@@ -479,9 +516,14 @@ function renderBetCard(p, isNew) {
         <div class="bet-progress">
             <div class="bet-progress-fill" style="width:${progressPct}%;background:${progressColor};"></div>
         </div>
-        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
-            <span>SL $${formatPrice(p.stop_loss)}</span>
-            <span>TP $${formatPrice(p.tp_min)} &ndash; $${formatPrice(p.tp_max)}</span>
+        ${slTpRow}
+        <!-- AI Reasoning Panel -->
+        <div class="reasoning-panel" id="reasoning-${p.id}" style="margin-top:10px;padding:10px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;font-size:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="toggleReasoning('${p.id}')">
+                <span style="font-weight:600;color:var(--text-secondary);">AI Reasoning</span>
+                <span id="reasoning-status-${p.id}" style="color:var(--text-muted);font-size:11px;">Click to load</span>
+            </div>
+            <div id="reasoning-body-${p.id}" style="display:none;margin-top:8px;"></div>
         </div>
         <button class="btn btn-outline btn-sm" style="width:100%;margin-top:12px;"
                 onclick="closeTrade('${p.id}')">Close Position</button>
@@ -630,22 +672,36 @@ async function fetchSignal() {
 document.getElementById('modalSymbol').addEventListener('change', fetchSignal);
 document.getElementById('modalStrategy').addEventListener('change', fetchSignal);
 
+function toggleTrailing() {
+    const checked = document.getElementById('modalTrailing').checked;
+    document.getElementById('modalTrailingPct').style.display = checked ? 'block' : 'none';
+    document.getElementById('trailingLabel').style.display = checked ? 'inline' : 'none';
+    document.getElementById('modalTPMax').disabled = checked;
+    document.getElementById('modalTPMax').style.opacity = checked ? '0.3' : '1';
+    updateMaxWinLoss();
+}
+
 function updateMaxWinLoss() {
     const amount = parseFloat(document.getElementById('modalAmount').value) || 0;
     const sl = parseFloat(document.getElementById('modalSL').value) || 0;
     const tpMax = parseFloat(document.getElementById('modalTPMax').value) || 0;
+    const trailing = document.getElementById('modalTrailing').checked;
     // Coinbase Advanced taker fee: ~0.60% per trade (entry + exit = ~1.2% round-trip)
     const feeRate = 0.006;
     const totalFee = amount * feeRate * 2;
     // Net forecasts: factor in round-trip fees
     const maxLoss = amount * (sl / 100) + totalFee;
-    const maxWin = Math.max(0, amount * (tpMax / 100) - totalFee);
     document.getElementById('maxLossDisplay').textContent = 'Max Loss: -$' + maxLoss.toFixed(2);
     document.getElementById('feeDisplay').textContent = 'Fee: ~$' + totalFee.toFixed(2);
-    document.getElementById('maxWinDisplay').textContent = 'Net Win: +$' + maxWin.toFixed(2);
+    if (trailing) {
+        document.getElementById('maxWinDisplay').innerHTML = '<span style="font-size:18px;">&#8734;</span> Unlimited';
+    } else {
+        const maxWin = Math.max(0, amount * (tpMax / 100) - totalFee);
+        document.getElementById('maxWinDisplay').textContent = 'Net Win: +$' + maxWin.toFixed(2);
+    }
 }
 
-['modalAmount', 'modalSL', 'modalTPMax'].forEach(id => {
+['modalAmount', 'modalSL', 'modalTPMax', 'modalTrailingPct'].forEach(id => {
     document.getElementById(id).addEventListener('input', updateMaxWinLoss);
 });
 
@@ -681,6 +737,9 @@ async function placeBet() {
                 stop_loss_pct: parseFloat(document.getElementById('modalSL').value),
                 tp_min_pct: parseFloat(document.getElementById('modalTPMin').value),
                 tp_max_pct: parseFloat(document.getElementById('modalTPMax').value),
+                trailing_stop_pct: document.getElementById('modalTrailing').checked
+                    ? parseFloat(document.getElementById('modalTrailingPct').value) || 0
+                    : 0,
                 bet_mode: currentBetMode,
                 trade_mode: currentTradeMode,
             }),
@@ -723,6 +782,76 @@ async function closeTrade(positionId) {
         }
     } catch(e) {
         alert('Network error');
+    }
+}
+
+// ═══════════════════════════════════════
+// AI Reasoning for Open Positions
+// ═══════════════════════════════════════
+const reasoningLoaded = {};
+const reasoningAutoRefresh = {};
+
+function toggleReasoning(posId) {
+    const body = document.getElementById('reasoning-body-' + posId);
+    if (!body) return;
+    const isVisible = body.style.display !== 'none';
+    body.style.display = isVisible ? 'none' : 'block';
+    if (!isVisible && !reasoningLoaded[posId]) {
+        fetchReasoning(posId);
+    }
+}
+
+async function fetchReasoning(posId) {
+    const status = document.getElementById('reasoning-status-' + posId);
+    const body = document.getElementById('reasoning-body-' + posId);
+    if (!status || !body) return;
+
+    status.textContent = 'Analyzing...';
+    status.style.color = 'var(--accent)';
+
+    try {
+        const resp = await fetch('/api/reasoning/' + encodeURIComponent(posId));
+        if (!resp.ok) {
+            status.textContent = 'Error';
+            status.style.color = 'var(--red)';
+            return;
+        }
+        const data = await resp.json();
+        reasoningLoaded[posId] = true;
+
+        // Action badge color
+        const actionColors = { HOLD: '#0af', CAUTION: '#f80', SELL: 'var(--red)' };
+        const actionColor = actionColors[data.action] || 'var(--text-muted)';
+        status.innerHTML = `<span style="color:${actionColor};font-weight:600;">${data.action || 'HOLD'}</span>`;
+
+        // Build reasoning body
+        let html = `<div style="color:var(--text-secondary);margin-bottom:6px;">${data.summary || ''}</div>`;
+        if (data.details && data.details.length > 0) {
+            html += '<div style="display:flex;flex-direction:column;gap:3px;">';
+            data.details.forEach(d => {
+                html += `<div style="color:var(--text-muted);font-size:11px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);">${d}</div>`;
+            });
+            html += '</div>';
+        }
+        html += `<div style="margin-top:6px;font-size:10px;color:var(--text-muted);">Auto-refreshes every 60s &mdash; <a href="#" onclick="fetchReasoning('${posId}');return false;" style="color:var(--accent);">Refresh now</a></div>`;
+        body.innerHTML = html;
+        body.style.display = 'block';
+
+        // Auto-refresh every 60s while panel is open
+        if (reasoningAutoRefresh[posId]) clearInterval(reasoningAutoRefresh[posId]);
+        reasoningAutoRefresh[posId] = setInterval(() => {
+            const el = document.getElementById('reasoning-body-' + posId);
+            if (el && el.style.display !== 'none') {
+                fetchReasoning(posId);
+            } else {
+                clearInterval(reasoningAutoRefresh[posId]);
+                delete reasoningAutoRefresh[posId];
+            }
+        }, 60000);
+
+    } catch(e) {
+        status.textContent = 'Failed';
+        status.style.color = 'var(--red)';
     }
 }
 

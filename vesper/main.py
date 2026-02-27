@@ -135,7 +135,7 @@ class UserBot:
                 return
             snapshot = get_market_snapshot(self.exchange, symbol)
             prices[symbol] = snapshot["price"]
-            should_close, reason = self.risk_manager.should_close_position(
+            should_close, reason, new_highest = self.risk_manager.should_close_position(
                 current_price=snapshot["price"],
                 entry_price=existing_pos.entry_price,
                 limits=existing_pos.limits,
@@ -143,6 +143,10 @@ class UserBot:
             )
             if should_close:
                 self._close_position(existing_pos, snapshot["price"], reason)
+            elif new_highest > existing_pos.highest_price_seen:
+                existing_pos.highest_price_seen = new_highest
+                existing_pos.limits.highest_price_seen = new_highest
+                self.portfolio._save_state()
             return
 
         # Fetch snapshot using the strategy's timeframe
@@ -151,7 +155,7 @@ class UserBot:
 
         closed_continuous = None
         if existing_pos:
-            should_close, reason = self.risk_manager.should_close_position(
+            should_close, reason, new_highest = self.risk_manager.should_close_position(
                 current_price=snapshot["price"],
                 entry_price=existing_pos.entry_price,
                 limits=existing_pos.limits,
@@ -164,6 +168,11 @@ class UserBot:
                 if closed_continuous is None:
                     return  # One-off: done
             else:
+                # Update trailing stop tracking
+                if new_highest > existing_pos.highest_price_seen:
+                    existing_pos.highest_price_seen = new_highest
+                    existing_pos.limits.highest_price_seen = new_highest
+                    self.portfolio._save_state()
                 return  # Position still open, nothing to do
 
         # Analyze with the correct strategy
@@ -246,12 +255,19 @@ class UserBot:
         tp_min_pct = old_pos.tp_min_pct
         tp_max_pct = old_pos.tp_max_pct
 
+        trailing_pct = old_pos.trailing_stop_pct
+
+        # When trailing is active, TP max is a sentinel (let it run)
+        effective_tp_max = new_price * 100 if trailing_pct > 0 else new_price * (1 + tp_max_pct / 100)
+
         limits = PositionLimits(
             stop_loss_price=new_price * (1 - sl_pct / 100),
             take_profit_min_price=new_price * (1 + tp_min_pct / 100),
-            take_profit_max_price=new_price * (1 + tp_max_pct / 100),
+            take_profit_max_price=effective_tp_max,
             position_size_usd=amount_usd,
             position_size_asset=amount_usd / new_price,
+            trailing_stop_pct=trailing_pct,
+            highest_price_seen=new_price,
         )
 
         position = Position(
@@ -267,6 +283,8 @@ class UserBot:
             stop_loss_pct=sl_pct,
             tp_min_pct=tp_min_pct,
             tp_max_pct=tp_max_pct,
+            trailing_stop_pct=trailing_pct,
+            highest_price_seen=new_price,
         )
 
         trade_mode = old_pos.trade_mode or self.mode

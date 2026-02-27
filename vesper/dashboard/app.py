@@ -669,6 +669,172 @@ async def api_signal(request: Request, symbol: str, strategy: str = "smart_auto"
     return data
 
 
+# Reasoning cache: {"pos_id": {"data": {...}, "time": float}}
+_reasoning_cache: dict = {}
+_REASONING_CACHE_TTL = 60  # seconds — heavier analysis, cache longer
+
+
+def _fetch_reasoning_sync(symbol: str, strategy_id: str, entry_price: float,
+                          current_price: float, trailing_pct: float,
+                          highest_seen: float) -> dict:
+    """Generate detailed AI reasoning for an open position."""
+    try:
+        config = _SIGNAL_STRATEGY_MAP.get(strategy_id)
+        if not config or config["strategy"] is None:
+            pnl_pct = ((current_price - entry_price) / entry_price) * 100
+            return {
+                "action": "HOLD",
+                "summary": "Set & Forget — monitoring SL/TP only, no AI analysis.",
+                "details": [],
+            }
+
+        ex = _get_public_exchange()
+        timeframe = config["timeframe"]
+
+        if timeframe == "multi":
+            snapshot = get_multi_tf_snapshot(ex, symbol)
+            try:
+                ob = get_order_book_pressure(ex, symbol)
+                snapshot["buy_pressure"] = ob["buy_pressure"]
+                snapshot["spread_pct"] = ob["spread_pct"]
+            except Exception:
+                snapshot["buy_pressure"] = 0.5
+            try:
+                snapshot["fear_greed"] = fetch_fear_greed()
+            except Exception:
+                snapshot["fear_greed"] = 50
+        else:
+            snapshot = get_market_snapshot(ex, symbol, timeframe=timeframe)
+
+        strategy_instance = config["strategy"]()
+        result = strategy_instance.analyze(snapshot)
+
+        pnl_pct = ((current_price - entry_price) / entry_price) * 100
+        details = []
+
+        # Price action
+        details.append(f"Price ${current_price:,.2f} ({pnl_pct:+.2f}% from entry ${entry_price:,.2f})")
+
+        # Trailing stop info
+        if trailing_pct > 0 and highest_seen > 0:
+            trail_sl = highest_seen * (1 - trailing_pct / 100)
+            distance_to_trail = ((current_price - trail_sl) / current_price) * 100
+            details.append(f"Trailing SL at ${trail_sl:,.2f} (peak ${highest_seen:,.2f}, {distance_to_trail:.1f}% buffer)")
+
+        # Trend indicators
+        rsi = snapshot.get("rsi", 0)
+        if rsi > 0:
+            rsi_label = "oversold" if rsi < 30 else "overbought" if rsi > 70 else "neutral"
+            details.append(f"RSI {rsi:.0f} ({rsi_label})")
+
+        ema12 = snapshot.get("ema_12", 0)
+        ema26 = snapshot.get("ema_26", 0)
+        if ema12 and ema26:
+            ema_dir = "bullish" if ema12 > ema26 else "bearish"
+            details.append(f"EMA 12/26 {ema_dir} (12: ${ema12:,.2f}, 26: ${ema26:,.2f})")
+
+        macd = snapshot.get("macd", 0)
+        macd_signal = snapshot.get("macd_signal", 0)
+        if macd and macd_signal:
+            macd_dir = "bullish" if macd > macd_signal else "bearish"
+            details.append(f"MACD {macd_dir} ({macd:.4f} vs signal {macd_signal:.4f})")
+
+        # Multi-TF alignment (for enhanced strategies)
+        tf_alignment = snapshot.get("tf_alignment")
+        if tf_alignment is not None:
+            align_label = "aligned bullish" if tf_alignment == 1.0 else "aligned bearish" if tf_alignment == 0.0 else "mixed signals"
+            details.append(f"Multi-TF (1h+4h): {align_label}")
+
+        # Order book
+        buy_pressure = snapshot.get("buy_pressure")
+        if buy_pressure is not None and buy_pressure != 0.5:
+            pressure_label = "buy pressure" if buy_pressure > 0.55 else "sell pressure" if buy_pressure < 0.45 else "balanced"
+            details.append(f"Order book: {pressure_label} ({buy_pressure:.0%} buy)")
+
+        # Sentiment
+        fear_greed = snapshot.get("fear_greed")
+        if fear_greed is not None:
+            fg_label = "Extreme Fear" if fear_greed < 25 else "Fear" if fear_greed < 45 else "Greed" if fear_greed > 55 else "Extreme Greed" if fear_greed > 75 else "Neutral"
+            details.append(f"Market sentiment: {fg_label} ({fear_greed}/100)")
+
+        # ADX
+        adx = snapshot.get("adx", 0)
+        if adx > 0:
+            strength = "strong trend" if adx > 25 else "weak/no trend"
+            details.append(f"ADX {adx:.0f} ({strength})")
+
+        # Decision summary
+        sig = result.signal.value
+        conf = result.confidence
+        if sig == "BUY" and pnl_pct >= 0:
+            action = "HOLD"
+            summary = f"Signal still bullish ({conf:.0%} confidence). Holding position — {result.reason}"
+        elif sig == "BUY" and pnl_pct < 0:
+            action = "HOLD"
+            summary = f"Signal bullish ({conf:.0%}), expecting recovery — {result.reason}"
+        elif sig == "SELL":
+            action = "CAUTION"
+            summary = f"Signal turned bearish ({conf:.0%}). SL/TP will auto-close — {result.reason}"
+        else:
+            action = "HOLD"
+            summary = f"Neutral signal ({conf:.0%}). Waiting for clearer direction — {result.reason}"
+
+        return {
+            "action": action,
+            "signal": sig,
+            "confidence": round(conf, 2),
+            "summary": summary,
+            "details": details,
+            "timeframe": timeframe if timeframe != "multi" else "1h+4h",
+        }
+
+    except Exception as e:
+        return {
+            "action": "HOLD",
+            "summary": f"Analysis unavailable — {str(e)[:80]}",
+            "details": [],
+        }
+
+
+@app.get("/api/reasoning/{position_id}")
+async def api_reasoning(request: Request, position_id: str):
+    """Live AI reasoning for why a position is being held or should close."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    # Load portfolio to find the position
+    portfolio = _load_portfolio(user.id)
+    pos = portfolio.get("positions", {}).get(position_id)
+    if not pos:
+        return JSONResponse({"error": "Position not found"}, status_code=404)
+
+    # Check cache
+    now = time.time()
+    cached = _reasoning_cache.get(position_id)
+    if cached and (now - cached["time"]) < _REASONING_CACHE_TTL:
+        return cached["data"]
+
+    # Get current price
+    prices = await _get_cached_prices()
+    price_map = {p["symbol"]: p["price"] for p in prices}
+    current_price = price_map.get(pos["symbol"], pos["entry_price"])
+
+    # Run analysis
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(
+        None, _fetch_reasoning_sync,
+        pos["symbol"],
+        pos.get("strategy_id", "smart_auto"),
+        pos["entry_price"],
+        current_price,
+        pos.get("trailing_stop_pct", 0),
+        pos.get("highest_price_seen", 0),
+    )
+    _reasoning_cache[position_id] = {"data": data, "time": now}
+    return data
+
+
 @app.get("/api/portfolio-stats")
 async def api_portfolio_stats(request: Request):
     """Live portfolio stats: value, P&L (realized + unrealized), win rate."""
@@ -805,6 +971,11 @@ async def api_positions(request: Request):
             "trade_mode": p.get("trade_mode", "paper"),
             "est_fee": p.get("est_fee", round(cost_usd * 0.006, 2)),
             "entry_time": p.get("entry_time", 0),
+            "trailing_stop_pct": p.get("trailing_stop_pct", 0),
+            "highest_price_seen": p.get("highest_price_seen", 0),
+            "trailing_sl_price": round(
+                p.get("highest_price_seen", 0) * (1 - p.get("trailing_stop_pct", 0) / 100), 2
+            ) if p.get("trailing_stop_pct", 0) > 0 else 0,
         })
     return result
 
@@ -823,6 +994,7 @@ async def api_open_trade(request: Request):
     stop_loss_pct = float(body.get("stop_loss_pct", 2.0))
     tp_min_pct = float(body.get("tp_min_pct", 1.5))
     tp_max_pct = float(body.get("tp_max_pct", 5.0))
+    trailing_stop_pct = float(body.get("trailing_stop_pct", 0))
     bet_mode = body.get("bet_mode", "one_off")
     trade_mode = body.get("trade_mode", "paper")
 
@@ -883,7 +1055,8 @@ async def api_open_trade(request: Request):
 
     stop_loss_price = current_price * (1 - stop_loss_pct / 100)
     tp_min_price = current_price * (1 + tp_min_pct / 100)
-    tp_max_price = current_price * (1 + tp_max_pct / 100)
+    # When trailing is active, disable fixed TP max (let it run)
+    tp_max_price = current_price * 100 if trailing_stop_pct > 0 else current_price * (1 + tp_max_pct / 100)
 
     pos_id = f"{symbol}-{int(time.time())}"
     position = {
@@ -901,6 +1074,8 @@ async def api_open_trade(request: Request):
         "stop_loss_pct": stop_loss_pct,
         "tp_min_pct": tp_min_pct,
         "tp_max_pct": tp_max_pct,
+        "trailing_stop_pct": trailing_stop_pct,
+        "highest_price_seen": current_price,
         "est_fee": est_fee,
         "limits": {
             "stop_loss_price": stop_loss_price,
@@ -908,6 +1083,8 @@ async def api_open_trade(request: Request):
             "take_profit_max_price": tp_max_price,
             "position_size_usd": amount_usd,
             "position_size_asset": asset_amount,
+            "trailing_stop_pct": trailing_stop_pct,
+            "highest_price_seen": current_price,
         },
     }
 
