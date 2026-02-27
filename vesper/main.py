@@ -434,6 +434,20 @@ class UserBot:
                     f"(confidence: {best_signal.confidence:.0%})"
                 )
 
+    def _save_autopilot_log(self, entry: dict):
+        """Append an entry to autopilot_log in portfolio (keep last 50)."""
+        import time as _time
+        entry["time"] = int(_time.time())
+        pdata = self.portfolio._load_raw()
+        log = pdata.get("autopilot_log", [])
+        log.append(entry)
+        log = log[-50:]
+        pdata["autopilot_log"] = log
+        path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+        import json as _json
+        with open(path, "w") as f:
+            _json.dump(pdata, f, indent=2)
+
     def _run_autopilot(self, prices: dict):
         """AI Autopilot — fully autonomous portfolio management.
 
@@ -466,11 +480,24 @@ class UserBot:
         slots_open = max_positions - len(autopilot_positions)
 
         if slots_open <= 0 or available < 10:
-            return  # Fully deployed or not enough funds
+            self._save_autopilot_log({
+                "type": "scan",
+                "symbols_scanned": 0,
+                "status": "fully_deployed" if slots_open <= 0 else "low_funds",
+                "positions": len(autopilot_positions),
+                "max_positions": max_positions,
+                "deployed_usd": round(deployed, 2),
+                "available_usd": round(available, 2),
+                "candidates": [],
+                "actions": [],
+            })
+            return
 
         # Scan all symbols for the best opportunity
         strategy = self._get_strategy("autopilot") or EnhancedEnsemble()
         candidates = []
+        scanned = 0
+        scan_details = []
 
         for sym in TICKER_SYMBOLS:
             try:
@@ -480,12 +507,34 @@ class UserBot:
                 snap = self._get_snapshot(sym, "autopilot")
                 prices[sym] = snap["price"]
                 result = strategy.analyze(snap)
+                scanned += 1
+                scan_details.append({
+                    "symbol": sym,
+                    "price": round(snap["price"], 2),
+                    "signal": result.signal.name,
+                    "confidence": round(result.confidence, 3),
+                    "whale": round(snap.get("whale_score", 0), 2),
+                    "sentiment": round(snap.get("sentiment_score", 0), 2),
+                    "reason": result.reason[:100],
+                })
                 if result.signal == Signal.BUY and result.confidence >= 0.55:
                     candidates.append((result.confidence, sym, snap, result))
             except Exception:
                 continue
 
         if not candidates:
+            self._save_autopilot_log({
+                "type": "scan",
+                "symbols_scanned": scanned,
+                "status": "no_opportunity",
+                "positions": len(autopilot_positions),
+                "max_positions": max_positions,
+                "deployed_usd": round(deployed, 2),
+                "available_usd": round(available, 2),
+                "candidates": [],
+                "top_signals": sorted(scan_details, key=lambda x: x["confidence"], reverse=True)[:5],
+                "actions": [],
+            })
             return
 
         # Sort by confidence, pick the top N to fill available slots
@@ -494,6 +543,7 @@ class UserBot:
 
         # Allocate funds evenly across new positions
         per_position = available / len(to_open)
+        actions = []
 
         for confidence, sym, snap, result in to_open:
             new_price = snap["price"]
@@ -552,6 +602,16 @@ class UserBot:
 
             if self.portfolio.open_position(position):
                 available -= amount_usd
+                actions.append({
+                    "action": "BUY",
+                    "symbol": sym,
+                    "amount_usd": round(amount_usd, 2),
+                    "price": round(new_price, 2),
+                    "confidence": round(confidence, 3),
+                    "whale": round(snap.get("whale_score", 0), 2),
+                    "sentiment": round(snap.get("sentiment_score", 0), 2),
+                    "reason": result.reason[:120],
+                })
                 self.logger.info(
                     f"[User:{self.email}] AUTOPILOT: {sym} "
                     f"BUY ${amount_usd:.2f} @ ${new_price:,.2f} "
@@ -559,6 +619,21 @@ class UserBot:
                     f"whale: {snap.get('whale_score', 0):+.2f}, "
                     f"sentiment: {snap.get('sentiment_score', 0):+.2f})"
                 )
+
+        # Log the scan results
+        candidate_info = [{"symbol": s, "confidence": round(c, 3)} for c, s, _, _ in candidates]
+        self._save_autopilot_log({
+            "type": "scan",
+            "symbols_scanned": scanned,
+            "status": "opened_positions" if actions else "no_opportunity",
+            "positions": len(autopilot_positions) + len(actions),
+            "max_positions": max_positions,
+            "deployed_usd": round(deployed + sum(a["amount_usd"] for a in actions), 2),
+            "available_usd": round(available, 2),
+            "candidates": candidate_info,
+            "top_signals": sorted(scan_details, key=lambda x: x["confidence"], reverse=True)[:5],
+            "actions": actions,
+        })
 
 
 class Vesper:

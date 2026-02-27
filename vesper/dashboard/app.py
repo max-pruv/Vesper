@@ -1251,6 +1251,7 @@ async def api_autopilot_status(request: Request):
         "available_usd": round(fund_total - deployed, 2),
         "max_positions": autopilot.get("max_positions", 3),
         "positions": ap_positions,
+        "log": portfolio.get("autopilot_log", [])[-20:],
     }
 
 
