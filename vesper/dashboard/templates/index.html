@@ -128,6 +128,11 @@
         <h1>Vesper</h1>
         <div style="display:flex;align-items:center;gap:12px;">
             <span class="mode-badge mode-{{ mode.lower() }}">{{ mode }} TRADING</span>
+            {% if has_2fa %}
+            <a href="/disable-2fa" style="color:var(--green);font-size:12px;text-decoration:none;" title="2FA is active">2FA ON</a>
+            {% else %}
+            <a href="/setup-2fa" style="color:var(--red);font-size:12px;text-decoration:none;font-weight:600;" title="Click to enable 2FA">2FA OFF</a>
+            {% endif %}
             <a href="/logout" style="color:var(--muted);font-size:13px;text-decoration:none;">Logout</a>
         </div>
     </header>

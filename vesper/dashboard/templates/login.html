@@ -34,16 +34,8 @@
             max-width: 380px;
             text-align: center;
         }
-        .login-box h1 {
-            font-size: 28px;
-            margin-bottom: 8px;
-            color: var(--purple);
-        }
-        .login-box p {
-            color: var(--muted);
-            margin-bottom: 24px;
-            font-size: 14px;
-        }
+        .login-box h1 { font-size: 28px; margin-bottom: 8px; color: var(--purple); }
+        .login-box p { color: var(--muted); margin-bottom: 24px; font-size: 14px; }
         .error {
             background: #f8514922;
             border: 1px solid var(--red);
@@ -53,7 +45,15 @@
             margin-bottom: 16px;
             font-size: 14px;
         }
-        input[type="password"] {
+        .locked-msg {
+            background: #f8514922;
+            border: 1px solid var(--red);
+            color: var(--red);
+            padding: 16px;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        input {
             width: 100%;
             padding: 12px 16px;
             background: var(--bg);
@@ -61,12 +61,11 @@
             border-radius: 6px;
             color: var(--text);
             font-size: 16px;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
             outline: none;
         }
-        input[type="password"]:focus {
-            border-color: var(--blue);
-        }
+        input:focus { border-color: var(--blue); }
+        label { display: block; text-align: left; color: var(--muted); font-size: 12px; margin-bottom: 4px; text-transform: uppercase; }
         button {
             width: 100%;
             padding: 12px;
@@ -77,23 +76,42 @@
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
+            margin-top: 4px;
         }
-        button:hover {
-            opacity: 0.9;
-        }
+        button:hover { opacity: 0.9; }
     </style>
 </head>
 <body>
     <div class="login-box">
         <h1>Vesper</h1>
-        <p>Enter your dashboard password</p>
-        {% if error %}
-        <div class="error">Wrong password. Try again.</div>
+        <p>Secure login</p>
+
+        {% if locked %}
+        <div class="locked-msg">
+            Too many failed attempts. Try again in 5 minutes.
+        </div>
+        {% else %}
+            {% if error == "wrong_password" %}
+            <div class="error">Wrong password.</div>
+            {% elif error == "wrong_2fa" %}
+            <div class="error">Invalid 2FA code.</div>
+            {% elif error == "locked" %}
+            <div class="error">Account locked. Try again later.</div>
+            {% endif %}
+
+            <form method="POST" action="/login">
+                <label for="password">Password</label>
+                <input type="password" name="password" id="password" placeholder="Password" autofocus required>
+
+                {% if has_2fa %}
+                <label for="totp_code">2FA Code</label>
+                <input type="text" name="totp_code" id="totp_code" placeholder="6-digit code"
+                       inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+                {% endif %}
+
+                <button type="submit">Login</button>
+            </form>
         {% endif %}
-        <form method="POST" action="/login">
-            <input type="password" name="password" placeholder="Password" autofocus required>
-            <button type="submit">Login</button>
-        </form>
     </div>
 </body>
 </html>
