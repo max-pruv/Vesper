@@ -51,6 +51,8 @@ class User:
     totp_secret: str
     coinbase_api_key: str  # encrypted
     coinbase_api_secret: str  # encrypted
+    alpaca_api_key: str  # encrypted
+    alpaca_api_secret: str  # encrypted
     paper_balance: float
     trading_mode: str
     symbols: str
@@ -67,6 +69,20 @@ class User:
 
     def get_api_secret(self) -> str:
         return _decrypt(self.coinbase_api_secret) if self.coinbase_api_secret else ""
+
+    def get_alpaca_key(self) -> str:
+        return _decrypt(self.alpaca_api_key) if self.alpaca_api_key else ""
+
+    def get_alpaca_secret(self) -> str:
+        return _decrypt(self.alpaca_api_secret) if self.alpaca_api_secret else ""
+
+    @property
+    def has_alpaca(self) -> bool:
+        return bool(self.alpaca_api_key)
+
+    @property
+    def has_coinbase(self) -> bool:
+        return bool(self.coinbase_api_key)
 
 
 def init_db():
@@ -93,6 +109,16 @@ def init_db():
             created_at REAL NOT NULL
         )
     """)
+    # Migration: add Alpaca columns if missing
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN alpaca_api_key TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN alpaca_api_secret TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+
     conn.execute("""
         CREATE TABLE IF NOT EXISTS trusted_devices (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -171,6 +197,8 @@ def get_user_by_email(email: str) -> User | None:
         totp_secret=row["totp_secret"],
         coinbase_api_key=row["coinbase_api_key"],
         coinbase_api_secret=row["coinbase_api_secret"],
+        alpaca_api_key=row["alpaca_api_key"] if "alpaca_api_key" in row.keys() else "",
+        alpaca_api_secret=row["alpaca_api_secret"] if "alpaca_api_secret" in row.keys() else "",
         paper_balance=row["paper_balance"],
         trading_mode=row["trading_mode"],
         symbols=row["symbols"],
@@ -198,6 +226,8 @@ def get_user_by_id(user_id: int) -> User | None:
         totp_secret=row["totp_secret"],
         coinbase_api_key=row["coinbase_api_key"],
         coinbase_api_secret=row["coinbase_api_secret"],
+        alpaca_api_key=row["alpaca_api_key"] if "alpaca_api_key" in row.keys() else "",
+        alpaca_api_secret=row["alpaca_api_secret"] if "alpaca_api_secret" in row.keys() else "",
         paper_balance=row["paper_balance"],
         trading_mode=row["trading_mode"],
         symbols=row["symbols"],
@@ -219,6 +249,16 @@ def update_api_keys(user_id: int, api_key: str, api_secret: str):
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
         "UPDATE users SET coinbase_api_key = ?, coinbase_api_secret = ? WHERE id = ?",
+        (_encrypt(api_key), _encrypt(api_secret), user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_alpaca_keys(user_id: int, api_key: str, api_secret: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE users SET alpaca_api_key = ?, alpaca_api_secret = ? WHERE id = ?",
         (_encrypt(api_key), _encrypt(api_secret), user_id),
     )
     conn.commit()

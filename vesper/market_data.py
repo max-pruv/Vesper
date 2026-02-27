@@ -193,6 +193,37 @@ def enrich_with_intelligence(exchange: ccxt.Exchange, symbol: str, snapshot: dic
     return snapshot
 
 
+def get_stock_snapshot(alpaca_client, symbol: str) -> dict:
+    """Get a market snapshot for a stock via Alpaca, with technical indicators.
+
+    Returns the same format as get_market_snapshot so strategies work on both.
+    """
+    raw = alpaca_client.fetch_ohlcv(symbol, timeframe="1h", limit=100)
+    if not raw or len(raw) < 20:
+        raise ValueError(f"Not enough stock data for {symbol}")
+
+    df = pd.DataFrame(raw, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+    df.set_index("timestamp", inplace=True)
+    df = add_indicators(df)
+    snapshot = _extract_snapshot(df, symbol)
+
+    # Stocks don't have whale/on-chain data, set neutral defaults
+    snapshot["whale_score"] = 0.0
+    snapshot["whale_details"] = []
+    snapshot["sentiment_score"] = 0.0
+    snapshot["sentiment_details"] = []
+    snapshot["fear_greed"] = 50
+    snapshot["buy_pressure"] = 0.5
+    snapshot["spread_pct"] = 0.01
+    snapshot["tf_alignment"] = 0.5
+    snapshot["adx_4h"] = 0
+    snapshot["tf_4h"] = {}
+    snapshot["asset_type"] = "stock"
+
+    return snapshot
+
+
 def get_order_book_pressure(exchange: ccxt.Exchange, symbol: str) -> dict:
     """Analyze order book bid/ask depth for buy/sell pressure.
 

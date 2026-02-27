@@ -20,44 +20,86 @@
     <div class="alert alert-success">Trading mode updated.</div>
     {% endif %}
 
-    <!-- API Keys -->
+    <!-- Exchange Connections -->
     <div class="card">
-        <div class="card-title">Exchange Connection</div>
+        <div class="card-title">Exchange Connections</div>
 
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-            <div style="width:40px;height:40px;border-radius:10px;background:{{ 'var(--green-dim)' if has_api_keys else 'rgba(255,255,255,0.04)' }};display:flex;align-items:center;justify-content:center;">
-                {% if has_api_keys %}
+        <!-- Coinbase (Crypto) -->
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <div style="width:40px;height:40px;border-radius:10px;background:{{ 'var(--green-dim)' if has_coinbase else 'rgba(255,255,255,0.04)' }};display:flex;align-items:center;justify-content:center;">
+                {% if has_coinbase %}
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>
                 {% else %}
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
                 {% endif %}
             </div>
-            <div>
-                <div style="font-size:14px;font-weight:600;">Coinbase Advanced</div>
-                <div style="font-size:12px;color:{{ 'var(--green)' if has_api_keys else 'var(--text-muted)' }};">
-                    {{ 'Connected' if has_api_keys else 'Not connected' }}
+            <div style="flex:1;">
+                <div style="font-size:14px;font-weight:600;">Coinbase Advanced <span style="font-size:11px;color:var(--text-muted);font-weight:400;">Crypto</span></div>
+                <div style="font-size:12px;color:{{ 'var(--green)' if has_coinbase else 'var(--text-muted)' }};">
+                    {{ 'Connected' if has_coinbase else 'Not connected' }}
                 </div>
             </div>
+            {% if has_coinbase %}
+            <form method="POST" action="/settings/api-keys/remove">
+                <button type="submit" class="btn btn-sm" style="background:rgba(255,59,48,0.1);color:var(--red);border:1px solid rgba(255,59,48,0.2);font-size:11px;padding:4px 12px;"
+                        onclick="return confirm('Disconnect Coinbase?')">Disconnect</button>
+            </form>
+            {% endif %}
         </div>
-
-        {% if has_api_keys %}
-        <form method="POST" action="/settings/api-keys/remove" style="margin-top:4px;">
-            <button type="submit" class="btn btn-sm" style="background:rgba(255,59,48,0.1);color:var(--red);border:1px solid rgba(255,59,48,0.2);"
-                    onclick="return confirm('Disconnect Coinbase? This will delete your API keys.')">Disconnect</button>
+        {% if not has_coinbase %}
+        <form method="POST" action="/settings/api-keys" style="margin-bottom:20px;padding:12px;border:1px solid var(--border);border-radius:10px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="input-group" style="margin-bottom:0;">
+                    <label class="input-label" for="api_key">API Key</label>
+                    <input class="input" type="password" name="api_key" id="api_key" placeholder="Paste your API key" required>
+                </div>
+                <div class="input-group" style="margin-bottom:0;">
+                    <label class="input-label" for="api_secret">Private Key</label>
+                    <input class="input" type="password" name="api_secret" id="api_secret" placeholder="Paste your private key" required>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-accent btn-sm" style="margin-top:12px;">Connect Coinbase</button>
         </form>
-        {% else %}
-        <form method="POST" action="/settings/api-keys">
-            <div class="input-group">
-                <label class="input-label" for="api_key">API Key</label>
-                <input class="input" type="password" name="api_key" id="api_key"
-                       placeholder="Paste your API key" required>
+        {% endif %}
+
+        <div style="border-top:1px solid var(--border);margin:16px 0;"></div>
+
+        <!-- Alpaca (Stocks) -->
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <div style="width:40px;height:40px;border-radius:10px;background:{{ 'var(--green-dim)' if has_alpaca else 'rgba(255,255,255,0.04)' }};display:flex;align-items:center;justify-content:center;">
+                {% if has_alpaca %}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>
+                {% else %}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+                {% endif %}
             </div>
-            <div class="input-group">
-                <label class="input-label" for="api_secret">Private Key</label>
-                <input class="input" type="password" name="api_secret" id="api_secret"
-                       placeholder="Paste your private key" required>
+            <div style="flex:1;">
+                <div style="font-size:14px;font-weight:600;">Alpaca <span style="font-size:11px;color:var(--text-muted);font-weight:400;">US Stocks</span></div>
+                <div style="font-size:12px;color:{{ 'var(--green)' if has_alpaca else 'var(--text-muted)' }};">
+                    {{ 'Connected' if has_alpaca else 'Not connected' }}
+                </div>
             </div>
-            <button type="submit" class="btn btn-accent btn-sm">Save Keys</button>
+            {% if has_alpaca %}
+            <form method="POST" action="/settings/alpaca-keys/remove">
+                <button type="submit" class="btn btn-sm" style="background:rgba(255,59,48,0.1);color:var(--red);border:1px solid rgba(255,59,48,0.2);font-size:11px;padding:4px 12px;"
+                        onclick="return confirm('Disconnect Alpaca?')">Disconnect</button>
+            </form>
+            {% endif %}
+        </div>
+        {% if not has_alpaca %}
+        <form method="POST" action="/settings/alpaca-keys" style="padding:12px;border:1px solid var(--border);border-radius:10px;">
+            <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px;">Free paper trading at <a href="https://app.alpaca.markets/signup" target="_blank" style="color:var(--accent);">alpaca.markets</a> — works with paper and live accounts.</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div class="input-group" style="margin-bottom:0;">
+                    <label class="input-label" for="alpaca_key">API Key</label>
+                    <input class="input" type="password" name="alpaca_key" id="alpaca_key" placeholder="PKXXXXXXXXXXXXXXXX" required>
+                </div>
+                <div class="input-group" style="margin-bottom:0;">
+                    <label class="input-label" for="alpaca_secret">Secret Key</label>
+                    <input class="input" type="password" name="alpaca_secret" id="alpaca_secret" placeholder="Paste your secret key" required>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-accent btn-sm" style="margin-top:12px;">Connect Alpaca</button>
         </form>
         {% endif %}
     </div>

@@ -12,12 +12,12 @@ import threading
 from apscheduler.schedulers.blocking import BlockingScheduler
 import uvicorn
 
-from config.settings import ExchangeConfig, RiskConfig, TICKER_SYMBOLS
-from vesper.exchange import create_exchange
+from config.settings import ExchangeConfig, RiskConfig, TICKER_SYMBOLS, STOCK_SYMBOLS, is_stock_symbol
+from vesper.exchange import create_exchange, AlpacaExchange
 from vesper.market_data import (
     get_market_snapshot, get_multi_tf_snapshot,
     get_order_book_pressure, fetch_fear_greed,
-    enrich_with_intelligence,
+    enrich_with_intelligence, get_stock_snapshot,
 )
 from vesper.strategies import (
     Signal, EnsembleStrategy, EnhancedEnsemble,
@@ -46,7 +46,7 @@ class UserBot:
 
     def __init__(self, user_id: int, email: str, exchange_cfg: ExchangeConfig,
                  risk_cfg: RiskConfig, symbols: list[str], mode: str,
-                 paper_balance: float, logger):
+                 paper_balance: float, logger, alpaca_client=None):
         self.user_id = user_id
         self.email = email
         self.mode = mode
@@ -64,6 +64,7 @@ class UserBot:
         )
 
         self.exchange = create_exchange(exchange_cfg)
+        self.alpaca = alpaca_client  # None if user hasn't connected Alpaca
 
     def run_cycle(self):
         """Run one trading cycle for this user."""
@@ -105,6 +106,10 @@ class UserBot:
 
     def _get_snapshot(self, symbol: str, strategy_id: str) -> dict:
         """Fetch the right market snapshot for a strategy's timeframe."""
+        # Stock symbols use Alpaca data
+        if is_stock_symbol(symbol) and self.alpaca:
+            return get_stock_snapshot(self.alpaca, symbol)
+
         config = STRATEGY_MAP.get(strategy_id, {})
         timeframe = config.get("timeframe", "1h")
 
@@ -259,8 +264,12 @@ class UserBot:
                 )
         else:
             try:
-                from vesper.exchange import place_market_buy
-                order = place_market_buy(self.exchange, symbol, limits.position_size_asset)
+                if is_stock_symbol(symbol) and self.alpaca:
+                    from vesper.exchange import alpaca_market_buy
+                    order = alpaca_market_buy(self.alpaca, symbol, limits.position_size_usd)
+                else:
+                    from vesper.exchange import place_market_buy
+                    order = place_market_buy(self.exchange, symbol, limits.position_size_asset)
                 position.entry_price = float(order.get("average", snapshot["price"]))
                 position.amount = float(order.get("filled", limits.position_size_asset))
                 position.cost_usd = position.entry_price * position.amount
@@ -273,8 +282,12 @@ class UserBot:
         trade_mode = position.trade_mode if position.trade_mode else self.mode
         if trade_mode == "real" or self.mode == "live":
             try:
-                from vesper.exchange import place_market_sell
-                place_market_sell(self.exchange, position.symbol, position.amount)
+                if is_stock_symbol(position.symbol) and self.alpaca:
+                    from vesper.exchange import alpaca_market_sell
+                    alpaca_market_sell(self.alpaca, position.symbol, position.amount)
+                else:
+                    from vesper.exchange import place_market_sell
+                    place_market_sell(self.exchange, position.symbol, position.amount)
             except Exception as e:
                 self.logger.error(f"[User:{self.email}] SELL failed: {e}")
                 return
@@ -499,9 +512,9 @@ class UserBot:
         scanned = 0
         scan_details = []
 
+        # Scan crypto symbols
         for sym in TICKER_SYMBOLS:
             try:
-                # Skip symbols we already have autopilot positions on
                 if any(pos.symbol == sym for pos in autopilot_positions):
                     continue
                 snap = self._get_snapshot(sym, "autopilot")
@@ -521,6 +534,30 @@ class UserBot:
                     candidates.append((result.confidence, sym, snap, result))
             except Exception:
                 continue
+
+        # Scan stock symbols (if Alpaca is connected)
+        if self.alpaca:
+            for sym in STOCK_SYMBOLS:
+                try:
+                    if any(pos.symbol == sym for pos in autopilot_positions):
+                        continue
+                    snap = get_stock_snapshot(self.alpaca, sym)
+                    prices[sym] = snap["price"]
+                    result = strategy.analyze(snap)
+                    scanned += 1
+                    scan_details.append({
+                        "symbol": sym,
+                        "price": round(snap["price"], 2),
+                        "signal": result.signal.name,
+                        "confidence": round(result.confidence, 3),
+                        "whale": 0.0,
+                        "sentiment": 0.0,
+                        "reason": result.reason[:100],
+                    })
+                    if result.signal == Signal.BUY and result.confidence >= 0.55:
+                        candidates.append((result.confidence, sym, snap, result))
+                except Exception:
+                    continue
 
         if not candidates:
             self._save_autopilot_log({
@@ -591,11 +628,18 @@ class UserBot:
 
             if self.mode == "live":
                 try:
-                    from vesper.exchange import place_market_buy
-                    order = place_market_buy(self.exchange, sym, limits.position_size_asset)
-                    position.entry_price = float(order.get("average", new_price))
-                    position.amount = float(order.get("filled", limits.position_size_asset))
-                    position.cost_usd = position.entry_price * position.amount
+                    if is_stock_symbol(sym) and self.alpaca:
+                        from vesper.exchange import alpaca_market_buy
+                        order = alpaca_market_buy(self.alpaca, sym, amount_usd)
+                        position.entry_price = float(order.get("average", new_price))
+                        position.amount = float(order.get("filled", limits.position_size_asset))
+                        position.cost_usd = position.entry_price * position.amount
+                    else:
+                        from vesper.exchange import place_market_buy
+                        order = place_market_buy(self.exchange, sym, limits.position_size_asset)
+                        position.entry_price = float(order.get("average", new_price))
+                        position.amount = float(order.get("filled", limits.position_size_asset))
+                        position.cost_usd = position.entry_price * position.amount
                 except Exception as e:
                     self.logger.error(f"[User:{self.email}] Autopilot BUY failed {sym}: {e}")
                     continue
@@ -664,6 +708,19 @@ class Vesper:
                     max_position_pct=user.max_position_pct,
                 )
                 symbols = [s.strip() for s in user.symbols.split(",")]
+
+                # Create Alpaca client if user has Alpaca keys
+                alpaca_client = None
+                if user.has_alpaca:
+                    try:
+                        alpaca_client = AlpacaExchange(
+                            api_key=user.get_alpaca_key(),
+                            api_secret=user.get_alpaca_secret(),
+                            paper=(user.trading_mode != "live"),
+                        )
+                    except Exception as e:
+                        self.logger.error(f"[User:{user.email}] Alpaca init failed: {e}")
+
                 bot = UserBot(
                     user_id=user.id,
                     email=user.email,
@@ -673,6 +730,7 @@ class Vesper:
                     mode=user.trading_mode,
                     paper_balance=user.paper_balance,
                     logger=self.logger,
+                    alpaca_client=alpaca_client,
                 )
                 bot.run_cycle()
             except Exception as e:

@@ -22,7 +22,7 @@ from fastapi.templating import Jinja2Templates
 
 from vesper.dashboard.database import (
     init_db, create_user, get_user_by_email, get_user_by_id,
-    verify_password, update_api_keys, update_trading_config,
+    verify_password, update_api_keys, update_alpaca_keys, update_trading_config,
     set_bot_active, update_trading_mode, create_oauth_user, User,
     add_trusted_device, is_device_trusted, remove_trusted_device,
 )
@@ -422,7 +422,8 @@ async def dashboard(request: Request):
         "wins": len(wins), "losses": len(losses),
         "positions": fmt_pos, "trades": fmt_trades,
         "equity_curve": json.dumps(equity),
-        "has_api_keys": bool(user.coinbase_api_key),
+        "has_api_keys": bool(user.coinbase_api_key) or bool(user.alpaca_api_key),
+        "has_alpaca": bool(user.alpaca_api_key),
         "strategies": strategies,
     })
 
@@ -436,7 +437,10 @@ async def settings_page(request: Request, msg: str = ""):
         return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse("settings.html", {
         "request": request, "user": user,
-        "has_api_keys": bool(user.coinbase_api_key), "msg": msg,
+        "has_api_keys": bool(user.coinbase_api_key),
+        "has_coinbase": bool(user.coinbase_api_key),
+        "has_alpaca": bool(user.alpaca_api_key),
+        "msg": msg,
     })
 
 @app.post("/settings/api-keys")
@@ -453,6 +457,22 @@ async def remove_keys(request: Request):
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     update_api_keys(user.id, "", "")
+    return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
+
+@app.post("/settings/alpaca-keys")
+async def save_alpaca_keys(request: Request, alpaca_key: str = Form(...), alpaca_secret: str = Form(...)):
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    update_alpaca_keys(user.id, alpaca_key, alpaca_secret)
+    return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
+
+@app.post("/settings/alpaca-keys/remove")
+async def remove_alpaca_keys(request: Request):
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    update_alpaca_keys(user.id, "", "")
     return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
 
 @app.post("/settings/trading")
@@ -1067,22 +1087,33 @@ async def api_open_trade(request: Request):
     # Place real order if trade_mode is real
     if trade_mode == "real":
         try:
-            from vesper.exchange import create_exchange, place_market_buy
-            from config.settings import ExchangeConfig
-            cfg = ExchangeConfig(
-                api_key=user.get_api_key(),
-                api_secret=user.get_api_secret(),
-                sandbox=False,
-            )
-            exchange = create_exchange(cfg)
-            order = place_market_buy(exchange, symbol, asset_amount)
-            current_price = float(order.get("average", current_price))
-            asset_amount = float(order.get("filled", asset_amount))
-            amount_usd = current_price * asset_amount
-            # Extract actual fee from order if available
-            order_fee = order.get("fee", {})
-            if order_fee and order_fee.get("cost"):
-                est_fee = round(float(order_fee["cost"]), 2)
+            from config.settings import ExchangeConfig, is_stock_symbol
+            if is_stock_symbol(symbol) and user.has_alpaca:
+                from vesper.exchange import AlpacaExchange, alpaca_market_buy
+                alpaca = AlpacaExchange(
+                    api_key=user.get_alpaca_key(),
+                    api_secret=user.get_alpaca_secret(),
+                    paper=False,
+                )
+                order = alpaca_market_buy(alpaca, symbol, amount_usd)
+                current_price = float(order.get("average", current_price))
+                asset_amount = float(order.get("filled", asset_amount))
+                amount_usd = current_price * asset_amount
+            else:
+                from vesper.exchange import create_exchange, place_market_buy
+                cfg = ExchangeConfig(
+                    api_key=user.get_api_key(),
+                    api_secret=user.get_api_secret(),
+                    sandbox=False,
+                )
+                exchange = create_exchange(cfg)
+                order = place_market_buy(exchange, symbol, asset_amount)
+                current_price = float(order.get("average", current_price))
+                asset_amount = float(order.get("filled", asset_amount))
+                amount_usd = current_price * asset_amount
+                order_fee = order.get("fee", {})
+                if order_fee and order_fee.get("cost"):
+                    est_fee = round(float(order_fee["cost"]), 2)
         except Exception as e:
             return JSONResponse({"error": f"Exchange error: {str(e)}"}, status_code=400)
 

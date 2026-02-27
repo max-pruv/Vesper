@@ -46,6 +46,20 @@ TICKER_SYMBOLS = [
     "ARB/USDT", "OP/USDT", "FIL/USDT", "AAVE/USDT",
 ]
 
+# Stock symbols for Alpaca autopilot scanning
+STOCK_SYMBOLS = [
+    "AAPL/USD", "MSFT/USD", "GOOGL/USD", "AMZN/USD",
+    "NVDA/USD", "META/USD", "TSLA/USD", "AMD/USD",
+    "NFLX/USD", "CRM/USD", "AVGO/USD", "ORCL/USD",
+    "PLTR/USD", "COIN/USD", "SQ/USD", "SHOP/USD",
+    "UBER/USD", "ABNB/USD", "SNOW/USD", "MSTR/USD",
+]
+
+
+def is_stock_symbol(symbol: str) -> bool:
+    """Check if a symbol is a stock (ends with /USD) vs crypto (/USDT)."""
+    return symbol.endswith("/USD")
+
 
 @dataclass
 class TradingConfig:
