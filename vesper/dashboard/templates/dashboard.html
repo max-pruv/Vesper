@@ -155,7 +155,25 @@
                             <div style="font-size:12px;color:var(--text-muted);" id="pnlpct-{{ p.id }}"></div>
                         </div>
                     </div>
-                    <div style="display:flex;gap:16px;margin-top:12px;font-size:13px;color:var(--text-secondary);">
+                    <!-- P/L View: Max Win / Max Loss + Risk:Reward -->
+                    <div class="bet-pl-row">
+                        <div class="bet-pl-item">
+                            <span class="bet-pl-label">Max Loss</span>
+                            <span class="bet-pl-value" style="color:var(--red);" id="maxloss-{{ p.id }}">-${{ "%.2f"|format(p.max_loss) }}</span>
+                        </div>
+                        <div class="bet-pl-item">
+                            <span class="bet-pl-label">Max Win</span>
+                            <span class="bet-pl-value" style="color:var(--green);" id="maxwin-{{ p.id }}">+${{ "%.2f"|format(p.max_win) }}</span>
+                        </div>
+                        <div class="bet-pl-item">
+                            <span class="bet-pl-label">R:R</span>
+                            {% set rr = (p.max_win / p.max_loss) if p.max_loss > 0 else 0 %}
+                            <span class="bet-pl-value bet-rr {{ 'positive' if rr >= 2 else 'neutral' if rr >= 1 else 'negative' }}" id="rr-{{ p.id }}">
+                                1:{{ "%.1f"|format(rr) }}
+                            </span>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:16px;margin-top:8px;font-size:13px;color:var(--text-secondary);">
                         <span>Entry ${{ "{:,.2f}".format(p.entry_price) }}</span>
                         <span>Size ${{ "%.2f"|format(p.cost_usd) }}</span>
                         <span style="color:var(--text-muted);">{{ p.entry_time }}</span>
@@ -448,9 +466,13 @@ async function updatePositions() {
         if (!resp.ok) return;
         const positions = await resp.json();
         positions.forEach(p => {
-            const pnlEl = document.getElementById('pnl-' + CSS.escape(p.id));
-            const pctEl = document.getElementById('pnlpct-' + CSS.escape(p.id));
-            const progressEl = document.getElementById('progress-' + CSS.escape(p.id));
+            const eid = CSS.escape(p.id);
+            const pnlEl = document.getElementById('pnl-' + eid);
+            const pctEl = document.getElementById('pnlpct-' + eid);
+            const progressEl = document.getElementById('progress-' + eid);
+            const maxLossEl = document.getElementById('maxloss-' + eid);
+            const maxWinEl = document.getElementById('maxwin-' + eid);
+            const rrEl = document.getElementById('rr-' + eid);
             if (pnlEl) {
                 const cls = p.pnl_usd >= 0 ? 'positive' : 'negative';
                 pnlEl.className = 'bet-pnl ' + cls;
@@ -463,6 +485,17 @@ async function updatePositions() {
                 const pct = Math.max(0, Math.min(100, p.progress));
                 progressEl.style.width = pct + '%';
                 progressEl.style.background = p.pnl_usd >= 0 ? 'var(--green)' : 'var(--red)';
+            }
+            if (maxLossEl) {
+                maxLossEl.textContent = '-$' + p.max_loss.toFixed(2);
+            }
+            if (maxWinEl) {
+                maxWinEl.textContent = '+$' + p.max_win.toFixed(2);
+            }
+            if (rrEl) {
+                const rr = p.max_loss > 0 ? (p.max_win / p.max_loss) : 0;
+                rrEl.textContent = '1:' + rr.toFixed(1);
+                rrEl.className = 'bet-pl-value bet-rr ' + (rr >= 2 ? 'positive' : rr >= 1 ? 'neutral' : 'negative');
             }
         });
     } catch(e) {}

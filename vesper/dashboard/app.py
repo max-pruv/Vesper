@@ -337,14 +337,29 @@ async def dashboard(request: Request):
 
     fmt_pos = []
     for pid, p in positions.items():
+        entry = p.get("entry_price", 0)
+        amount = p.get("amount", 0)
+        side = p.get("side", "buy")
+        sl_price = p.get("limits", {}).get("stop_loss_price", 0)
+        tp_max_price = p.get("limits", {}).get("take_profit_max_price", 0)
+        cost = p.get("cost_usd", 0)
+        if side == "buy":
+            ml = (entry - sl_price) * amount if sl_price > 0 else cost
+            mw = (tp_max_price - entry) * amount if tp_max_price > 0 else 0
+        else:
+            ml = (sl_price - entry) * amount if sl_price > 0 else cost
+            mw = (entry - tp_max_price) * amount if tp_max_price > 0 else 0
         fmt_pos.append({
-            "id": pid, "symbol": p.get("symbol", ""), "side": p.get("side", ""),
-            "entry_price": p.get("entry_price", 0), "amount": p.get("amount", 0),
-            "cost_usd": p.get("cost_usd", 0),
+            "id": pid, "symbol": p.get("symbol", ""), "side": side,
+            "entry_price": entry, "amount": amount,
+            "cost_usd": cost,
             "entry_time": datetime.fromtimestamp(p.get("entry_time", 0)).strftime("%m/%d %H:%M"),
-            "stop_loss": p.get("limits", {}).get("stop_loss_price", 0),
+            "stop_loss": sl_price,
             "tp_min": p.get("limits", {}).get("take_profit_min_price", 0),
-            "tp_max": p.get("limits", {}).get("take_profit_max_price", 0),
+            "tp_max": tp_max_price,
+            "max_loss": round(abs(ml), 2),
+            "max_win": round(abs(mw), 2),
+            "bet_mode": p.get("bet_mode", "one_off"),
         })
 
     strategies = get_strategy_catalog()
@@ -563,6 +578,18 @@ async def api_positions(request: Request):
         price_range = tp_max - sl if tp_max > sl else 1
         progress = max(0, min(100, ((current - sl) / price_range) * 100))
 
+        cost_usd = p.get("cost_usd", 0)
+        tp_min = limits.get("take_profit_min_price", 0)
+        # Max loss/win in dollar terms
+        if side == "buy":
+            max_loss_usd = (entry - sl) * amount if sl > 0 else cost_usd
+            max_win_usd = (tp_max - entry) * amount if tp_max > 0 else 0
+        else:
+            max_loss_usd = (sl - entry) * amount if sl > 0 else cost_usd
+            max_win_usd = (entry - tp_max) * amount if tp_max > 0 else 0
+        max_loss_usd = abs(max_loss_usd)
+        max_win_usd = abs(max_win_usd)
+
         result.append({
             "id": pid,
             "symbol": sym,
@@ -570,14 +597,16 @@ async def api_positions(request: Request):
             "side": side,
             "entry_price": entry,
             "current_price": current,
-            "cost_usd": p.get("cost_usd", 0),
+            "cost_usd": cost_usd,
             "amount": amount,
             "pnl_usd": round(pnl_usd, 2),
             "pnl_pct": round(pnl_pct, 2),
             "progress": round(progress, 1),
             "stop_loss": sl,
-            "tp_min": limits.get("take_profit_min_price", 0),
+            "tp_min": tp_min,
             "tp_max": tp_max,
+            "max_loss": round(max_loss_usd, 2),
+            "max_win": round(max_win_usd, 2),
             "strategy_id": p.get("strategy_id", "ensemble"),
             "bet_mode": p.get("bet_mode", "one_off"),
             "entry_time": p.get("entry_time", 0),
