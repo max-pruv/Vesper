@@ -1,117 +1,44 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vesper — Login</title>
-    <style>
-        :root {
-            --bg: #0d1117;
-            --card: #161b22;
-            --border: #30363d;
-            --text: #e6edf3;
-            --muted: #8b949e;
-            --red: #f85149;
-            --blue: #58a6ff;
-            --purple: #bc8cff;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            background: var(--bg);
-            color: var(--text);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
-        .login-box {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 40px;
-            width: 100%;
-            max-width: 380px;
-            text-align: center;
-        }
-        .login-box h1 { font-size: 28px; margin-bottom: 8px; color: var(--purple); }
-        .login-box p { color: var(--muted); margin-bottom: 24px; font-size: 14px; }
-        .error {
-            background: #f8514922;
-            border: 1px solid var(--red);
-            color: var(--red);
-            padding: 10px;
-            border-radius: 6px;
-            margin-bottom: 16px;
-            font-size: 14px;
-        }
-        .locked-msg {
-            background: #f8514922;
-            border: 1px solid var(--red);
-            color: var(--red);
-            padding: 16px;
-            border-radius: 6px;
-            font-size: 14px;
-        }
-        input {
-            width: 100%;
-            padding: 12px 16px;
-            background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            color: var(--text);
-            font-size: 16px;
-            margin-bottom: 12px;
-            outline: none;
-        }
-        input:focus { border-color: var(--blue); }
-        label { display: block; text-align: left; color: var(--muted); font-size: 12px; margin-bottom: 4px; text-transform: uppercase; }
-        button {
-            width: 100%;
-            padding: 12px;
-            background: var(--blue);
-            color: #fff;
-            border: none;
-            border-radius: 6px;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            margin-top: 4px;
-        }
-        button:hover { opacity: 0.9; }
-    </style>
-</head>
-<body>
-    <div class="login-box">
-        <h1>Vesper</h1>
-        <p>Secure login</p>
+{% extends "base.html" %}
+{% block title %}Vesper — Login{% endblock %}
+{% block body %}
+<div style="display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px;">
+    <div class="card" style="width:100%;max-width:380px;text-align:center;">
+        <h1 style="font-size:28px;color:var(--purple);margin-bottom:4px;">Vesper</h1>
+        <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">Login to your account</p>
 
         {% if locked %}
-        <div class="locked-msg">
-            Too many failed attempts. Try again in 5 minutes.
-        </div>
+        <div class="alert alert-error">Too many failed attempts. Try again in 5 minutes.</div>
         {% else %}
-            {% if error == "wrong_password" %}
-            <div class="error">Wrong password.</div>
-            {% elif error == "wrong_2fa" %}
-            <div class="error">Invalid 2FA code.</div>
+            {% if error == "invalid" %}
+            <div class="alert alert-error">Invalid email or password.</div>
+            {% elif error == "invalid_2fa" %}
+            <div class="alert alert-error">Invalid 2FA code.</div>
             {% elif error == "locked" %}
-            <div class="error">Account locked. Try again later.</div>
+            <div class="alert alert-error">Account locked. Try later.</div>
             {% endif %}
 
-            <form method="POST" action="/login">
-                <label for="password">Password</label>
-                <input type="password" name="password" id="password" placeholder="Password" autofocus required>
-
-                {% if has_2fa %}
-                <label for="totp_code">2FA Code</label>
-                <input type="text" name="totp_code" id="totp_code" placeholder="6-digit code"
-                       inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
-                {% endif %}
-
-                <button type="submit">Login</button>
+            <form method="POST" action="/login" style="text-align:left;">
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <input type="email" name="email" id="email" placeholder="you@example.com" autofocus required>
+                </div>
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <input type="password" name="password" id="password" placeholder="Password" required>
+                </div>
+                <div class="form-group">
+                    <label for="totp_code">2FA Code</label>
+                    <input type="text" name="totp_code" id="totp_code" placeholder="6-digit code"
+                           inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+                           autocomplete="one-time-code" required>
+                </div>
+                <button type="submit" class="btn btn-primary" style="width:100%;padding:12px;">Login</button>
             </form>
         {% endif %}
+
+        <p style="margin-top:16px;font-size:13px;color:var(--muted);">
+            No account? <a href="/register">Create one</a>
+        </p>
     </div>
-</body>
-</html>
+</div>
+{% endblock %}

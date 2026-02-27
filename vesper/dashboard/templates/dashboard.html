@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}Vesper — Dashboard{% endblock %}
+{% block head %}<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>{% endblock %}
+{% block body %}
+<div class="navbar">
+    <span class="logo">Vesper</span>
+    <nav>
+        <a href="/dashboard" class="active">Dashboard</a>
+        <a href="/settings">Settings</a>
+        <a href="/logout">Logout</a>
+    </nav>
+</div>
+
+<div class="container">
+    {% if not has_api_keys %}
+    <div class="alert alert-warning">
+        You need to add your Coinbase API keys to start trading.
+        <a href="/settings">Go to Settings</a>
+    </div>
+    {% endif %}
+
+    <!-- Bot control + status -->
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+        <div>
+            <span style="font-size:20px;font-weight:700;">{{ user.email }}</span>
+            <span style="margin-left:8px;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;
+                {% if user.trading_mode == 'paper' %}
+                    background:#1f6feb33;color:var(--blue);border:1px solid var(--blue);
+                {% else %}
+                    background:#f8514933;color:var(--red);border:1px solid var(--red);
+                {% endif %}
+            ">{{ user.trading_mode|upper }}</span>
+        </div>
+        <form method="POST" action="/settings/bot-toggle" style="display:inline;">
+            {% if user.bot_active %}
+            <button type="submit" class="btn btn-red" style="padding:8px 20px;font-size:13px;">
+                Stop Bot
+            </button>
+            {% else %}
+            <button type="submit" class="btn btn-green" style="padding:8px 20px;font-size:13px;"
+                    {% if not has_api_keys %}disabled title="Add API keys first"{% endif %}>
+                Start Bot
+            </button>
+            {% endif %}
+        </form>
+    </div>
+
+    <!-- Stats -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px;">
+        <div class="card" style="margin-bottom:0;">
+            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Portfolio Value</div>
+            <div style="font-size:24px;font-weight:700;">${{ "%.2f"|format(cash) }}</div>
+            <div style="font-size:13px;color:var(--muted);">Initial: ${{ "%.2f"|format(initial_balance) }}</div>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Total P&L</div>
+            <div style="font-size:24px;font-weight:700;" class="{{ 'positive' if total_pnl >= 0 else 'negative' }}">
+                ${{ "%+.2f"|format(total_pnl) }}
+            </div>
+            <div class="{{ 'positive' if total_pnl_pct >= 0 else 'negative' }}" style="font-size:13px;">
+                {{ "%+.2f"|format(total_pnl_pct) }}%
+            </div>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Win Rate</div>
+            <div style="font-size:24px;font-weight:700;">{{ "%.1f"|format(win_rate) }}%</div>
+            <div style="font-size:13px;color:var(--muted);">{{ wins }}W / {{ losses }}L</div>
+        </div>
+        <div class="card" style="margin-bottom:0;">
+            <div style="font-size:12px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Total Trades</div>
+            <div style="font-size:24px;font-weight:700;">{{ total_trades }}</div>
+            <div style="font-size:13px;color:var(--muted);">Open: {{ positions|length }}</div>
+        </div>
+    </div>
+
+    <!-- Equity chart -->
+    <div class="card">
+        <h2>Equity Curve</h2>
+        <canvas id="equityChart" style="max-height:300px;"></canvas>
+    </div>
+
+    <!-- Open Positions -->
+    <div class="card">
+        <h2>Open Positions</h2>
+        {% if positions %}
+        <table>
+            <thead><tr>
+                <th>Symbol</th><th>Side</th><th>Entry</th><th>Amount</th>
+                <th>Stop-Loss</th><th>TP Min</th><th>TP Max</th><th>Opened</th>
+            </tr></thead>
+            <tbody>
+                {% for p in positions %}
+                <tr>
+                    <td><strong>{{ p.symbol }}</strong></td>
+                    <td class="positive">{{ p.side|upper }}</td>
+                    <td>${{ "%.2f"|format(p.entry_price) }}</td>
+                    <td>{{ "%.6f"|format(p.amount) }}</td>
+                    <td class="negative">${{ "%.2f"|format(p.stop_loss) }}</td>
+                    <td class="positive">${{ "%.2f"|format(p.tp_min) }}</td>
+                    <td class="positive">${{ "%.2f"|format(p.tp_max) }}</td>
+                    <td style="color:var(--muted);">{{ p.entry_time }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="text-align:center;padding:24px;color:var(--muted);">No open positions</p>
+        {% endif %}
+    </div>
+
+    <!-- Trade History -->
+    <div class="card">
+        <h2>Trade History</h2>
+        {% if trades %}
+        <table>
+            <thead><tr>
+                <th>Symbol</th><th>Side</th><th>Entry</th><th>Exit</th>
+                <th>P&L</th><th>%</th><th>Opened</th><th>Closed</th>
+            </tr></thead>
+            <tbody>
+                {% for t in trades %}
+                <tr>
+                    <td><strong>{{ t.symbol }}</strong></td>
+                    <td class="positive">{{ t.side|upper }}</td>
+                    <td>${{ "%.2f"|format(t.entry_price) }}</td>
+                    <td>${{ "%.2f"|format(t.exit_price) }}</td>
+                    <td class="{{ 'positive' if t.pnl_usd >= 0 else 'negative' }}">${{ "%+.2f"|format(t.pnl_usd) }}</td>
+                    <td class="{{ 'positive' if t.pnl_pct >= 0 else 'negative' }}">{{ "%+.2f"|format(t.pnl_pct) }}%</td>
+                    <td style="color:var(--muted);">{{ t.entry_time }}</td>
+                    <td style="color:var(--muted);">{{ t.exit_time }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="text-align:center;padding:24px;color:var(--muted);">No trades yet — start the bot to begin</p>
+        {% endif %}
+    </div>
+
+    <div style="text-align:center;padding:8px;color:var(--muted);font-size:12px;">Auto-refreshes every 30s</div>
+</div>
+
+<script>
+const data = {{ equity_curve|safe }};
+const labels = data.map((d, i) => {
+    if (d.time === 0) return 'Start';
+    const dt = new Date(d.time * 1000);
+    return dt.toLocaleDateString('en', {month:'short',day:'numeric'}) + ' ' +
+           dt.toLocaleTimeString('en', {hour:'2-digit',minute:'2-digit'});
+});
+new Chart(document.getElementById('equityChart'), {
+    type: 'line',
+    data: {
+        labels,
+        datasets: [{
+            label: 'Portfolio ($)',
+            data: data.map(d => d.value),
+            borderColor: '#58a6ff',
+            backgroundColor: 'rgba(88,166,255,0.1)',
+            fill: true, tension: 0.3,
+            pointRadius: data.length > 20 ? 0 : 4,
+            borderWidth: 2,
+        }]
+    },
+    options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { ticks: { color: '#8b949e', maxTicksLimit: 10 }, grid: { color: '#21262d' } },
+            y: { ticks: { color: '#8b949e', callback: v => '$' + v }, grid: { color: '#21262d' } }
+        }
+    }
+});
+setTimeout(() => location.reload(), 30000);
+</script>
+{% endblock %}

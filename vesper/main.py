@@ -1,4 +1,4 @@
-"""Vesper — Main orchestrator and scheduler."""
+"""Vesper — Main orchestrator and scheduler for multi-user trading."""
 
 import sys
 import os
@@ -12,102 +12,83 @@ import threading
 from apscheduler.schedulers.blocking import BlockingScheduler
 import uvicorn
 
-from config.settings import TradingConfig
-from vesper.exchange import create_exchange, fetch_ticker
+from config.settings import ExchangeConfig, RiskConfig
+from vesper.exchange import create_exchange
 from vesper.market_data import get_market_snapshot
 from vesper.strategies import EnsembleStrategy, Signal
 from vesper.risk import RiskManager
 from vesper.portfolio import Portfolio, Position
-from vesper.logger import (
-    setup_logger,
-    print_trade_signal,
-    print_portfolio_summary,
-    print_position_opened,
-    print_position_closed,
-    console,
-)
+from vesper.logger import setup_logger, console
 
 
-class Vesper:
-    """Main trading bot orchestrator."""
+class UserBot:
+    """Trading bot instance for a single user."""
 
-    def __init__(self, config: TradingConfig):
-        self.config = config
-        self.logger = setup_logger()
+    def __init__(self, user_id: int, email: str, exchange_cfg: ExchangeConfig,
+                 risk_cfg: RiskConfig, symbols: list[str], mode: str,
+                 paper_balance: float, logger):
+        self.user_id = user_id
+        self.email = email
+        self.mode = mode
+        self.symbols = symbols
+        self.logger = logger
         self.strategy = EnsembleStrategy()
-        self.risk_manager = RiskManager(config.risk)
+        self.risk_manager = RiskManager(risk_cfg)
+
+        data_dir = os.environ.get("VESPER_DATA_DIR", "data")
         self.portfolio = Portfolio(
-            initial_balance=config.paper_balance,
-            data_dir="data",
+            initial_balance=paper_balance,
+            data_dir=data_dir,
+            filename=f"portfolio_{user_id}.json",
         )
 
-        if config.mode == "live":
-            self.exchange = create_exchange(config.exchange)
-            self.logger.info("Vesper started in LIVE mode — real trades will be executed")
-        else:
-            # Paper mode: still connect to exchange for market data (read-only)
-            self.exchange = create_exchange(config.exchange)
-            self.logger.info(
-                f"Vesper started in PAPER mode — balance: ${config.paper_balance:.2f}"
-            )
+        self.exchange = create_exchange(exchange_cfg)
 
     def run_cycle(self):
-        """Run one trading cycle: analyze all symbols, manage positions."""
-        self.logger.info("=" * 60)
-        self.logger.info("Starting trading cycle")
-
+        """Run one trading cycle for this user."""
+        self.logger.info(f"[User:{self.email}] Starting cycle")
         prices = {}
 
-        for symbol in self.config.symbols:
+        for symbol in self.symbols:
             try:
                 self._process_symbol(symbol, prices)
             except Exception as e:
-                self.logger.error(f"Error processing {symbol}: {e}")
+                self.logger.error(f"[User:{self.email}] Error on {symbol}: {e}")
 
-        # Print portfolio summary
         summary = self.portfolio.summary(prices)
-        print_portfolio_summary(summary)
         self.logger.info(
-            f"Portfolio: ${summary['total_value']:,.2f} | "
-            f"P&L: ${summary['total_pnl_usd']:+,.2f} ({summary['total_pnl_pct']:+.2f}%) | "
-            f"Win rate: {summary['win_rate']:.1f}%"
+            f"[User:{self.email}] Portfolio: ${summary['total_value']:,.2f} | "
+            f"P&L: ${summary['total_pnl_usd']:+,.2f} ({summary['total_pnl_pct']:+.2f}%)"
         )
 
     def _process_symbol(self, symbol: str, prices: dict):
-        """Process a single symbol: check positions, analyze, trade."""
-        self.logger.info(f"Analyzing {symbol}...")
-
         snapshot = get_market_snapshot(self.exchange, symbol)
         prices[symbol] = snapshot["price"]
 
-        # Check existing positions for stop-loss / take-profit
         existing_pos = self.portfolio.get_position_for_symbol(symbol)
         if existing_pos:
-            self._check_position_limits(existing_pos, snapshot["price"])
-            return  # Don't open new position while one is active for this symbol
+            should_close, reason = self.risk_manager.should_close_position(
+                current_price=snapshot["price"],
+                entry_price=existing_pos.entry_price,
+                limits=existing_pos.limits,
+                side=existing_pos.side,
+            )
+            if should_close:
+                self._close_position(existing_pos, snapshot["price"], reason)
+            return
 
-        # Analyze with ensemble strategy
         result = self.strategy.analyze(snapshot)
-        print_trade_signal(result, snapshot)
 
         if result.signal == Signal.HOLD:
-            self.logger.info(f"{symbol}: HOLD — no action")
             return
 
-        # Check if we can open a new position
         if not self.risk_manager.can_open_position(len(self.portfolio.positions)):
-            self.logger.info(f"Max concurrent positions reached, skipping {symbol}")
             return
 
-        # Only act on BUY signals for spot trading
         if result.signal == Signal.BUY:
             self._open_position(symbol, snapshot, result)
-        elif result.signal == Signal.SELL and existing_pos:
-            # Close position on sell signal
-            self._close_position_by_signal(existing_pos, snapshot["price"], result.reason)
 
     def _open_position(self, symbol, snapshot, result):
-        """Open a new position."""
         portfolio_value = self.portfolio.total_value({symbol: snapshot["price"]})
         limits = self.risk_manager.calculate_position(
             entry_price=snapshot["price"],
@@ -118,8 +99,7 @@ class Vesper:
         )
 
         position = Position(
-            symbol=symbol,
-            side="buy",
+            symbol=symbol, side="buy",
             entry_price=snapshot["price"],
             amount=limits.position_size_asset,
             cost_usd=limits.position_size_usd,
@@ -127,89 +107,100 @@ class Vesper:
             strategy_reason=result.reason,
         )
 
-        if self.config.mode == "paper":
+        if self.mode == "paper":
             if self.portfolio.open_position(position):
-                print_position_opened(position, limits)
                 self.logger.info(
-                    f"PAPER BUY {symbol}: {position.amount:.6f} @ ${position.entry_price:,.2f} "
-                    f"(${position.cost_usd:,.2f})"
+                    f"[User:{self.email}] PAPER BUY {symbol}: "
+                    f"{position.amount:.6f} @ ${position.entry_price:,.2f}"
                 )
-            else:
-                self.logger.warning(f"Insufficient funds for {symbol} position")
         else:
-            # Live trading
             try:
                 from vesper.exchange import place_market_buy
-
                 order = place_market_buy(self.exchange, symbol, limits.position_size_asset)
                 position.entry_price = float(order.get("average", snapshot["price"]))
                 position.amount = float(order.get("filled", limits.position_size_asset))
                 position.cost_usd = position.entry_price * position.amount
                 self.portfolio.open_position(position)
-                print_position_opened(position, limits)
-                self.logger.info(f"LIVE BUY {symbol}: order {order['id']} filled")
+                self.logger.info(f"[User:{self.email}] LIVE BUY {symbol}: filled")
             except Exception as e:
-                self.logger.error(f"Failed to execute BUY for {symbol}: {e}")
-
-    def _check_position_limits(self, position: Position, current_price: float):
-        """Check if position hit stop-loss or take-profit."""
-        should_close, reason = self.risk_manager.should_close_position(
-            current_price=current_price,
-            entry_price=position.entry_price,
-            limits=position.limits,
-            side=position.side,
-        )
-
-        if should_close:
-            self._close_position(position, current_price, reason)
+                self.logger.error(f"[User:{self.email}] BUY failed {symbol}: {e}")
 
     def _close_position(self, position: Position, exit_price: float, reason: str):
-        """Close a position."""
-        if self.config.mode == "live":
+        if self.mode == "live":
             try:
                 from vesper.exchange import place_market_sell
-
                 place_market_sell(self.exchange, position.symbol, position.amount)
             except Exception as e:
-                self.logger.error(f"Failed to close position {position.id}: {e}")
+                self.logger.error(f"[User:{self.email}] SELL failed: {e}")
                 return
 
         record = self.portfolio.close_position(position.id, exit_price, reason)
         if record:
-            print_position_closed(record)
             self.logger.info(
-                f"CLOSED {position.symbol}: P&L ${record.pnl_usd:+,.2f} ({record.pnl_pct:+.2f}%) — {reason}"
+                f"[User:{self.email}] CLOSED {position.symbol}: "
+                f"${record.pnl_usd:+,.2f} ({record.pnl_pct:+.2f}%) — {reason}"
             )
 
-    def _close_position_by_signal(
-        self, position: Position, current_price: float, reason: str
-    ):
-        """Close position triggered by strategy signal."""
-        self._close_position(position, current_price, f"Strategy signal: {reason}")
+
+class Vesper:
+    """Main orchestrator — manages all user bots."""
+
+    def __init__(self):
+        self.logger = setup_logger()
+
+    def run_all_users(self):
+        """Run a trading cycle for every active user."""
+        from vesper.dashboard.database import get_active_users, init_db
+        init_db()
+
+        active_users = get_active_users()
+        self.logger.info(f"{'='*60}")
+        self.logger.info(f"Trading cycle — {len(active_users)} active user(s)")
+
+        for user in active_users:
+            try:
+                exchange_cfg = ExchangeConfig(
+                    api_key=user.get_api_key(),
+                    api_secret=user.get_api_secret(),
+                )
+                risk_cfg = RiskConfig(
+                    stop_loss_pct=user.stop_loss_pct,
+                    take_profit_min_pct=user.take_profit_min_pct,
+                    take_profit_max_pct=user.take_profit_max_pct,
+                    max_position_pct=user.max_position_pct,
+                )
+                symbols = [s.strip() for s in user.symbols.split(",")]
+                bot = UserBot(
+                    user_id=user.id,
+                    email=user.email,
+                    exchange_cfg=exchange_cfg,
+                    risk_cfg=risk_cfg,
+                    symbols=symbols,
+                    mode=user.trading_mode,
+                    paper_balance=user.paper_balance,
+                    logger=self.logger,
+                )
+                bot.run_cycle()
+            except Exception as e:
+                self.logger.error(f"[User:{user.email}] Cycle failed: {e}")
 
     def start(self):
-        """Start the scheduler — runs every interval."""
         console.print(f"\n[bold magenta]{'='*60}[/]")
-        console.print(f"[bold magenta]  VESPER — Crypto Trading Bot v0.1.0[/]")
-        console.print(f"[bold magenta]{'='*60}[/]")
-        console.print(f"  Mode: [bold]{self.config.mode.upper()}[/]")
-        console.print(f"  Symbols: {', '.join(self.config.symbols)}")
-        console.print(f"  Interval: {self.config.interval_minutes} minutes")
-        console.print(f"  Balance: ${self.config.paper_balance:,.2f}")
+        console.print(f"[bold magenta]  VESPER — Crypto Trading Platform v0.2.0[/]")
         console.print(f"[bold magenta]{'='*60}[/]\n")
 
-        # Start dashboard in background thread
+        # Start dashboard
         self._start_dashboard()
 
-        # Run first cycle immediately
-        self.run_cycle()
+        # Run first cycle
+        self.run_all_users()
 
-        # Schedule subsequent cycles
+        # Schedule cycles every minute (bot checks each user's interval)
         scheduler = BlockingScheduler()
         scheduler.add_job(
-            self.run_cycle,
+            self.run_all_users,
             "interval",
-            minutes=self.config.interval_minutes,
+            minutes=1,
             id="trading_cycle",
         )
 
@@ -220,26 +211,21 @@ class Vesper:
         signal.signal(signal.SIGTERM, shutdown)
         signal.signal(signal.SIGINT, shutdown)
 
-        self.logger.info(
-            f"Scheduler started — next cycle in {self.config.interval_minutes} minutes"
-        )
+        self.logger.info("Scheduler started — checking users every minute")
         self.logger.info("Dashboard running at http://0.0.0.0:8080")
         scheduler.start()
 
     def _start_dashboard(self):
-        """Start the web dashboard in a background thread."""
         from vesper.dashboard.app import app as dashboard_app
 
-        def run_dashboard():
+        def run():
             uvicorn.run(dashboard_app, host="0.0.0.0", port=8080, log_level="warning")
 
-        thread = threading.Thread(target=run_dashboard, daemon=True)
-        thread.start()
+        threading.Thread(target=run, daemon=True).start()
 
 
 def main():
-    config = TradingConfig.from_env()
-    bot = Vesper(config)
+    bot = Vesper()
     bot.start()
 
 

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Vesper — Setup 2FA{% endblock %}
+{% block body %}
+<div style="display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px;">
+    <div class="card" style="width:100%;max-width:440px;text-align:center;">
+        <h1 style="font-size:22px;color:var(--purple);margin-bottom:4px;">Setup Two-Factor Auth</h1>
+        <p style="color:var(--muted);font-size:14px;margin-bottom:20px;">Step 2 of 2 — Scan QR code with your authenticator app</p>
+
+        {% if error == "invalid_code" %}
+        <div class="alert alert-error">Invalid code. Please try again.</div>
+        {% endif %}
+
+        <ol style="text-align:left;color:var(--muted);font-size:13px;margin-bottom:20px;padding-left:20px;">
+            <li style="margin-bottom:4px;">Open <strong style="color:var(--text);">Google Authenticator</strong>, <strong style="color:var(--text);">Authy</strong>, or <strong style="color:var(--text);">1Password</strong></li>
+            <li style="margin-bottom:4px;">Scan the QR code below</li>
+            <li>Enter the 6-digit code to verify</li>
+        </ol>
+
+        {% if qr_b64 %}
+        <div style="background:#fff;border-radius:8px;padding:16px;display:inline-block;margin-bottom:16px;">
+            <img src="data:image/png;base64,{{ qr_b64 }}" alt="2FA QR" style="width:200px;height:200px;">
+        </div>
+        {% else %}
+        <div class="alert alert-warning">QR code expired. <a href="/register">Start over</a>.</div>
+        {% endif %}
+
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;margin-bottom:20px;font-family:monospace;font-size:13px;color:var(--green);word-break:break-all;">
+            <div style="font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;">Manual key</div>
+            {{ totp_secret }}
+        </div>
+
+        <form method="POST" action="/register/verify-2fa" style="text-align:left;">
+            <input type="hidden" name="email" value="{{ email }}">
+            <input type="hidden" name="pw_hash" value="{{ pw_hash }}">
+            <input type="hidden" name="totp_secret" value="{{ totp_secret }}">
+
+            <div class="form-group">
+                <label for="totp_code">Verification Code</label>
+                <input type="text" name="totp_code" id="totp_code" placeholder="000000"
+                       inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+                       autocomplete="one-time-code" autofocus required
+                       style="text-align:center;font-size:20px;letter-spacing:8px;">
+            </div>
+            <button type="submit" class="btn btn-green" style="width:100%;padding:12px;">
+                Verify & Create Account
+            </button>
+        </form>
+    </div>
+</div>
+{% endblock %}

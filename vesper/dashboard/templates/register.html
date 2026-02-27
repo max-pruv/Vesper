@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Vesper — Create Account{% endblock %}
+{% block body %}
+<div style="display:flex;justify-content:center;align-items:center;min-height:100vh;padding:20px;">
+    <div class="card" style="width:100%;max-width:400px;text-align:center;">
+        <h1 style="font-size:28px;color:var(--purple);margin-bottom:4px;">Create Account</h1>
+        <p style="color:var(--muted);font-size:14px;margin-bottom:24px;">Step 1 of 2 — Account details</p>
+
+        {% if error == "password_short" %}
+        <div class="alert alert-error">Password must be at least 8 characters.</div>
+        {% elif error == "password_mismatch" %}
+        <div class="alert alert-error">Passwords don't match.</div>
+        {% elif error == "email_taken" %}
+        <div class="alert alert-error">This email is already registered.</div>
+        {% endif %}
+
+        <form method="POST" action="/register" style="text-align:left;">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" name="email" id="email" placeholder="you@example.com" autofocus required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" name="password" id="password" placeholder="Min. 8 characters" minlength="8" required>
+            </div>
+            <div class="form-group">
+                <label for="password_confirm">Confirm Password</label>
+                <input type="password" name="password_confirm" id="password_confirm" placeholder="Repeat password" minlength="8" required>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;padding:12px;">Continue to 2FA Setup</button>
+        </form>
+
+        <p style="margin-top:16px;font-size:13px;color:var(--muted);">
+            Already have an account? <a href="/login">Login</a>
+        </p>
+    </div>
+</div>
+{% endblock %}

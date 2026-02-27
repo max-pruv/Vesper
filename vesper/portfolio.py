@@ -52,12 +52,14 @@ class TradeRecord:
 class Portfolio:
     """Track open positions, closed trades, and overall P&L."""
 
-    def __init__(self, initial_balance: float, data_dir: str = "data"):
+    def __init__(self, initial_balance: float, data_dir: str = "data",
+                 filename: str = "portfolio.json"):
         self.initial_balance = initial_balance
         self.cash = initial_balance
         self.positions: dict[str, Position] = {}
         self.trade_history: list[TradeRecord] = []
         self.data_dir = data_dir
+        self.filename = filename
         os.makedirs(data_dir, exist_ok=True)
         self._load_state()
 
@@ -161,12 +163,12 @@ class Portfolio:
             },
             "trade_history": [asdict(t) for t in self.trade_history],
         }
-        path = os.path.join(self.data_dir, "portfolio.json")
+        path = os.path.join(self.data_dir, self.filename)
         with open(path, "w") as f:
             json.dump(state, f, indent=2)
 
     def _load_state(self):
-        path = os.path.join(self.data_dir, "portfolio.json")
+        path = os.path.join(self.data_dir, self.filename)
         if not os.path.exists(path):
             return
         with open(path) as f:

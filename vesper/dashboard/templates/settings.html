@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Vesper — Settings{% endblock %}
+{% block body %}
+<div class="navbar">
+    <span class="logo">Vesper</span>
+    <nav>
+        <a href="/dashboard">Dashboard</a>
+        <a href="/settings" class="active">Settings</a>
+        <a href="/logout">Logout</a>
+    </nav>
+</div>
+
+<div class="container">
+    {% if msg == "keys_saved" %}
+    <div class="alert alert-success">API keys saved and encrypted.</div>
+    {% elif msg == "config_saved" %}
+    <div class="alert alert-success">Trading configuration saved.</div>
+    {% endif %}
+
+    <!-- API Keys -->
+    <div class="card">
+        <h2>Coinbase API Keys</h2>
+        {% if has_api_keys %}
+        <div class="alert alert-success" style="margin-bottom:16px;">
+            API keys configured. Update below to change them.
+        </div>
+        {% else %}
+        <div class="alert alert-warning" style="margin-bottom:16px;">
+            No API keys configured. Add them to start trading.
+        </div>
+        {% endif %}
+
+        <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">
+            Get your keys from
+            <a href="https://www.coinbase.com/settings/api" target="_blank">Coinbase Settings &gt; API</a>.
+            Keys are encrypted at rest on the server.
+        </p>
+
+        <form method="POST" action="/settings/api-keys">
+            <div class="form-group">
+                <label for="api_key">API Key</label>
+                <input type="password" name="api_key" id="api_key"
+                       placeholder="{{ 'Key saved (enter new to replace)' if has_api_keys else 'Your Coinbase API key' }}" required>
+            </div>
+            <div class="form-group">
+                <label for="api_secret">API Secret (Private Key)</label>
+                <input type="password" name="api_secret" id="api_secret"
+                       placeholder="{{ 'Secret saved (enter new to replace)' if has_api_keys else 'Your Coinbase API secret' }}" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Save API Keys</button>
+        </form>
+    </div>
+
+    <!-- Trading Config -->
+    <div class="card">
+        <h2>Trading Configuration</h2>
+        <form method="POST" action="/settings/trading">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div class="form-group">
+                    <label for="trading_mode">Trading Mode</label>
+                    <select name="trading_mode" id="trading_mode">
+                        <option value="paper" {{ 'selected' if user.trading_mode == 'paper' }}>Paper (Simulation)</option>
+                        <option value="live" {{ 'selected' if user.trading_mode == 'live' }}>Live (Real Money)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="paper_balance">Paper Balance (USDT)</label>
+                    <input type="number" name="paper_balance" id="paper_balance"
+                           value="{{ user.paper_balance }}" step="1" min="10">
+                </div>
+                <div class="form-group">
+                    <label for="symbols">Symbols (comma-separated)</label>
+                    <input type="text" name="symbols" id="symbols" value="{{ user.symbols }}">
+                </div>
+                <div class="form-group">
+                    <label for="interval_minutes">Analysis Interval (minutes)</label>
+                    <select name="interval_minutes" id="interval_minutes">
+                        <option value="15" {{ 'selected' if user.interval_minutes == 15 }}>15 min</option>
+                        <option value="30" {{ 'selected' if user.interval_minutes == 30 }}>30 min</option>
+                        <option value="60" {{ 'selected' if user.interval_minutes == 60 }}>1 hour</option>
+                        <option value="240" {{ 'selected' if user.interval_minutes == 240 }}>4 hours</option>
+                    </select>
+                </div>
+            </div>
+
+            <h3 style="font-size:14px;color:var(--muted);margin:16px 0 12px;text-transform:uppercase;">Risk Management</h3>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                <div class="form-group">
+                    <label for="stop_loss_pct">Stop-Loss (%)</label>
+                    <input type="number" name="stop_loss_pct" id="stop_loss_pct"
+                           value="{{ user.stop_loss_pct }}" step="0.1" min="0.5" max="10">
+                </div>
+                <div class="form-group">
+                    <label for="take_profit_min_pct">Take-Profit Min (%)</label>
+                    <input type="number" name="take_profit_min_pct" id="take_profit_min_pct"
+                           value="{{ user.take_profit_min_pct }}" step="0.1" min="0.5" max="20">
+                </div>
+                <div class="form-group">
+                    <label for="take_profit_max_pct">Take-Profit Max (%)</label>
+                    <input type="number" name="take_profit_max_pct" id="take_profit_max_pct"
+                           value="{{ user.take_profit_max_pct }}" step="0.1" min="1" max="50">
+                </div>
+                <div class="form-group">
+                    <label for="max_position_pct">Max Position Size (% of portfolio)</label>
+                    <input type="number" name="max_position_pct" id="max_position_pct"
+                           value="{{ user.max_position_pct }}" step="1" min="5" max="100">
+                </div>
+            </div>
+            <button type="submit" class="btn btn-primary">Save Configuration</button>
+        </form>
+    </div>
+
+    <!-- Account Info -->
+    <div class="card">
+        <h2>Account</h2>
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <div style="font-size:14px;">{{ user.email }}</div>
+                <div style="font-size:12px;color:var(--green);">2FA Enabled</div>
+            </div>
+            <div style="font-size:12px;color:var(--muted);">
+                Member since {{ user.created_at | int }}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
