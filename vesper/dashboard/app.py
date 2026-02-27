@@ -504,6 +504,18 @@ def _get_public_exchange() -> ccxt.coinbase:
     return ccxt.coinbase({"enableRateLimit": True, "options": {"defaultType": "spot"}})
 
 
+def _calc_change_pct(t: dict) -> float:
+    """Calculate 24h change % from ticker data."""
+    pct = t.get("percentage")
+    if pct is not None and pct != 0:
+        return round(pct, 2)
+    last = t.get("last", 0)
+    opening = t.get("open")
+    if opening and opening > 0 and last:
+        return round(((last - opening) / opening) * 100, 2)
+    return 0.0
+
+
 def _fetch_tickers_sync() -> list[dict]:
     """Fetch ticker data for all symbols (sync, run in executor)."""
     ex = _get_public_exchange()
@@ -517,7 +529,7 @@ def _fetch_tickers_sync() -> list[dict]:
                     "symbol": sym,
                     "name": sym.split("/")[0],
                     "price": t.get("last", 0),
-                    "change_pct": t.get("percentage", 0) or 0,
+                    "change_pct": _calc_change_pct(t),
                 })
     except Exception:
         # Fallback: fetch individually
@@ -528,7 +540,7 @@ def _fetch_tickers_sync() -> list[dict]:
                     "symbol": sym,
                     "name": sym.split("/")[0],
                     "price": t.get("last", 0),
-                    "change_pct": t.get("percentage", 0) or 0,
+                    "change_pct": _calc_change_pct(t),
                 })
             except Exception:
                 pass
