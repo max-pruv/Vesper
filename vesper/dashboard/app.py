@@ -360,6 +360,8 @@ async def dashboard(request: Request):
             "max_loss": round(abs(ml), 2),
             "max_win": round(abs(mw), 2),
             "bet_mode": p.get("bet_mode", "one_off"),
+            "trade_mode": p.get("trade_mode", "paper"),
+            "est_fee": p.get("est_fee", round(cost * 0.006, 2)),
         })
 
     strategies = get_strategy_catalog()
@@ -609,6 +611,8 @@ async def api_positions(request: Request):
             "max_win": round(max_win_usd, 2),
             "strategy_id": p.get("strategy_id", "ensemble"),
             "bet_mode": p.get("bet_mode", "one_off"),
+            "trade_mode": p.get("trade_mode", "paper"),
+            "est_fee": p.get("est_fee", round(cost_usd * 0.006, 2)),
             "entry_time": p.get("entry_time", 0),
         })
     return result
@@ -629,9 +633,14 @@ async def api_open_trade(request: Request):
     tp_min_pct = float(body.get("tp_min_pct", 1.5))
     tp_max_pct = float(body.get("tp_max_pct", 5.0))
     bet_mode = body.get("bet_mode", "one_off")
+    trade_mode = body.get("trade_mode", "paper")
 
     if not symbol or amount_usd <= 0:
         return JSONResponse({"error": "Invalid symbol or amount"}, status_code=400)
+
+    # Validate real mode requires API keys
+    if trade_mode == "real" and not user.coinbase_api_key:
+        return JSONResponse({"error": "Add Coinbase API keys in Settings to place real trades"}, status_code=400)
 
     # Load portfolio
     portfolio_path = os.path.join(DATA_DIR, f"portfolio_{user.id}.json")
@@ -655,6 +664,32 @@ async def api_open_trade(request: Request):
 
     # Calculate position
     asset_amount = amount_usd / current_price
+    # Coinbase Advanced taker fee ~0.60%
+    fee_rate = 0.006
+    est_fee = round(amount_usd * fee_rate, 2)
+
+    # Place real order if trade_mode is real
+    if trade_mode == "real":
+        try:
+            from vesper.exchange import create_exchange, place_market_buy
+            from config.settings import ExchangeConfig
+            cfg = ExchangeConfig(
+                api_key=user.get_api_key(),
+                api_secret=user.get_api_secret(),
+                sandbox=False,
+            )
+            exchange = create_exchange(cfg)
+            order = place_market_buy(exchange, symbol, asset_amount)
+            current_price = float(order.get("average", current_price))
+            asset_amount = float(order.get("filled", asset_amount))
+            amount_usd = current_price * asset_amount
+            # Extract actual fee from order if available
+            order_fee = order.get("fee", {})
+            if order_fee and order_fee.get("cost"):
+                est_fee = round(float(order_fee["cost"]), 2)
+        except Exception as e:
+            return JSONResponse({"error": f"Exchange error: {str(e)}"}, status_code=400)
+
     stop_loss_price = current_price * (1 - stop_loss_pct / 100)
     tp_min_price = current_price * (1 + tp_min_pct / 100)
     tp_max_price = current_price * (1 + tp_max_pct / 100)
@@ -671,6 +706,8 @@ async def api_open_trade(request: Request):
         "id": pos_id,
         "strategy_id": strategy_id,
         "bet_mode": bet_mode,
+        "trade_mode": trade_mode,
+        "est_fee": est_fee,
         "limits": {
             "stop_loss_price": stop_loss_price,
             "take_profit_min_price": tp_min_price,
@@ -686,7 +723,7 @@ async def api_open_trade(request: Request):
     with open(portfolio_path, "w") as f:
         json.dump(pdata, f, indent=2)
 
-    return {"ok": True, "position_id": pos_id, "entry_price": current_price}
+    return {"ok": True, "position_id": pos_id, "entry_price": current_price, "fee": est_fee}
 
 
 @app.post("/api/close-trade")

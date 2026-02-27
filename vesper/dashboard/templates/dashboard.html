@@ -148,6 +148,9 @@
                                 <span class="mode-badge mode-{{ 'continuous' if p.get('bet_mode', 'one_off') == 'continuous' else 'one_off' }}">
                                     {{ p.get('bet_mode', 'one_off') | replace('_', ' ') }}
                                 </span>
+                                <span class="mode-badge trade-mode-{{ p.get('trade_mode', 'paper') }}">
+                                    {{ p.get('trade_mode', 'paper') }}
+                                </span>
                             </div>
                         </div>
                         <div style="text-align:right;">
@@ -155,11 +158,15 @@
                             <div style="font-size:12px;color:var(--text-muted);" id="pnlpct-{{ p.id }}"></div>
                         </div>
                     </div>
-                    <!-- P/L View: Max Win / Max Loss + Risk:Reward -->
+                    <!-- P/L View: Max Win / Max Loss + Fee + Risk:Reward -->
                     <div class="bet-pl-row">
                         <div class="bet-pl-item">
                             <span class="bet-pl-label">Max Loss</span>
                             <span class="bet-pl-value" style="color:var(--red);" id="maxloss-{{ p.id }}">-${{ "%.2f"|format(p.max_loss) }}</span>
+                        </div>
+                        <div class="bet-pl-item">
+                            <span class="bet-pl-label">Fee</span>
+                            <span class="bet-pl-value" style="color:var(--text-muted);" id="fee-{{ p.id }}">~${{ "%.2f"|format(p.est_fee) }}</span>
                         </div>
                         <div class="bet-pl-item">
                             <span class="bet-pl-label">Max Win</span>
@@ -319,6 +326,17 @@
             </select>
         </div>
 
+        <!-- Paper / Real Toggle -->
+        <div class="input-group">
+            <label class="input-label">Trade Type</label>
+            <div class="mode-toggle">
+                <button type="button" class="mode-toggle-btn active" id="modePaper"
+                        onclick="setTradeMode('paper')">Paper</button>
+                <button type="button" class="mode-toggle-btn" id="modeReal"
+                        onclick="setTradeMode('real')">Real</button>
+            </div>
+        </div>
+
         <!-- One-Off / Continuous Toggle -->
         <div class="input-group">
             <label class="input-label">Bet Mode</label>
@@ -352,6 +370,7 @@
 
         <div style="display:flex; justify-content:space-between; padding:10px 0; margin-top:4px; border-top:1px solid #222;">
             <span style="color:var(--red); font-weight:600;" id="maxLossDisplay">Max Loss: -$1.00</span>
+            <span style="color:var(--text-muted); font-weight:600;" id="feeDisplay">Fee: ~$0.30</span>
             <span style="color:var(--green); font-weight:600;" id="maxWinDisplay">Max Win: +$2.50</span>
         </div>
 
@@ -371,6 +390,7 @@
 let currentSymbol = '{{ user.symbols.split(",")[0].strip() }}';
 let currentTimeframe = '1h';
 let currentBetMode = 'one_off';
+let currentTradeMode = 'paper';
 let chart, candleSeries;
 
 // ═══════════════════════════════════════
@@ -473,6 +493,7 @@ async function updatePositions() {
             const maxLossEl = document.getElementById('maxloss-' + eid);
             const maxWinEl = document.getElementById('maxwin-' + eid);
             const rrEl = document.getElementById('rr-' + eid);
+            const feeEl = document.getElementById('fee-' + eid);
             if (pnlEl) {
                 const cls = p.pnl_usd >= 0 ? 'positive' : 'negative';
                 pnlEl.className = 'bet-pnl ' + cls;
@@ -491,6 +512,9 @@ async function updatePositions() {
             }
             if (maxWinEl) {
                 maxWinEl.textContent = '+$' + p.max_win.toFixed(2);
+            }
+            if (feeEl) {
+                feeEl.textContent = '~$' + (p.est_fee || 0).toFixed(2);
             }
             if (rrEl) {
                 const rr = p.max_loss > 0 ? (p.max_win / p.max_loss) : 0;
@@ -538,13 +562,25 @@ function updateMaxWinLoss() {
     const tpMax = parseFloat(document.getElementById('modalTPMax').value) || 0;
     const maxLoss = amount * (sl / 100);
     const maxWin = amount * (tpMax / 100);
+    // Coinbase Advanced taker fee: ~0.60% per trade (entry + exit = ~1.2% round-trip)
+    const feeRate = 0.006;
+    const entryFee = amount * feeRate;
+    const exitFee = amount * feeRate;
+    const totalFee = entryFee + exitFee;
     document.getElementById('maxLossDisplay').textContent = 'Max Loss: -$' + maxLoss.toFixed(2);
+    document.getElementById('feeDisplay').textContent = 'Fee: ~$' + totalFee.toFixed(2);
     document.getElementById('maxWinDisplay').textContent = 'Max Win: +$' + maxWin.toFixed(2);
 }
 
 ['modalAmount', 'modalSL', 'modalTPMax'].forEach(id => {
     document.getElementById(id).addEventListener('input', updateMaxWinLoss);
 });
+
+function setTradeMode(mode) {
+    currentTradeMode = mode;
+    document.getElementById('modePaper').classList.toggle('active', mode === 'paper');
+    document.getElementById('modeReal').classList.toggle('active', mode === 'real');
+}
 
 function setBetMode(mode) {
     currentBetMode = mode;
@@ -573,6 +609,7 @@ async function placeBet() {
                 tp_min_pct: parseFloat(document.getElementById('modalTPMin').value),
                 tp_max_pct: parseFloat(document.getElementById('modalTPMax').value),
                 bet_mode: currentBetMode,
+                trade_mode: currentTradeMode,
             }),
         });
         const data = await resp.json();
