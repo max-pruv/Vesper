@@ -889,6 +889,37 @@ async def health():
     }
 
 
+@app.get("/api/admin/bot-state")
+async def bot_state():
+    """Debug endpoint — show all active users and their autopilot configs."""
+    from vesper.dashboard.database import get_active_users, get_all_users, init_db
+    init_db()
+    all_users = get_all_users()
+    active_users = get_active_users()
+    result = {
+        "total_users": len(all_users),
+        "active_users": len(active_users),
+        "users": [],
+    }
+    for u in all_users:
+        p = _load_portfolio(u.id)
+        user_info = {
+            "id": u.id,
+            "email": u.email,
+            "bot_active": u.bot_active,
+            "trading_mode": u.trading_mode,
+            "altcoin_hunter": p.get("altcoin_hunter", {}),
+            "autopilot": p.get("autopilot", {}),
+            "predictions_autopilot": p.get("predictions_autopilot", {}),
+            "positions_count": len(p.get("positions", {})),
+            "trade_history_count": len(p.get("trade_history", [])),
+            "autopilot_log_count": len(p.get("autopilot_log", [])),
+            "last_logs": p.get("autopilot_log", [])[-5:],
+        }
+        result["users"].append(user_info)
+    return result
+
+
 @app.post("/api/admin/api-keys")
 async def update_api_keys(request: Request):
     """Admin endpoint — update platform LLM API keys (persisted to data volume).
