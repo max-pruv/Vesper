@@ -1,0 +1,14 @@
+[Unit]
+Description=Vesper Deploy Webhook
+After=network.target docker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/vesper
+ExecStart=/usr/bin/python3 /opt/vesper/deploy-webhook.py
+Restart=always
+RestartSec=5
+Environment=DEPLOY_TOKEN=2ZEpTRKXvR2OHNOb5jX6ExicR_DZU6mR2es3M_9krCE
+
+[Install]
+WantedBy=multi-user.target
