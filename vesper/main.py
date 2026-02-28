@@ -563,9 +563,11 @@ class UserBot:
         # Merge static universe with dynamically discovered trending coins
         try:
             trending = discover_trending_coins(self.public_exchange)
-        except Exception:
+        except Exception as e:
+            self.logger.warning(f"[altcoin_hunter] discover_trending_coins failed: {e}")
             trending = []
         scan_universe = list(dict.fromkeys(ALTCOIN_UNIVERSE + trending))  # dedupe, preserve order
+        self.logger.info(f"[altcoin_hunter] Scanning {len(scan_universe)} coins ({len(trending)} trending)")
 
         scored = []
         scanned = 0
@@ -588,7 +590,8 @@ class UserBot:
                     "snapshot": snap,
                     "price": snap["price"],
                 }
-            except Exception:
+            except Exception as e:
+                self.logger.debug(f"[scan] {sym} failed: {e}")
                 return None
 
         with ThreadPoolExecutor(max_workers=5) as executor:

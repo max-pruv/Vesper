@@ -427,6 +427,47 @@
         </div>
     </div>
 
+    <!-- Close Position Modal -->
+    <div class="modal-overlay" id="closePositionModal">
+        <div class="modal" style="max-width:420px;">
+            <button class="modal-close" onclick="closeCloseModal()">&times;</button>
+            <!-- Confirm state -->
+            <div id="closeConfirmState">
+                <div style="text-align:center;padding:8px 0 0;">
+                    <div style="width:56px;height:56px;border-radius:16px;background:rgba(255,59,48,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:24px;">&#x2716;</div>
+                    <div class="modal-title" style="margin-bottom:4px;" id="closeModalSymbol">Close Position</div>
+                    <div style="font-size:13px;color:var(--text-muted);margin-bottom:6px;" id="closeModalInfo"></div>
+                    <div style="font-size:13px;color:var(--text-secondary);margin-bottom:20px;" id="closeModalPnlPreview"></div>
+                </div>
+                <div style="display:flex;gap:10px;">
+                    <button class="btn btn-outline" style="flex:1;" onclick="closeCloseModal()">Cancel</button>
+                    <button class="btn" id="closeConfirmBtn" style="flex:1;background:linear-gradient(135deg,var(--red),#cc2200);color:#fff;" onclick="executeClose()">Close at Market</button>
+                </div>
+            </div>
+            <!-- Loading state -->
+            <div id="closeLoadingState" style="display:none;text-align:center;padding:32px 0;">
+                <div class="close-spinner"></div>
+                <div style="font-size:14px;color:var(--text-secondary);margin-top:16px;font-weight:600;">Closing position...</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">Executing at market price</div>
+            </div>
+            <!-- Result state -->
+            <div id="closeResultState" style="display:none;text-align:center;padding:12px 0;">
+                <div id="closeResultIcon" style="width:64px;height:64px;border-radius:18px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;"></div>
+                <div class="modal-title" style="margin-bottom:2px;">Position Closed</div>
+                <div id="closeResultSymbol" style="font-size:13px;color:var(--text-muted);margin-bottom:20px;"></div>
+                <div style="padding:16px;border-radius:14px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);margin-bottom:20px;">
+                    <div id="closeResultPnl" style="font-size:32px;font-weight:800;letter-spacing:-0.5px;"></div>
+                    <div id="closeResultPct" style="font-size:15px;margin-top:4px;font-weight:600;"></div>
+                    <div style="display:flex;justify-content:center;gap:24px;margin-top:12px;font-size:12px;color:var(--text-muted);">
+                        <span id="closeResultEntry"></span>
+                        <span id="closeResultExit"></span>
+                    </div>
+                </div>
+                <button class="btn btn-accent" style="width:100%;" onclick="closeCloseModal()">Done</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Portfolio Value Stream Chart -->
     <div class="card" style="margin-bottom:0;padding:16px 24px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
@@ -793,10 +834,18 @@ function renderBetCard(p, isNew) {
     // Strategy badge
     const stratLabel = p.strategy_id ? p.strategy_id.replace('_', ' ') : '';
 
+    // Symbol display with company name for stocks
+    const baseSym = p.symbol.split('/')[0];
+    const isStock = p.symbol.endsWith('/USD');
+    const companyName = STOCK_NAMES[baseSym] || '';
+    const titleHtml = isStock && companyName
+        ? `<span style="font-size:15px;font-weight:800;color:var(--accent);letter-spacing:0.3px;">${baseSym}</span> <span style="font-size:14px;color:var(--text-secondary);font-weight:500;">${companyName}</span>`
+        : `<span style="font-size:16px;font-weight:700;">${p.name || baseSym}</span>`;
+
     return `<div class="bet-card ${isNew ? 'new-card' : ''} ${flashClass}" data-pid="${p.id}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div>
-                <div style="font-size:16px;font-weight:700;">${p.name || p.symbol.split('/')[0]}</div>
+                <div>${titleHtml}</div>
                 <div style="display:flex;gap:6px;margin-top:4px;">
                     <span class="mode-badge mode-${modeCls}">${betMode.replace('_', ' ')}</span>
                     <span class="mode-badge trade-mode-${tradeMode}">${tradeMode}</span>
@@ -861,7 +910,7 @@ function renderBetCard(p, isNew) {
             <div style="color:var(--text-secondary);line-height:1.5;">${p.strategy_reason.substring(0, 200)}${p.strategy_reason.length > 200 ? '...' : ''}</div>
         </div>` : ''}
         <button class="btn btn-outline btn-sm" style="width:100%;margin-top:12px;"
-                onclick="closeTrade('${p.id}')">Close Position</button>
+                onclick="closeTrade('${p.id}','${p.symbol}',${p.pnl_usd},${p.pnl_pct})">Close Position</button>
     </div>`;
 }
 
@@ -1010,26 +1059,113 @@ function drawPnlChart(canvas, history, entryPrice, amount, side, timeEl) {
 updatePositions();
 
 // ═══════════════════════════════════════
-// Close Position (manual emergency close)
+// Close Position Modal
 // ═══════════════════════════════════════
-async function closeTrade(positionId) {
-    if (!confirm('Close this position at market price?')) return;
+
+// Stock company name mapping
+const STOCK_NAMES = {
+    'AAPL': 'Apple', 'MSFT': 'Microsoft', 'GOOGL': 'Alphabet',
+    'AMZN': 'Amazon', 'NVDA': 'Nvidia', 'META': 'Meta',
+    'TSLA': 'Tesla', 'AMD': 'AMD', 'NFLX': 'Netflix',
+    'CRM': 'Salesforce', 'AVGO': 'Broadcom', 'ORCL': 'Oracle',
+    'PLTR': 'Palantir', 'COIN': 'Coinbase', 'SQ': 'Block',
+    'SHOP': 'Shopify', 'UBER': 'Uber', 'ABNB': 'Airbnb',
+    'SNOW': 'Snowflake', 'MSTR': 'MicroStrategy',
+};
+
+let _closePosId = null;
+
+function getSymbolDisplay(symbol) {
+    const base = symbol.split('/')[0];
+    const name = STOCK_NAMES[base];
+    if (name) return `${base} · ${name}`;
+    return base;
+}
+
+function closeTrade(positionId, symbol, pnlUsd, pnlPct) {
+    _closePosId = positionId;
+    const modal = document.getElementById('closePositionModal');
+    const symDisplay = getSymbolDisplay(symbol || '');
+    document.getElementById('closeModalSymbol').textContent = `Close ${symDisplay}`;
+    document.getElementById('closeModalInfo').textContent = 'This will close your position at current market price.';
+
+    // Show current P&L preview
+    const previewEl = document.getElementById('closeModalPnlPreview');
+    if (pnlUsd !== undefined) {
+        const sign = pnlUsd >= 0 ? '+' : '';
+        const color = pnlUsd >= 0 ? 'var(--green)' : 'var(--red)';
+        previewEl.innerHTML = `Current P&L: <span style="color:${color};font-weight:700;">${sign}$${pnlUsd.toFixed(2)} (${sign}${pnlPct.toFixed(2)}%)</span>`;
+    } else {
+        previewEl.textContent = '';
+    }
+
+    // Reset to confirm state
+    document.getElementById('closeConfirmState').style.display = 'block';
+    document.getElementById('closeLoadingState').style.display = 'none';
+    document.getElementById('closeResultState').style.display = 'none';
+    modal.classList.add('active');
+}
+
+function closeCloseModal() {
+    document.getElementById('closePositionModal').classList.remove('active');
+    _closePosId = null;
+}
+
+async function executeClose() {
+    if (!_closePosId) return;
+
+    // Switch to loading state
+    document.getElementById('closeConfirmState').style.display = 'none';
+    document.getElementById('closeLoadingState').style.display = 'block';
+
     try {
         const resp = await fetch('/api/close-trade', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ position_id: positionId }),
+            body: JSON.stringify({ position_id: _closePosId }),
         });
         const data = await resp.json();
+
         if (data.ok) {
-            // Immediately refresh — no page reload needed
+            // Switch to result state
+            document.getElementById('closeLoadingState').style.display = 'none';
+            document.getElementById('closeResultState').style.display = 'block';
+
+            const isProfit = data.pnl_usd >= 0;
+            const sign = isProfit ? '+' : '';
+            const color = isProfit ? 'var(--green)' : 'var(--red)';
+
+            // Icon
+            const iconEl = document.getElementById('closeResultIcon');
+            iconEl.style.background = isProfit ? 'rgba(0,232,94,0.1)' : 'rgba(255,59,48,0.1)';
+            iconEl.style.color = color;
+            iconEl.innerHTML = isProfit ? '&#x2714;' : '&#x2716;';
+
+            // Symbol
+            document.getElementById('closeResultSymbol').textContent = getSymbolDisplay(data.symbol || '');
+
+            // P&L
+            document.getElementById('closeResultPnl').style.color = color;
+            document.getElementById('closeResultPnl').textContent = `${sign}$${data.pnl_usd.toFixed(2)}`;
+            document.getElementById('closeResultPct').style.color = color;
+            document.getElementById('closeResultPct').textContent = `${sign}${data.pnl_pct.toFixed(2)}%`;
+
+            // Entry/Exit
+            document.getElementById('closeResultEntry').textContent = `Entry $${formatPrice(data.entry_price)}`;
+            document.getElementById('closeResultExit').textContent = `Exit $${formatPrice(data.exit_price)}`;
+
+            // Refresh data in background
             updatePositions();
             updatePortfolioStats();
         } else {
-            alert(data.error || 'Failed to close');
+            document.getElementById('closeLoadingState').style.display = 'none';
+            document.getElementById('closeConfirmState').style.display = 'block';
+            document.getElementById('closeModalInfo').innerHTML = `<span style="color:var(--red);">${data.error || 'Failed to close position'}</span>`;
         }
     } catch(e) {
-        alert('Network error');
+        document.getElementById('closeLoadingState').style.display = 'none';
+        document.getElementById('closeConfirmState').style.display = 'block';
+        document.getElementById('closeModalInfo').innerHTML = '<span style="color:var(--red);">Network error — please try again</span>';
     }
 }
 

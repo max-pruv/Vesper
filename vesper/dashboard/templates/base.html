@@ -367,6 +367,16 @@
         }
         .modal-close:hover { color: var(--text); }
 
+        /* Spinner */
+        .close-spinner {
+            width: 40px; height: 40px; margin: 0 auto;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
         /* Empty State */
         .empty-state { text-align: center; padding: 40px 24px; color: var(--text-muted); }
         .empty-state-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }

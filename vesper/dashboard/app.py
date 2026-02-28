@@ -770,7 +770,7 @@ async def _get_cached_prices() -> list[dict]:
 
 
 def _fetch_single_price(symbol: str) -> float:
-    """Fetch a single symbol's price (for positions outside TICKER_SYMBOLS)."""
+    """Fetch a single crypto symbol's price via Binance."""
     try:
         ex = _get_public_exchange()
         t = ex.fetch_ticker(symbol)
@@ -779,7 +779,24 @@ def _fetch_single_price(symbol: str) -> float:
         return 0
 
 
-async def _get_price_map_for_positions(position_symbols: set[str]) -> dict[str, float]:
+def _fetch_stock_price(symbol: str, user) -> float:
+    """Fetch a stock price via Alpaca (requires user with Alpaca keys)."""
+    if not user or not user.has_alpaca:
+        return 0
+    try:
+        from vesper.exchange import AlpacaExchange
+        alpaca = AlpacaExchange(
+            api_key=user.get_alpaca_key(),
+            api_secret=user.get_alpaca_secret(),
+            paper=False,
+        )
+        t = alpaca.fetch_ticker(symbol)
+        return t.get("last", 0) if t else 0
+    except Exception:
+        return 0
+
+
+async def _get_price_map_for_positions(position_symbols: set[str], user=None) -> dict[str, float]:
     """Build a complete price map covering all position symbols."""
     prices = await _get_cached_prices()
     price_map = {p["symbol"]: p["price"] for p in prices}
@@ -789,7 +806,12 @@ async def _get_price_map_for_positions(position_symbols: set[str]) -> dict[str, 
     if missing:
         loop = asyncio.get_event_loop()
         for sym in missing:
-            price = await loop.run_in_executor(None, _fetch_single_price, sym)
+            if sym.endswith("/USD"):
+                # Stock symbol — use Alpaca
+                price = await loop.run_in_executor(None, _fetch_stock_price, sym, user)
+            else:
+                # Crypto symbol — use Binance
+                price = await loop.run_in_executor(None, _fetch_single_price, sym)
             if price > 0:
                 price_map[sym] = price
 
@@ -848,7 +870,7 @@ async def ws_live(ws: WebSocket):
                         p.get("symbol", "") for p in positions.values()
                         if not p.get("symbol", "").startswith("PRED:")
                     }
-                    price_map = await _get_price_map_for_positions(pos_symbols)
+                    price_map = await _get_price_map_for_positions(pos_symbols, user)
 
                     for pid, p in positions.items():
                         sym = p.get("symbol", "")
@@ -1238,7 +1260,7 @@ async def api_portfolio_stats(request: Request):
     unrealized_pnl = 0
     if positions:
         pos_symbols = {p.get("symbol", "") for p in positions.values() if not p.get("symbol", "").startswith("PRED:")}
-        price_map = await _get_price_map_for_positions(pos_symbols)
+        price_map = await _get_price_map_for_positions(pos_symbols, user)
         for p in positions.values():
             entry = p.get("entry_price", 0)
             sym = p.get("symbol", "")
@@ -1304,7 +1326,7 @@ async def api_positions(request: Request):
 
     # Build price map that covers ALL position symbols (not just TICKER_SYMBOLS)
     pos_symbols = {p.get("symbol", "") for p in positions.values() if not p.get("symbol", "").startswith("PRED:")}
-    price_map = await _get_price_map_for_positions(pos_symbols)
+    price_map = await _get_price_map_for_positions(pos_symbols, user)
 
     result = []
     for pid, p in positions.items():
@@ -1558,7 +1580,7 @@ async def api_close_trade(request: Request):
 
     # Get current price
     sym = pos["symbol"]
-    price_map = await _get_price_map_for_positions({sym})
+    price_map = await _get_price_map_for_positions({sym}, user)
     current_price = price_map.get(sym, pos["entry_price"])
 
     # Calculate P&L
@@ -1594,7 +1616,15 @@ async def api_close_trade(request: Request):
     with open(portfolio_path, "w") as f:
         json.dump(pdata, f, indent=2)
 
-    return {"ok": True, "pnl_usd": round(pnl_usd, 2), "pnl_pct": round(pnl_pct, 2)}
+    return {
+        "ok": True,
+        "symbol": pos["symbol"],
+        "entry_price": entry,
+        "exit_price": current_price,
+        "pnl_usd": round(pnl_usd, 2),
+        "pnl_pct": round(pnl_pct, 2),
+        "cost_usd": pos.get("cost_usd", 0),
+    }
 
 
 @app.get("/api/decisions")
