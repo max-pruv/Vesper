@@ -153,3 +153,4 @@ def get_kalshi_markets(limit: int = 20, max_days: int = 0) -> list[dict]:
         reverse=True,
     )
     return markets[:limit]
+
