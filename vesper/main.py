@@ -19,6 +19,7 @@ from vesper.market_data import (
 )
 from vesper.strategies import Signal
 from vesper.strategies.catalog import STRATEGY_MAP
+from vesper.strategies.ensemble import EnhancedEnsemble
 from vesper.risk import RiskManager, PositionLimits
 from vesper.portfolio import Portfolio, Position
 from vesper.logger import setup_logger, console
