@@ -542,7 +542,7 @@ class UserBot:
 
         max_positions = hunter_cfg.get("max_positions", 5)
         trailing_pct = hunter_cfg.get("trailing_stop_pct", 2.0)
-        min_score = hunter_cfg.get("min_trend_score", 0.60)
+        min_score = hunter_cfg.get("min_trend_score", 0.50)
 
         # Collect existing altcoin_hunter positions
         hunter_positions = [
@@ -1183,7 +1183,7 @@ class UserBot:
                     "sentiment": round(snap.get("sentiment_score", 0), 2),
                     "reason": result.reason[:100],
                 })
-                if result.signal == Signal.BUY and result.confidence >= 0.55:
+                if result.signal == Signal.BUY and result.confidence >= 0.40:
                     candidates.append((result.confidence, sym, snap, result))
             except Exception:
                 continue
@@ -1207,14 +1207,14 @@ class UserBot:
                         "sentiment": 0.0,
                         "reason": result.reason[:100],
                     })
-                    if result.signal == Signal.BUY and result.confidence >= 0.55:
+                    if result.signal == Signal.BUY and result.confidence >= 0.40:
                         candidates.append((result.confidence, sym, snap, result))
                 except Exception:
                     continue
 
         # Save per-symbol decision reasoning for the autopilot scan
         for detail in scan_details:
-            if detail["signal"] == "BUY" and detail["confidence"] >= 0.55:
+            if detail["signal"] == "BUY" and detail["confidence"] >= 0.40:
                 action = "CANDIDATE"
             else:
                 action = "SKIP"

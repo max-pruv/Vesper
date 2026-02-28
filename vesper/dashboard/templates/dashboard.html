@@ -5,17 +5,11 @@
 {% endblock %}
 {% block body %}
 
-<!-- Scrolling Ticker Bar -->
-<div class="ticker-bar" id="tickerBar">
-    <div class="ticker-track" id="tickerTrack">
-        <span class="ticker-item"><span class="ticker-name">Loading prices...</span></span>
-    </div>
-</div>
-
 <div class="nav">
     <span class="nav-logo">vesper</span>
     <div class="nav-links">
         <a class="nav-link active" href="/dashboard">Dashboard</a>
+        <a class="nav-link" href="/how-it-works">How it works</a>
         <a class="nav-link" href="/settings">Settings</a>
         <a class="nav-link" href="/logout">Log out</a>
     </div>
@@ -172,30 +166,43 @@
     </div>
     {% endif %}
 
-    <!-- Portfolio Header + Stats -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:32px;flex-wrap:wrap;gap:16px;">
-        <div>
-            <div style="font-size:14px;color:var(--text-muted);margin-bottom:4px;">Portfolio Value</div>
-            <div style="font-size:48px;font-weight:700;letter-spacing:-2px;line-height:1;" id="portfolioValue">${{ "%.2f"|format(cash) }}</div>
-            <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
-                <span id="totalPnl" class="{{ 'positive' if total_pnl >= 0 else 'negative' }}" style="font-size:16px;font-weight:600;">
-                    ${{ "%+.2f"|format(total_pnl) }} ({{ "%+.2f"|format(total_pnl_pct) }}%)
-                </span>
-                <span style="font-size:13px;color:var(--text-muted);">all time</span>
+    <!-- Portfolio Overview -->
+    <div style="margin-bottom:24px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
+            <div>
+                <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px;">Portfolio Value</div>
+                <div style="font-size:44px;font-weight:700;letter-spacing:-2px;line-height:1;" id="portfolioValue">${{ "%.2f"|format(cash) }}</div>
+                <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+                    <span id="totalPnl" class="{{ 'positive' if total_pnl >= 0 else 'negative' }}" style="font-size:15px;font-weight:600;">
+                        ${{ "%+.2f"|format(total_pnl) }} ({{ "%+.2f"|format(total_pnl_pct) }}%)
+                    </span>
+                    <span style="font-size:12px;color:var(--text-muted);">all time</span>
+                </div>
             </div>
         </div>
-        <div style="display:flex;gap:24px;">
-            <div style="text-align:center;">
-                <div style="font-size:20px;font-weight:700;" id="statWinRate">{{ "%.0f"|format(win_rate) }}%</div>
-                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Win Rate</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
+                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Invested</div>
+                <div style="font-size:22px;font-weight:700;" id="statInvested">$0.00</div>
             </div>
-            <div style="text-align:center;">
-                <div style="font-size:20px;font-weight:700;" id="statTrades">{{ total_trades }}</div>
-                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Trades</div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
+                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Realized P&L</div>
+                <div style="font-size:22px;font-weight:700;" id="statRealized">${{ "%+.2f"|format(total_pnl) }}</div>
             </div>
-            <div style="text-align:center;">
-                <div style="font-size:20px;font-weight:700;" id="statOpen">0</div>
-                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;">Open</div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
+                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Unrealized P&L</div>
+                <div style="font-size:22px;font-weight:700;" id="statUnrealized">$0.00</div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
+                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Win Rate</div>
+                <div style="font-size:22px;font-weight:700;display:flex;align-items:baseline;gap:6px;">
+                    <span id="statWinRate">{{ "%.0f"|format(win_rate) }}%</span>
+                    <span style="font-size:12px;font-weight:500;color:var(--text-muted);"><span id="statTrades">{{ total_trades }}</span> trades</span>
+                </div>
+            </div>
+            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
+                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Open Positions</div>
+                <div style="font-size:22px;font-weight:700;" id="statOpen">0</div>
             </div>
         </div>
     </div>
@@ -487,32 +494,6 @@ let prevPnlMap = {};
 let knownPositionIds = new Set();
 
 // ═══════════════════════════════════════
-// Ticker Bar (refresh every 5s)
-// ═══════════════════════════════════════
-async function updateTicker() {
-    try {
-        const resp = await fetch('/api/ticker');
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const track = document.getElementById('tickerTrack');
-        let html = '';
-        data.forEach(d => {
-            const cls = d.change_pct >= 0 ? 'positive' : 'negative';
-            const arrow = d.change_pct >= 0 ? '\u25B2' : '\u25BC';
-            const price = d.price >= 1 ? d.price.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}) : d.price.toFixed(4);
-            html += `<span class="ticker-item">
-                <span class="ticker-name">${d.name}</span>
-                <span class="ticker-price">$${price}</span>
-                <span class="ticker-change ${cls}">${arrow} ${d.change_pct.toFixed(2)}%</span>
-            </span>`;
-        });
-        // Duplicate for seamless loop
-        track.innerHTML = html + html;
-    } catch(e) {}
-}
-updateTicker();
-setInterval(updateTicker, 5000);
-
 // ═══════════════════════════════════════
 // AI Decisions Feed
 // ═══════════════════════════════════════
@@ -724,14 +705,11 @@ function renderBetCard(p, isNew) {
             <div class="bet-progress-fill" style="width:${progressPct}%;background:${progressColor};"></div>
         </div>
         ${slTpRow}
-        <!-- AI Reasoning Panel -->
-        <div class="reasoning-panel" id="reasoning-${p.id}" style="margin-top:10px;padding:10px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;font-size:12px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="toggleReasoning('${p.id}')">
-                <span style="font-weight:600;color:var(--text-secondary);">AI Reasoning</span>
-                <span id="reasoning-status-${p.id}" style="color:var(--text-muted);font-size:11px;">Click to load</span>
-            </div>
-            <div id="reasoning-body-${p.id}" style="display:none;margin-top:8px;"></div>
-        </div>
+        <!-- AI Entry Reason (always shown) -->
+        ${p.strategy_reason ? `<div style="margin-top:10px;padding:10px;background:rgba(0,220,90,0.04);border:1px solid rgba(0,220,90,0.12);border-radius:8px;font-size:12px;">
+            <div style="font-weight:600;color:var(--accent);margin-bottom:4px;">Why AI entered this trade</div>
+            <div style="color:var(--text-secondary);line-height:1.5;">${p.strategy_reason}</div>
+        </div>` : ''}
         <button class="btn btn-outline btn-sm" style="width:100%;margin-top:12px;"
                 onclick="closeTrade('${p.id}')">Close Position</button>
     </div>`;
@@ -809,73 +787,6 @@ async function closeTrade(positionId) {
 // ═══════════════════════════════════════
 // AI Reasoning for Open Positions
 // ═══════════════════════════════════════
-const reasoningLoaded = {};
-const reasoningAutoRefresh = {};
-
-function toggleReasoning(posId) {
-    const body = document.getElementById('reasoning-body-' + posId);
-    if (!body) return;
-    const isVisible = body.style.display !== 'none';
-    body.style.display = isVisible ? 'none' : 'block';
-    if (!isVisible && !reasoningLoaded[posId]) {
-        fetchReasoning(posId);
-    }
-}
-
-async function fetchReasoning(posId) {
-    const status = document.getElementById('reasoning-status-' + posId);
-    const body = document.getElementById('reasoning-body-' + posId);
-    if (!status || !body) return;
-
-    status.textContent = 'Analyzing...';
-    status.style.color = 'var(--accent)';
-
-    try {
-        const resp = await fetch('/api/reasoning?pid=' + encodeURIComponent(posId));
-        if (!resp.ok) {
-            status.textContent = 'Error';
-            status.style.color = 'var(--red)';
-            return;
-        }
-        const data = await resp.json();
-        reasoningLoaded[posId] = true;
-
-        // Action badge color
-        const actionColors = { HOLD: '#0af', CAUTION: '#f80', SELL: 'var(--red)' };
-        const actionColor = actionColors[data.action] || 'var(--text-muted)';
-        status.innerHTML = `<span style="color:${actionColor};font-weight:600;">${data.action || 'HOLD'}</span>`;
-
-        // Build reasoning body
-        let html = `<div style="color:var(--text-secondary);margin-bottom:6px;">${data.summary || ''}</div>`;
-        if (data.details && data.details.length > 0) {
-            html += '<div style="display:flex;flex-direction:column;gap:3px;">';
-            data.details.forEach(d => {
-                html += `<div style="color:var(--text-muted);font-size:11px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);">${d}</div>`;
-            });
-            html += '</div>';
-        }
-        html += `<div style="margin-top:6px;font-size:10px;color:var(--text-muted);">Auto-refreshes every 60s &mdash; <a href="#" onclick="fetchReasoning('${posId}');return false;" style="color:var(--accent);">Refresh now</a></div>`;
-        body.innerHTML = html;
-        body.style.display = 'block';
-
-        // Auto-refresh every 60s while panel is open
-        if (reasoningAutoRefresh[posId]) clearInterval(reasoningAutoRefresh[posId]);
-        reasoningAutoRefresh[posId] = setInterval(() => {
-            const el = document.getElementById('reasoning-body-' + posId);
-            if (el && el.style.display !== 'none') {
-                fetchReasoning(posId);
-            } else {
-                clearInterval(reasoningAutoRefresh[posId]);
-                delete reasoningAutoRefresh[posId];
-            }
-        }, 60000);
-
-    } catch(e) {
-        status.textContent = 'Failed';
-        status.style.color = 'var(--red)';
-    }
-}
-
 // ═══════════════════════════════════════
 // Live Portfolio Stats + P&L Chart (every 5s)
 // ═══════════════════════════════════════
@@ -987,18 +898,38 @@ async function updatePortfolioStats() {
         pnlEl.textContent = '$' + sign + s.total_pnl.toFixed(2) + ' (' + sign + s.total_pnl_pct.toFixed(2) + '%)';
         pnlEl.className = s.total_pnl >= 0 ? 'positive' : 'negative';
 
-        // Stats
+        // Stats grid
         document.getElementById('statWinRate').textContent = Math.round(s.win_rate) + '%';
         document.getElementById('statTrades').textContent = s.total_trades;
         document.getElementById('statOpen').textContent = s.open_count;
 
-        // P&L breakdown
+        // Invested
+        const investedEl = document.getElementById('statInvested');
+        investedEl.textContent = '$' + s.total_invested.toFixed(2);
+
+        // Realized P&L
         const rSign = s.realized_pnl >= 0 ? '+' : '';
+        const realizedEl = document.getElementById('statRealized');
+        realizedEl.textContent = '$' + rSign + s.realized_pnl.toFixed(2);
+        realizedEl.style.color = s.realized_pnl >= 0 ? 'var(--green)' : s.realized_pnl < 0 ? 'var(--red)' : '';
+
+        // Unrealized P&L
         const uSign = s.unrealized_pnl >= 0 ? '+' : '';
-        document.getElementById('pnlRealized').textContent = '$' + rSign + s.realized_pnl.toFixed(2);
-        document.getElementById('pnlRealized').style.color = s.realized_pnl >= 0 ? 'var(--green)' : 'var(--red)';
-        document.getElementById('pnlUnrealized').textContent = '$' + uSign + s.unrealized_pnl.toFixed(2);
-        document.getElementById('pnlUnrealized').style.color = s.unrealized_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+        const unrealizedEl = document.getElementById('statUnrealized');
+        unrealizedEl.textContent = '$' + uSign + s.unrealized_pnl.toFixed(2);
+        unrealizedEl.style.color = s.unrealized_pnl >= 0 ? 'var(--green)' : s.unrealized_pnl < 0 ? 'var(--red)' : '';
+
+        // Chart P&L labels
+        const pnlRealizedChart = document.getElementById('pnlRealized');
+        if (pnlRealizedChart) {
+            pnlRealizedChart.textContent = '$' + rSign + s.realized_pnl.toFixed(2);
+            pnlRealizedChart.style.color = s.realized_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+        }
+        const pnlUnrealizedChart = document.getElementById('pnlUnrealized');
+        if (pnlUnrealizedChart) {
+            pnlUnrealizedChart.textContent = '$' + uSign + s.unrealized_pnl.toFixed(2);
+            pnlUnrealizedChart.style.color = s.unrealized_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+        }
 
         // P&L chart
         if (s.pnl_history && s.pnl_history.length > 0) {

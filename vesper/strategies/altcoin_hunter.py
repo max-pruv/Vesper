@@ -117,9 +117,9 @@ def compute_trend_score(snapshot: dict, btc_snapshot: dict | None = None) -> dic
     total_score = sum(factors[k] * weights[k] for k in weights)
 
     # ── Derive Signal ──
-    if total_score >= 0.65:
+    if total_score >= 0.55:
         sig = Signal.BUY
-        confidence = min(1.0, (total_score - 0.5) * 2)
+        confidence = min(1.0, (total_score - 0.4) * 1.67)
     elif total_score <= 0.35:
         sig = Signal.SELL
         confidence = min(1.0, (0.5 - total_score) * 2)

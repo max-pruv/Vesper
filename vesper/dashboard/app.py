@@ -349,6 +349,16 @@ async def logout(request: Request):
     return resp
 
 
+# --- How It Works ---
+
+@app.get("/how-it-works", response_class=HTMLResponse)
+async def how_it_works(request: Request):
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    return templates.TemplateResponse("how_it_works.html", {"request": request})
+
+
 # --- Dashboard ---
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -974,9 +984,14 @@ async def api_portfolio_stats(request: Request):
             "symbol": t.get("symbol", ""),
         })
 
+    # Total invested = sum of all open position costs
+    total_invested = sum(p.get("cost_usd", 0) for p in positions.values())
+
     return {
         "portfolio_value": round(portfolio_value, 2),
         "cash": round(cash, 2),
+        "initial_balance": round(initial, 2),
+        "total_invested": round(total_invested, 2),
         "total_pnl": round(total_pnl, 2),
         "realized_pnl": round(realized_pnl, 2),
         "unrealized_pnl": round(unrealized_pnl, 2),
@@ -1064,6 +1079,7 @@ async def api_positions(request: Request):
             "trailing_sl_price": round(
                 p.get("highest_price_seen", 0) * (1 - p.get("trailing_stop_pct", 0) / 100), 2
             ) if p.get("trailing_stop_pct", 0) > 0 else 0,
+            "strategy_reason": p.get("strategy_reason", ""),
         })
     return result
 

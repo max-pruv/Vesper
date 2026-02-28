@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+{% block title %}How It Works — Vesper{% endblock %}
+{% block body %}
+
+<div class="nav">
+    <span class="nav-logo">vesper</span>
+    <div class="nav-links">
+        <a class="nav-link" href="/dashboard">Dashboard</a>
+        <a class="nav-link active" href="/how-it-works">How it works</a>
+        <a class="nav-link" href="/settings">Settings</a>
+        <a class="nav-link" href="/logout">Log out</a>
+    </div>
+</div>
+
+<div class="page-wrapper">
+<div style="max-width:760px;margin:0 auto;padding:32px 0 64px;">
+
+<h1 style="font-size:28px;font-weight:700;letter-spacing:-0.5px;margin-bottom:8px;">How Vesper Works</h1>
+<p style="color:var(--text-secondary);font-size:15px;margin-bottom:40px;">
+    Vesper is a fully autonomous AI trading system. You set a budget, press Start, and the AI handles everything &mdash; scanning markets, entering positions, managing risk, and taking profits. No manual trading required.
+</p>
+
+<!-- Overview Diagram -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px;margin-bottom:32px;">
+    <div style="font-size:16px;font-weight:700;margin-bottom:16px;">System Overview</div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;font-size:13px;font-weight:600;">
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 18px;text-align:center;">
+            <div style="color:var(--accent);font-size:18px;margin-bottom:4px;">1</div>
+            Market Scan
+        </div>
+        <div style="color:var(--text-muted);">&rarr;</div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 18px;text-align:center;">
+            <div style="color:var(--accent);font-size:18px;margin-bottom:4px;">2</div>
+            AI Analysis
+        </div>
+        <div style="color:var(--text-muted);">&rarr;</div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 18px;text-align:center;">
+            <div style="color:var(--accent);font-size:18px;margin-bottom:4px;">3</div>
+            Auto Entry
+        </div>
+        <div style="color:var(--text-muted);">&rarr;</div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 18px;text-align:center;">
+            <div style="color:var(--accent);font-size:18px;margin-bottom:4px;">4</div>
+            Risk Managed
+        </div>
+        <div style="color:var(--text-muted);">&rarr;</div>
+        <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px 18px;text-align:center;">
+            <div style="color:var(--accent);font-size:18px;margin-bottom:4px;">5</div>
+            Auto Exit
+        </div>
+    </div>
+    <p style="color:var(--text-muted);font-size:12px;text-align:center;margin-top:16px;">
+        This cycle runs every 60 seconds, 24/7. The AI continuously monitors all positions and scans for new opportunities.
+    </p>
+</div>
+
+<!-- 3 Segments -->
+<div style="font-size:20px;font-weight:700;margin-bottom:16px;">Three Autopilot Segments</div>
+
+<!-- Crypto -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+        <div style="width:36px;height:36px;border-radius:10px;background:rgba(247,147,26,0.15);display:flex;align-items:center;justify-content:center;font-size:18px;">&#8383;</div>
+        <div>
+            <div style="font-size:16px;font-weight:700;">Crypto Autopilot</div>
+            <div style="font-size:12px;color:var(--text-muted);">Altcoin trend hunter</div>
+        </div>
+    </div>
+    <div style="color:var(--text-secondary);font-size:13px;line-height:1.7;">
+        <p><strong>What it scans:</strong> 60+ altcoins on Coinbase (BTC, ETH, SOL, DOGE, PEPE, SUI, etc.)</p>
+        <p style="margin-top:8px;"><strong>How it decides:</strong> Each coin is scored on 6 factors:</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin:10px 0 10px 16px;font-size:12px;">
+            <div><span style="color:var(--accent);">1.</span> Momentum (MACD histogram)</div>
+            <div><span style="color:var(--accent);">2.</span> RSI position (50-70 = ideal)</div>
+            <div><span style="color:var(--accent);">3.</span> EMA alignment (12 > 26 > 50)</div>
+            <div><span style="color:var(--accent);">4.</span> Volume surge (vs average)</div>
+            <div><span style="color:var(--accent);">5.</span> ADX trend strength</div>
+            <div><span style="color:var(--accent);">6.</span> BTC relative strength</div>
+        </div>
+        <p>Coins scoring above 0.55 get a <strong>BUY signal</strong>. Capital is allocated proportionally &mdash; stronger trends get more money.</p>
+        <p style="margin-top:8px;"><strong>Risk management:</strong> Adaptive stop-loss based on volatility (ATR). Trailing stops follow price up, locking in gains. Positions with weakening trends (score &lt; 0.40) are auto-closed and capital is redeployed.</p>
+    </div>
+</div>
+
+<!-- Stocks -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:16px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+        <div style="width:36px;height:36px;border-radius:10px;background:rgba(0,220,90,0.12);display:flex;align-items:center;justify-content:center;font-size:18px;">$</div>
+        <div>
+            <div style="font-size:16px;font-weight:700;">Stocks Autopilot</div>
+            <div style="font-size:12px;color:var(--text-muted);">AI portfolio manager</div>
+        </div>
+    </div>
+    <div style="color:var(--text-secondary);font-size:13px;line-height:1.7;">
+        <p><strong>What it scans:</strong> Top 20 crypto pairs + 20 US stocks (NVDA, AAPL, TSLA, META, etc. via Alpaca)</p>
+        <p style="margin-top:8px;"><strong>How it decides:</strong> 6-layer AI brain combines:</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 16px;margin:10px 0 10px 16px;font-size:12px;">
+            <div><span style="color:var(--accent);">1.</span> Technical ensemble (3 strategies vote)</div>
+            <div><span style="color:var(--accent);">2.</span> Multi-timeframe alignment (1h + 4h)</div>
+            <div><span style="color:var(--accent);">3.</span> Order book pressure (bid/ask)</div>
+            <div><span style="color:var(--accent);">4.</span> Whale activity tracking</div>
+            <div><span style="color:var(--accent);">5.</span> Market sentiment analysis</div>
+            <div><span style="color:var(--accent);">6.</span> ADX trend strength filter</div>
+        </div>
+        <p>The AI can <strong>override technical signals</strong> when whale accumulation + bullish sentiment are detected (forward-looking edge). Requires combined confidence &ge; 40% to enter.</p>
+        <p style="margin-top:8px;"><strong>Risk management:</strong> Dynamic stop-loss scaled by ATR. Take-profit range scales with confidence. Trailing stops enabled (1.5%). Funds are split evenly across up to 3 positions.</p>
+    </div>
+</div>
+
+<!-- Predictions -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:32px;">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+        <div style="width:36px;height:36px;border-radius:10px;background:rgba(139,92,246,0.15);display:flex;align-items:center;justify-content:center;font-size:18px;">&#9733;</div>
+        <div>
+            <div style="font-size:16px;font-weight:700;">Predictions Autopilot</div>
+            <div style="font-size:12px;color:var(--text-muted);">AI-powered prediction markets</div>
+        </div>
+    </div>
+    <div style="color:var(--text-secondary);font-size:13px;line-height:1.7;">
+        <p><strong>What it scans:</strong> Live prediction markets on Polymarket (politics, economics, tech, sports, etc.)</p>
+        <p style="margin-top:8px;"><strong>How it decides (2-stage AI pipeline):</strong></p>
+        <div style="margin:10px 0 10px 16px;font-size:12px;">
+            <div style="margin-bottom:8px;">
+                <span style="color:var(--accent);font-weight:600;">Stage 1 &mdash; Perplexity Sonar:</span>
+                <span style="color:var(--text-muted);"> Searches the live web for latest news, expert opinions, polls, data points, and historical context about each market question.</span>
+            </div>
+            <div>
+                <span style="color:var(--accent);font-weight:600;">Stage 2 &mdash; Claude AI:</span>
+                <span style="color:var(--text-muted);"> Deep reasoning on the gathered evidence. Produces a calibrated probability estimate, confidence level, and structured yes/no factors.</span>
+            </div>
+        </div>
+        <p>The AI compares its probability estimate against the market price. If the edge (difference) exceeds 5%, it places a bet on the underpriced side.</p>
+        <p style="margin-top:8px;"><strong>Rate limit:</strong> Runs every 60 minutes. Researches top 3 markets per cycle. Results cached for 4 hours. Cost ~$0.30/day.</p>
+    </div>
+</div>
+
+<!-- Risk Management -->
+<div style="font-size:20px;font-weight:700;margin-bottom:16px;">Risk Management</div>
+
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:16px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+        <div>
+            <div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:8px;">Stop-Loss Protection</div>
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+                Every position has an automatic stop-loss based on the asset's volatility (ATR). More volatile assets get wider stops. If price drops below the stop-loss, the position is closed immediately to limit losses.
+            </div>
+        </div>
+        <div>
+            <div style="font-size:14px;font-weight:700;color:var(--accent);margin-bottom:8px;">Trailing Stops</div>
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+                As price rises, the stop-loss follows it up. This locks in gains while letting winners run. Example: 2% trailing stop &mdash; if price peaks at $115, stop-loss moves to $112.70. Unlimited upside, protected downside.
+            </div>
+        </div>
+        <div>
+            <div style="font-size:14px;font-weight:700;color:#0af;margin-bottom:8px;">Auto-Rebalancing</div>
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+                The Crypto autopilot continuously re-evaluates positions. If a coin's trend weakens (score drops below 0.40), the AI sells it and redeploys the capital into the next strongest opportunity.
+            </div>
+        </div>
+        <div>
+            <div style="font-size:14px;font-weight:700;color:#f80;margin-bottom:8px;">Capital Isolation</div>
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+                Each autopilot has its own budget. Crypto losses don't affect your Stocks fund. Predictions losses don't touch your crypto. Total risk is always capped at what you allocate.
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Continuous Trading -->
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:32px;">
+    <div style="font-size:14px;font-weight:700;margin-bottom:10px;">Continuous Mode</div>
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+        When a position hits its take-profit or trailing stop, the autopilot doesn't just pocket the gain &mdash; it <strong>re-enters</strong> at the new price with the same capital. This compounds returns over time. If the trend continues, you ride consecutive waves. If it reverses, the stop-loss protects you on the new entry.
+    </div>
+</div>
+
+<!-- Paper vs Live -->
+<div style="font-size:20px;font-weight:700;margin-bottom:16px;">Paper vs Live Trading</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:32px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;">
+        <div style="font-size:14px;font-weight:700;margin-bottom:8px;">
+            <span style="display:inline-block;padding:2px 8px;border-radius:8px;background:rgba(0,220,90,0.12);color:var(--accent);font-size:11px;font-weight:600;margin-right:6px;">DEFAULT</span>
+            Paper Mode
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+            Simulated trading with virtual balance. All strategies run in real-time with real market data, but no actual orders are placed. Use this to validate the AI's performance before committing real funds.
+        </div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;">
+        <div style="font-size:14px;font-weight:700;margin-bottom:8px;">
+            <span style="display:inline-block;padding:2px 8px;border-radius:8px;background:rgba(255,59,48,0.12);color:var(--red);font-size:11px;font-weight:600;margin-right:6px;">ADVANCED</span>
+            Live Mode
+        </div>
+        <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+            Real orders on Coinbase (crypto) and Alpaca (stocks). Requires API keys configured in Settings. Same AI logic, same risk management &mdash; but with real money. Start small.
+        </div>
+    </div>
+</div>
+
+<!-- Technical Architecture -->
+<div style="font-size:20px;font-weight:700;margin-bottom:16px;">Under the Hood</div>
+
+<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;margin-bottom:32px;">
+    <div style="font-size:12px;color:var(--text-secondary);line-height:1.8;">
+        <div style="display:grid;grid-template-columns:140px 1fr;gap:8px 16px;">
+            <span style="color:var(--text-muted);font-weight:600;">Cycle frequency</span>
+            <span>Every 60 seconds</span>
+            <span style="color:var(--text-muted);font-weight:600;">Market data</span>
+            <span>Coinbase (crypto), Alpaca (stocks), Polymarket (predictions)</span>
+            <span style="color:var(--text-muted);font-weight:600;">AI models</span>
+            <span>Perplexity Sonar (web search) + Claude Haiku (reasoning)</span>
+            <span style="color:var(--text-muted);font-weight:600;">Strategies</span>
+            <span>Trend following, mean reversion, momentum &mdash; combined via weighted ensemble</span>
+            <span style="color:var(--text-muted);font-weight:600;">Intelligence</span>
+            <span>Whale tracking, order book analysis, Reddit/news sentiment, Fear &amp; Greed index</span>
+            <span style="color:var(--text-muted);font-weight:600;">Indicators</span>
+            <span>RSI, MACD, EMA 12/26/50, Bollinger Bands, ADX, ATR, Volume SMA</span>
+            <span style="color:var(--text-muted);font-weight:600;">Infrastructure</span>
+            <span>Docker container on dedicated VPS, auto-restart, 24/7 uptime</span>
+        </div>
+    </div>
+</div>
+
+<div style="text-align:center;padding:16px 0;color:var(--text-muted);font-size:12px;">
+    Questions? Check <a href="/settings">Settings</a> to connect your exchange accounts, or head back to the <a href="/dashboard">Dashboard</a> to start an autopilot.
+</div>
+
+</div>
+</div>
+
+{% endblock %}

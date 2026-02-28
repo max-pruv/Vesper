@@ -14,7 +14,7 @@ class EnsembleStrategy(Strategy):
 
     name = "ensemble"
 
-    def __init__(self, min_confidence: float = 0.5):
+    def __init__(self, min_confidence: float = 0.35):
         self.min_confidence = min_confidence
         self.strategies: list[tuple[Strategy, float]] = [
             (TrendFollowingStrategy(), 0.35),
