@@ -1318,3 +1318,33 @@ async def api_autopilot_toggle(request: Request):
         json.dump(pdata, f, indent=2)
 
     return {"ok": True, "autopilot": pdata.get("autopilot", {})}
+
+
+# ═══════════════════════════════════════
+# Polymarket API
+# ═══════════════════════════════════════
+
+_polymarket_cache: dict = {"data": None, "ts": 0}
+
+
+@app.get("/api/polymarket/markets")
+async def api_polymarket_markets(request: Request, limit: int = 20):
+    """Fetch trending Polymarket prediction markets."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    # Cache for 2 minutes (Gamma API is rate-limited)
+    now = time.time()
+    if _polymarket_cache["data"] and now - _polymarket_cache["ts"] < 120:
+        markets = _polymarket_cache["data"]
+    else:
+        try:
+            from vesper.polymarket import get_trending_markets
+            markets = get_trending_markets(limit=50)
+            _polymarket_cache["data"] = markets
+            _polymarket_cache["ts"] = now
+        except Exception as e:
+            return JSONResponse({"error": f"Polymarket API error: {str(e)}"}, status_code=502)
+
+    return {"markets": markets[:limit]}

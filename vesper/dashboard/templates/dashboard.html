@@ -16,14 +16,64 @@
     <span class="nav-logo">vesper</span>
     <div class="nav-links">
         <a class="nav-link active" href="/dashboard">Dashboard</a>
-        <a class="nav-link" href="#decisionsContainer" onclick="document.getElementById('decisionsContainer').scrollIntoView({behavior:'smooth'});return false;">Decisions</a>
         <a class="nav-link" href="/settings">Settings</a>
         <a class="nav-link" href="/logout">Log out</a>
     </div>
 </div>
 
 <div class="page-wrapper">
+
+<!-- Main Tabs -->
+<div style="display:flex;justify-content:center;padding:16px 0 0;">
+    <div style="display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px;" id="mainTabs">
+        <button class="tab-pill active" onclick="switchTab('trading')" id="tabTrading">Trading</button>
+        <button class="tab-pill" onclick="switchTab('predictions')" id="tabPredictions">Predictions</button>
+    </div>
+</div>
+<style>
+    .tab-pill {
+        padding: 8px 20px; border: none; border-radius: 8px;
+        font-size: 13px; font-weight: 600; cursor: pointer;
+        background: transparent; color: var(--text-muted);
+        font-family: inherit; transition: all 0.2s;
+    }
+    .tab-pill:hover { color: var(--text); }
+    .tab-pill.active { background: var(--card); color: var(--text); }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .pm-card {
+        background: var(--surface); border: 1px solid var(--border);
+        border-radius: 14px; padding: 18px; transition: all 0.2s;
+    }
+    .pm-card:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+    .pm-prob-bar {
+        height: 6px; border-radius: 3px; overflow: hidden;
+        background: var(--red-dim); margin-top: 10px;
+    }
+    .pm-prob-fill {
+        height: 100%; border-radius: 3px;
+        background: var(--green); transition: width 0.3s;
+    }
+    .pm-tag {
+        display: inline-block; padding: 2px 8px; border-radius: 10px;
+        font-size: 10px; font-weight: 600; background: rgba(255,255,255,0.06);
+        color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px;
+    }
+    .pm-volume {
+        font-size: 12px; color: var(--text-muted); font-weight: 500;
+    }
+    .pm-outcome {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 6px 0;
+    }
+    .pm-outcome-name { font-size: 13px; color: var(--text-secondary); }
+    .pm-outcome-price { font-size: 14px; font-weight: 700; }
+</style>
+
 <div class="container">
+
+<!-- ═══ TRADING TAB ═══ -->
+<div class="tab-content active" id="contentTrading">
 
     {% if not has_api_keys %}
     <div class="alert" style="background:rgba(255,255,255,0.04);color:var(--text-secondary);border:1px solid var(--border);border-radius:12px;">
@@ -192,6 +242,44 @@
         </div>
         {% endif %}
     </div>
+
+</div><!-- /contentTrading -->
+
+<!-- ═══ PREDICTIONS TAB ═══ -->
+<div class="tab-content" id="contentPredictions">
+
+    <!-- Predictions Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px;flex-wrap:wrap;gap:16px;">
+        <div>
+            <div style="font-size:14px;color:var(--text-muted);margin-bottom:4px;">Prediction Markets</div>
+            <div style="font-size:28px;font-weight:700;letter-spacing:-1px;">Polymarket</div>
+            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">Active prediction markets sorted by volume. Prices = implied probability.</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+            <select id="pmCategoryFilter" onchange="filterPolymarkets()" style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:12px;">
+                <option value="all">All Categories</option>
+                <option value="Politics">Politics</option>
+                <option value="Sports">Sports</option>
+                <option value="Crypto">Crypto</option>
+                <option value="Business">Business</option>
+                <option value="Science">Science</option>
+                <option value="Pop Culture">Pop Culture</option>
+            </select>
+            <button class="btn btn-sm" style="background:var(--card);border:1px solid var(--border);font-size:12px;" onclick="fetchPolymarkets()">Refresh</button>
+        </div>
+    </div>
+
+    <div id="pmMarketsContainer">
+        <div style="text-align:center;padding:40px;color:var(--text-muted);">
+            <div style="font-size:20px;margin-bottom:8px;">Loading markets...</div>
+        </div>
+    </div>
+
+    <div id="pmLoadMore" style="text-align:center;padding:16px;display:none;">
+        <button class="btn btn-sm" style="background:var(--card);border:1px solid var(--border);font-size:12px;" onclick="loadMoreMarkets()">Load More</button>
+    </div>
+
+</div><!-- /contentPredictions -->
 
 </div>
 </div>
@@ -1148,6 +1236,152 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// ═══════════════════════════════════════
+// Tab Navigation
+// ═══════════════════════════════════════
+let pmLoaded = false;
+
+function switchTab(tab) {
+    // Toggle tab pills
+    document.querySelectorAll('.tab-pill').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+    if (tab === 'trading') {
+        document.getElementById('tabTrading').classList.add('active');
+        document.getElementById('contentTrading').classList.add('active');
+    } else if (tab === 'predictions') {
+        document.getElementById('tabPredictions').classList.add('active');
+        document.getElementById('contentPredictions').classList.add('active');
+        if (!pmLoaded) {
+            fetchPolymarkets();
+            pmLoaded = true;
+        }
+    }
+}
+
+// ═══════════════════════════════════════
+// Polymarket — Prediction Markets
+// ═══════════════════════════════════════
+let pmAllMarkets = [];
+
+async function fetchPolymarkets() {
+    const container = document.getElementById('pmMarketsContainer');
+    container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">Loading markets...</div>';
+    try {
+        const resp = await fetch('/api/polymarket/markets?limit=30');
+        const data = await resp.json();
+        if (data.error) {
+            container.innerHTML = `<div style="text-align:center;padding:40px;color:var(--red);">${escapeHtml(data.error)}</div>`;
+            return;
+        }
+        pmAllMarkets = data.markets || [];
+        renderPolymarkets(pmAllMarkets);
+    } catch(e) {
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--red);">Failed to load markets</div>';
+    }
+}
+
+function filterPolymarkets() {
+    const cat = document.getElementById('pmCategoryFilter').value;
+    if (cat === 'all') {
+        renderPolymarkets(pmAllMarkets);
+    } else {
+        const filtered = pmAllMarkets.filter(m => (m.tags || []).some(t => t.toLowerCase().includes(cat.toLowerCase())));
+        renderPolymarkets(filtered);
+    }
+}
+
+function renderPolymarkets(markets) {
+    const container = document.getElementById('pmMarketsContainer');
+    if (!markets.length) {
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">No markets found for this category.</div>';
+        return;
+    }
+
+    let html = '<div style="display:grid;gap:12px;">';
+    for (const m of markets) {
+        const question = escapeHtml(m.question || '');
+        const eventTitle = escapeHtml(m.event_title || '');
+        const vol = m.volume >= 1e6 ? `$${(m.volume / 1e6).toFixed(1)}M` : `$${(m.volume / 1e3).toFixed(0)}K`;
+        const vol24 = m.volume_24h >= 1e6 ? `$${(m.volume_24h / 1e6).toFixed(1)}M` : m.volume_24h >= 1e3 ? `$${(m.volume_24h / 1e3).toFixed(0)}K` : `$${m.volume_24h.toFixed(0)}`;
+        const liq = m.liquidity >= 1e6 ? `$${(m.liquidity / 1e6).toFixed(1)}M` : `$${(m.liquidity / 1e3).toFixed(0)}K`;
+
+        // Tags
+        let tagsHtml = (m.tags || []).map(t => `<span class="pm-tag">${escapeHtml(t)}</span>`).join(' ');
+
+        // Outcomes
+        let outcomesHtml = '';
+        const outcomes = m.outcomes || [];
+        const yesOutcome = outcomes.find(o => o.name === 'Yes') || outcomes[0];
+        const noOutcome = outcomes.find(o => o.name === 'No') || outcomes[1];
+
+        if (yesOutcome && noOutcome) {
+            const yesPct = yesOutcome.probability;
+            const noPct = noOutcome.probability;
+            const yesColor = yesPct >= 70 ? 'var(--green)' : yesPct >= 40 ? 'var(--text)' : 'var(--red)';
+            const noColor = noPct >= 70 ? 'var(--green)' : noPct >= 40 ? 'var(--text)' : 'var(--red)';
+            outcomesHtml = `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:13px;color:var(--text-secondary);">Yes</span>
+                        <span style="font-size:20px;font-weight:700;color:${yesColor};">${yesPct.toFixed(0)}%</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:20px;font-weight:700;color:${noColor};">${noPct.toFixed(0)}%</span>
+                        <span style="font-size:13px;color:var(--text-secondary);">No</span>
+                    </div>
+                </div>
+                <div class="pm-prob-bar">
+                    <div class="pm-prob-fill" style="width:${yesPct}%;"></div>
+                </div>
+            `;
+        } else {
+            // Multi-outcome market
+            for (const o of outcomes) {
+                const pct = o.probability;
+                const color = pct >= 50 ? 'var(--green)' : pct >= 20 ? 'var(--text)' : 'var(--text-muted)';
+                outcomesHtml += `
+                    <div class="pm-outcome">
+                        <span class="pm-outcome-name">${escapeHtml(o.name)}</span>
+                        <span class="pm-outcome-price" style="color:${color};">${pct.toFixed(0)}%</span>
+                    </div>
+                `;
+            }
+        }
+
+        // End date
+        let endHtml = '';
+        if (m.end_date) {
+            const end = new Date(m.end_date);
+            const now = new Date();
+            const daysLeft = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)));
+            const endStr = end.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'});
+            const urgency = daysLeft <= 7 ? 'color:var(--red);' : daysLeft <= 30 ? 'color:#f5a623;' : 'color:var(--text-muted);';
+            endHtml = `<span style="font-size:11px;${urgency}">${daysLeft}d left &middot; ${endStr}</span>`;
+        }
+
+        html += `
+        <div class="pm-card">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+                <div style="flex:1;">
+                    <div style="font-size:15px;font-weight:600;line-height:1.3;margin-bottom:6px;">${question}</div>
+                    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        ${tagsHtml}
+                        <span class="pm-volume">Vol: ${vol}</span>
+                        <span class="pm-volume">24h: ${vol24}</span>
+                        <span class="pm-volume">Liq: ${liq}</span>
+                        ${endHtml}
+                    </div>
+                </div>
+            </div>
+            ${outcomesHtml}
+        </div>
+        `;
+    }
+    html += '</div>';
+    container.innerHTML = html;
 }
 </script>
 {% endblock %}
