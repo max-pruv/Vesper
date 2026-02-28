@@ -25,9 +25,66 @@ from vesper.logger import setup_logger, console
 
 # Thread-local storage for per-thread ccxt exchange instances
 _thread_local = threading.local()
-# Shared markets cache (loaded once, reused by all threads)
-_markets_data: dict | None = None  # Full state dict from load_markets
-_markets_lock = threading.Lock()
+# Shared exchange state (resolved once at startup, reused everywhere)
+_exchange_lock = threading.Lock()
+_exchange_name: str | None = None
+_exchange_factory = None  # callable() -> ccxt.Exchange
+_markets_data: dict | None = None
+
+# Exchanges to try, in preference order (best USDT pair coverage first)
+_EXCHANGE_CANDIDATES = [
+    ("binance", lambda: ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})),
+    ("binanceus", lambda: ccxt.binanceus({"enableRateLimit": True})),
+    ("kucoin", lambda: ccxt.kucoin({"enableRateLimit": True})),
+    ("okx", lambda: ccxt.okx({"enableRateLimit": True})),
+    ("bybit", lambda: ccxt.bybit({"enableRateLimit": True, "options": {"defaultType": "spot"}})),
+]
+
+
+def _resolve_exchange(logger=None) -> tuple:
+    """Find the first reachable crypto exchange and cache its markets.
+
+    Tries multiple exchanges in order until one responds with OHLCV data.
+    Returns (exchange_instance, exchange_name).
+    """
+    global _exchange_name, _exchange_factory, _markets_data
+    with _exchange_lock:
+        if _markets_data is not None:
+            # Already resolved — create a new instance with cached markets
+            ex = _exchange_factory()
+            ex.markets = _markets_data["markets"]
+            ex.markets_by_id = _markets_data["markets_by_id"]
+            ex.currencies = _markets_data["currencies"]
+            ex.currencies_by_id = _markets_data["currencies_by_id"]
+            return ex, _exchange_name
+
+        # First time — probe exchanges
+        for name, factory in _EXCHANGE_CANDIDATES:
+            try:
+                ex = factory()
+                ex.load_markets()
+                # Verify OHLCV works with a quick BTC fetch
+                ohlcv = ex.fetch_ohlcv("BTC/USDT", timeframe="1h", limit=5)
+                if not ohlcv:
+                    continue
+                # Success — cache this exchange
+                _exchange_name = name
+                _exchange_factory = factory
+                _markets_data = {
+                    "markets": ex.markets,
+                    "markets_by_id": ex.markets_by_id,
+                    "currencies": ex.currencies,
+                    "currencies_by_id": ex.currencies_by_id,
+                }
+                if logger:
+                    logger.info(f"[exchange] Using {name} for market data ({len(ex.markets)} markets)")
+                return ex, name
+            except Exception as e:
+                if logger:
+                    logger.warning(f"[exchange] {name} failed: {str(e)[:100]}")
+                continue
+
+        raise RuntimeError("No crypto exchange reachable from this server")
 
 
 class UserBot:
@@ -53,42 +110,16 @@ class UserBot:
         )
 
         self.exchange = create_exchange(exchange_cfg)
-        # Public exchange for market data (Binance — reliable USDT pairs, no auth needed)
-        self.public_exchange = self._create_binance_exchange()
+        # Public exchange for market data — auto-selects reachable exchange
+        self.public_exchange, self._exchange_name = _resolve_exchange(logger)
         self.alpaca = alpaca_client  # None if user hasn't connected Alpaca
 
-    @staticmethod
-    def _create_binance_exchange() -> ccxt.binance:
-        """Create a Binance exchange instance with cached markets data.
-
-        Markets are loaded once and shared across all instances to avoid
-        repeated slow HTTP calls. Each instance has its own session/rate-limiter
-        so it's safe for concurrent use in different threads.
-        """
-        global _markets_data
-        ex = ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
-        with _markets_lock:
-            if _markets_data is None:
-                ex.load_markets()
-                _markets_data = {
-                    "markets": ex.markets,
-                    "markets_by_id": ex.markets_by_id,
-                    "currencies": ex.currencies,
-                    "currencies_by_id": ex.currencies_by_id,
-                }
-            else:
-                ex.markets = _markets_data["markets"]
-                ex.markets_by_id = _markets_data["markets_by_id"]
-                ex.currencies = _markets_data["currencies"]
-                ex.currencies_by_id = _markets_data["currencies_by_id"]
-        return ex
-
-    def _get_thread_exchange(self) -> ccxt.binance:
-        """Get a thread-local Binance exchange instance (thread-safe for parallel scanning)."""
-        ex = getattr(_thread_local, "binance_exchange", None)
+    def _get_thread_exchange(self) -> ccxt.Exchange:
+        """Get a thread-local exchange instance (thread-safe for parallel scanning)."""
+        ex = getattr(_thread_local, "data_exchange", None)
         if ex is None:
-            ex = self._create_binance_exchange()
-            _thread_local.binance_exchange = ex
+            ex, _ = _resolve_exchange()
+            _thread_local.data_exchange = ex
         return ex
 
     def run_cycle(self):
