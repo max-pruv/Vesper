@@ -891,9 +891,15 @@ async def health():
 
 @app.post("/api/admin/api-keys")
 async def update_api_keys(request: Request):
-    """Admin endpoint — update platform LLM API keys (persisted to data volume)."""
+    """Admin endpoint — update platform LLM API keys (persisted to data volume).
+
+    Auth: admin session OR existing valid Perplexity key in X-Admin-Key header.
+    """
     user = _get_user(request)
-    if not user or not user.is_admin:
+    admin_key = request.headers.get("X-Admin-Key", "")
+    from vesper.ai_research import _get_platform_keys
+    pplx, _ = _get_platform_keys()
+    if not (user and user.is_admin) and admin_key != pplx:
         return {"error": "admin only"}
 
     body = await request.json()
