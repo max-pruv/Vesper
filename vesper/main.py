@@ -23,6 +23,12 @@ from vesper.risk import RiskManager, PositionLimits
 from vesper.portfolio import Portfolio, Position
 from vesper.logger import setup_logger, console
 
+# Thread-local storage for per-thread ccxt exchange instances
+_thread_local = threading.local()
+# Shared markets cache (loaded once, reused by all threads)
+_markets_data: dict | None = None  # Full state dict from load_markets
+_markets_lock = threading.Lock()
+
 
 class UserBot:
     """Trading bot instance for a single user."""
@@ -48,9 +54,42 @@ class UserBot:
 
         self.exchange = create_exchange(exchange_cfg)
         # Public exchange for market data (Binance — reliable USDT pairs, no auth needed)
-        self.public_exchange = ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
-        self.public_exchange.load_markets()  # CRITICAL: must load before fetch_ohlcv
+        self.public_exchange = self._create_binance_exchange()
         self.alpaca = alpaca_client  # None if user hasn't connected Alpaca
+
+    @staticmethod
+    def _create_binance_exchange() -> ccxt.binance:
+        """Create a Binance exchange instance with cached markets data.
+
+        Markets are loaded once and shared across all instances to avoid
+        repeated slow HTTP calls. Each instance has its own session/rate-limiter
+        so it's safe for concurrent use in different threads.
+        """
+        global _markets_data
+        ex = ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
+        with _markets_lock:
+            if _markets_data is None:
+                ex.load_markets()
+                _markets_data = {
+                    "markets": ex.markets,
+                    "markets_by_id": ex.markets_by_id,
+                    "currencies": ex.currencies,
+                    "currencies_by_id": ex.currencies_by_id,
+                }
+            else:
+                ex.markets = _markets_data["markets"]
+                ex.markets_by_id = _markets_data["markets_by_id"]
+                ex.currencies = _markets_data["currencies"]
+                ex.currencies_by_id = _markets_data["currencies_by_id"]
+        return ex
+
+    def _get_thread_exchange(self) -> ccxt.binance:
+        """Get a thread-local Binance exchange instance (thread-safe for parallel scanning)."""
+        ex = getattr(_thread_local, "binance_exchange", None)
+        if ex is None:
+            ex = self._create_binance_exchange()
+            _thread_local.binance_exchange = ex
+        return ex
 
     def run_cycle(self):
         """Run one trading cycle for this user."""
@@ -96,18 +135,18 @@ class UserBot:
         self._strategy_cache[strategy_id] = instance
         return instance
 
-    def _get_snapshot(self, symbol: str, strategy_id: str) -> dict:
+    def _get_snapshot(self, symbol: str, strategy_id: str, exchange_override=None) -> dict:
         """Fetch the right market snapshot for a strategy's timeframe.
 
         Uses public_exchange (Binance) for market data — reliable USDT pairs.
-        Falls back to self.exchange (Coinbase) if public fails.
+        Pass exchange_override for thread-safe parallel scanning.
         """
         # Stock symbols use Alpaca data
         if is_stock_symbol(symbol) and self.alpaca:
             return get_stock_snapshot(self.alpaca, symbol)
 
-        # Use public Binance for crypto data (reliable USDT pairs)
-        data_exchange = self.public_exchange
+        # Use override (thread-local) or default public exchange
+        data_exchange = exchange_override or self.public_exchange
 
         config = STRATEGY_MAP.get(strategy_id, {})
         timeframe = config.get("timeframe", "1h")
@@ -586,7 +625,8 @@ class UserBot:
             if sym == "BTC/USDT":
                 return None
             try:
-                snap = self._get_snapshot(sym, "altcoin_hunter")
+                thread_ex = self._get_thread_exchange()
+                snap = self._get_snapshot(sym, "altcoin_hunter", exchange_override=thread_ex)
                 score_data = compute_trend_score(snap, btc_snapshot)
                 return {
                     "symbol": sym,
@@ -961,18 +1001,25 @@ class UserBot:
                 _json.dump(pdata, f, indent=2)
             return
 
-        # Fetch trending prediction markets
+        # Fetch trending prediction markets from all sources
+        markets = []
         try:
             from vesper.polymarket import get_trending_markets
-            markets = get_trending_markets(limit=30, max_days=14)
+            poly_markets = get_trending_markets(limit=30, max_days=14)
+            for m in poly_markets:
+                m["source"] = "polymarket"
+            markets.extend(poly_markets)
         except Exception as e:
-            self.logger.error(f"[User:{self.email}] Predictions: failed to fetch markets: {e}")
-            # Still save the last_scan_time update
-            path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
-            import json as _json
-            with open(path, "w") as f:
-                _json.dump(pdata, f, indent=2)
-            return
+            self.logger.warning(f"[User:{self.email}] Predictions: Polymarket fetch failed: {e}")
+
+        try:
+            from vesper.kalshi import get_kalshi_markets
+            kalshi_markets = get_kalshi_markets(limit=20, max_days=14)
+            for m in kalshi_markets:
+                m["source"] = "kalshi"
+            markets.extend(kalshi_markets)
+        except Exception as e:
+            self.logger.warning(f"[User:{self.email}] Predictions: Kalshi fetch failed: {e}")
 
         if not markets:
             self._save_autopilot_log({
@@ -991,11 +1038,10 @@ class UserBot:
                 _json.dump(pdata, f, indent=2)
             return
 
-        # Pre-filter: markets with microstructure edge and decent volume
+        # Pre-filter: markets with decent volume (let AI research decide on edge)
         candidates = [
             m for m in markets
-            if m.get("ai_edge", {}).get("ev_per_dollar", 0) > 0.01
-            and m.get("volume", 0) > 1000
+            if m.get("volume", 0) > 500
         ]
 
         # Skip markets we already have positions on
@@ -1301,7 +1347,8 @@ class UserBot:
             if sym in held:
                 return None
             try:
-                snap = self._get_snapshot(sym, "autopilot")
+                thread_ex = self._get_thread_exchange()
+                snap = self._get_snapshot(sym, "autopilot", exchange_override=thread_ex)
                 result = strategy.analyze(snap)
                 return {
                     "symbol": sym, "price": snap["price"], "snap": snap,

@@ -920,6 +920,107 @@ async def bot_state():
     return result
 
 
+@app.get("/api/admin/scan-test")
+async def scan_test():
+    """Diagnostic endpoint — test the scanning pipeline on a single coin.
+
+    Verifies: Binance OHLCV fetch, indicator calculation, trend scoring.
+    Also tests prediction market fetch from Polymarket + Kalshi.
+    """
+    import traceback
+    results = {}
+
+    # Test 1: Binance OHLCV + indicators for BTC
+    try:
+        import ccxt as _ccxt
+        ex = _ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
+        ex.load_markets()
+
+        from vesper.market_data import get_market_snapshot
+        snap = get_market_snapshot(ex, "BTC/USDT", timeframe="1h")
+        results["btc_snapshot"] = {
+            "ok": True,
+            "price": round(snap["price"], 2),
+            "rsi": round(snap.get("rsi", 0), 2),
+            "macd_hist": round(snap.get("macd_hist", 0), 6),
+            "adx": round(snap.get("adx", 0), 2),
+        }
+    except Exception as e:
+        results["btc_snapshot"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+
+    # Test 2: Altcoin trend scoring
+    try:
+        from vesper.market_data import get_multi_tf_snapshot
+        snap = get_multi_tf_snapshot(ex, "ETH/USDT")
+        from vesper.strategies.altcoin_hunter import compute_trend_score
+        score = compute_trend_score(snap, results.get("btc_snapshot", {}).get("ok") and snap or None)
+        results["eth_score"] = {
+            "ok": True,
+            "score": score["score"],
+            "signal": score["signal"].name,
+            "factors": score["factors"],
+        }
+    except Exception as e:
+        results["eth_score"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+
+    # Test 3: Polymarket fetch
+    try:
+        from vesper.polymarket import get_trending_markets
+        poly = get_trending_markets(limit=5, max_days=14)
+        results["polymarket"] = {
+            "ok": True,
+            "count": len(poly),
+            "samples": [
+                {"q": m.get("question", "")[:80], "vol": m.get("volume", 0), "ev": m.get("ai_edge", {}).get("ev_per_dollar", 0)}
+                for m in poly[:3]
+            ],
+        }
+    except Exception as e:
+        results["polymarket"] = {"ok": False, "error": str(e)}
+
+    # Test 4: Kalshi fetch
+    try:
+        from vesper.kalshi import get_kalshi_markets
+        kalshi = get_kalshi_markets(limit=5, max_days=14)
+        results["kalshi"] = {
+            "ok": True,
+            "count": len(kalshi),
+            "samples": [
+                {"q": m.get("question", "")[:80], "vol": m.get("volume", 0)}
+                for m in kalshi[:3]
+            ],
+        }
+    except Exception as e:
+        results["kalshi"] = {"ok": False, "error": str(e)}
+
+    # Test 5: Thread-safe parallel scan (3 coins)
+    try:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        test_coins = ["SOL/USDT", "XRP/USDT", "DOGE/USDT"]
+        thread_results = []
+
+        def _test_scan(sym):
+            import ccxt as _ccxt2
+            tex = _ccxt2.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
+            tex.markets = ex.markets
+            tex.markets_by_id = ex.markets_by_id
+            s = get_market_snapshot(tex, sym, timeframe="1h")
+            sc = compute_trend_score(s)
+            return {"symbol": sym, "price": round(s["price"], 4), "score": sc["score"], "signal": sc["signal"].name}
+
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            futs = {pool.submit(_test_scan, c): c for c in test_coins}
+            for f in as_completed(futs):
+                r = f.result()
+                thread_results.append(r)
+
+        results["parallel_scan"] = {"ok": True, "results": thread_results}
+    except Exception as e:
+        results["parallel_scan"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+
+    return results
+
+
 @app.post("/api/admin/api-keys")
 async def update_api_keys(request: Request):
     """Admin endpoint — update platform LLM API keys (persisted to data volume).
