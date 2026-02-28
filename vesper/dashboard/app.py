@@ -887,6 +887,76 @@ async def health():
     }
 
 
+@app.get("/api/admin/diagnostics")
+async def admin_diagnostics(request: Request):
+    """Debug endpoint — check API usage DB, test LLM keys."""
+    user = _get_user(request)
+    if not user or not user.is_admin:
+        return {"error": "admin only"}
+
+    import os as _os
+    import sqlite3
+
+    # Check api_usage table
+    db_path = os.path.join(
+        _os.environ.get("VESPER_DATA_DIR", "data"), "vesper.db"
+    )
+    try:
+        conn = sqlite3.connect(db_path, timeout=5)
+        conn.row_factory = sqlite3.Row
+        row_count = conn.execute("SELECT COUNT(*) as n FROM api_usage").fetchone()["n"]
+        recent = [dict(r) for r in conn.execute(
+            "SELECT provider, model, cost_usd, endpoint, created_at FROM api_usage ORDER BY created_at DESC LIMIT 5"
+        ).fetchall()]
+        conn.close()
+    except Exception as e:
+        row_count = -1
+        recent = [{"error": str(e)}]
+
+    # Quick test: Perplexity key validity (lightweight)
+    pplx_ok = None
+    pplx_key = _os.environ.get("PERPLEXITY_API_KEY", "")
+    if pplx_key:
+        try:
+            import httpx
+            r = httpx.post(
+                "https://api.perplexity.ai/chat/completions",
+                headers={"Authorization": f"Bearer {pplx_key}", "Content-Type": "application/json"},
+                json={"model": "sonar", "messages": [{"role": "user", "content": "ping"}], "max_tokens": 5},
+                timeout=10,
+            )
+            pplx_ok = r.status_code == 200
+            if not pplx_ok:
+                pplx_ok = f"HTTP {r.status_code}: {r.text[:200]}"
+        except Exception as e:
+            pplx_ok = f"error: {e}"
+
+    anth_ok = None
+    anth_key = _os.environ.get("ANTHROPIC_API_KEY", "")
+    if anth_key:
+        try:
+            import httpx
+            r = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": anth_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"},
+                json={"model": "claude-haiku-4-5-20251001", "max_tokens": 5, "messages": [{"role": "user", "content": "ping"}]},
+                timeout=10,
+            )
+            anth_ok = r.status_code == 200
+            if not anth_ok:
+                anth_ok = f"HTTP {r.status_code}: {r.text[:200]}"
+        except Exception as e:
+            anth_ok = f"error: {e}"
+
+    return {
+        "db_path": db_path,
+        "api_usage_rows": row_count,
+        "recent_usage": recent,
+        "perplexity_test": pplx_ok,
+        "anthropic_test": anth_ok,
+    }
+
+
 # ── WebSocket: real-time position & portfolio updates ──
 
 _ws_connections: set[WebSocket] = set()
