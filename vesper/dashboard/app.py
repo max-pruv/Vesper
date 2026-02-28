@@ -113,6 +113,12 @@ def _load_portfolio(uid: int) -> dict:
         return json.load(f)
 
 
+def _save_portfolio(uid: int, data: dict):
+    p = os.path.join(DATA_DIR, f"portfolio_{uid}.json")
+    with open(p, "w") as f:
+        json.dump(data, f, indent=2)
+
+
 # --- Home ---
 
 @app.get("/", response_class=HTMLResponse)
@@ -1052,6 +1058,33 @@ async def api_positions(request: Request):
         max_loss_usd = abs(max_loss_usd)
         max_win_usd = abs(max_win_usd)
 
+        # Win probability: how far is price from SL vs TP
+        # 0% at SL, 100% at TP max, interpolated linearly
+        trailing_sl = 0
+        trailing_pct = p.get("trailing_stop_pct", 0)
+        highest_seen = p.get("highest_price_seen", 0)
+        if trailing_pct > 0 and highest_seen > 0:
+            trailing_sl = highest_seen * (1 - trailing_pct / 100)
+
+        effective_sl = max(sl, trailing_sl) if trailing_sl > 0 else sl
+        if side == "buy":
+            range_total = tp_max - effective_sl if tp_max > effective_sl else 1
+            win_prob = max(0, min(100, ((current - effective_sl) / range_total) * 100))
+        else:
+            range_total = effective_sl - tp_max if effective_sl > tp_max else 1
+            win_prob = max(0, min(100, ((effective_sl - current) / range_total) * 100))
+
+        # Price history snapshots for mini sparkline
+        price_snapshots = p.get("price_history", [])
+        # Store new snapshot (kept lean — max 60 points)
+        now_ts = time.time()
+        if len(price_snapshots) == 0 or (now_ts - (price_snapshots[-1].get("t", 0))) > 30:
+            price_snapshots.append({"t": now_ts, "p": current, "w": round(win_prob, 1)})
+            if len(price_snapshots) > 60:
+                price_snapshots = price_snapshots[-60:]
+            p["price_history"] = price_snapshots
+            _save_portfolio(user.id, portfolio)
+
         result.append({
             "id": pid,
             "symbol": sym,
@@ -1069,16 +1102,16 @@ async def api_positions(request: Request):
             "tp_max": tp_max,
             "max_loss": round(max_loss_usd, 2),
             "max_win": round(max_win_usd, 2),
+            "win_probability": round(win_prob, 1),
+            "price_history": [{"t": s.get("t", 0), "p": s.get("p", 0), "w": s.get("w", 50)} for s in price_snapshots[-30:]],
             "strategy_id": p.get("strategy_id", "ensemble"),
             "bet_mode": p.get("bet_mode", "one_off"),
             "trade_mode": p.get("trade_mode", "paper"),
             "est_fee": p.get("est_fee", round(cost_usd * 0.006, 2)),
             "entry_time": p.get("entry_time", 0),
-            "trailing_stop_pct": p.get("trailing_stop_pct", 0),
-            "highest_price_seen": p.get("highest_price_seen", 0),
-            "trailing_sl_price": round(
-                p.get("highest_price_seen", 0) * (1 - p.get("trailing_stop_pct", 0) / 100), 2
-            ) if p.get("trailing_stop_pct", 0) > 0 else 0,
+            "trailing_stop_pct": trailing_pct,
+            "highest_price_seen": highest_seen,
+            "trailing_sl_price": round(trailing_sl, 2) if trailing_pct > 0 else 0,
             "strategy_reason": p.get("strategy_reason", ""),
         })
     return result
