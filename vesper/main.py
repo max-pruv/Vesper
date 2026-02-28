@@ -771,7 +771,10 @@ class Vesper:
         from vesper.dashboard.app import app as dashboard_app
 
         def run():
-            uvicorn.run(dashboard_app, host="0.0.0.0", port=8080, log_level="warning")
+            try:
+                uvicorn.run(dashboard_app, host="0.0.0.0", port=8080, log_level="info")
+            except Exception as e:
+                self.logger.error(f"Dashboard failed to start: {e}")
 
         threading.Thread(target=run, daemon=True).start()
 
