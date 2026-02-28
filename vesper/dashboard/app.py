@@ -895,7 +895,7 @@ async def admin_diagnostics(request: Request):
 
     # Check api_usage table
     db_path = os.path.join(
-        _os.environ.get("VESPER_DATA_DIR", "data"), "vesper.db"
+        os.environ.get("VESPER_DATA_DIR", "data"), "vesper.db"
     )
     try:
         conn = sqlite3.connect(db_path, timeout=5)
@@ -911,7 +911,7 @@ async def admin_diagnostics(request: Request):
 
     # Quick test: Perplexity key validity (lightweight)
     pplx_ok = None
-    pplx_key = _os.environ.get("PERPLEXITY_API_KEY", "")
+    pplx_key = os.environ.get("PERPLEXITY_API_KEY", "")
     if pplx_key:
         try:
             import httpx
@@ -928,7 +928,7 @@ async def admin_diagnostics(request: Request):
             pplx_ok = f"error: {e}"
 
     anth_ok = None
-    anth_key = _os.environ.get("ANTHROPIC_API_KEY", "")
+    anth_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if anth_key:
         try:
             import httpx
