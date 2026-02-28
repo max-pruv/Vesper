@@ -391,12 +391,6 @@ async def dashboard(request: Request):
     losses = [t for t in trades if t.get("pnl_usd", 0) <= 0]
     win_rate = (len(wins) / len(trades) * 100) if trades else 0
 
-    equity = [{"time": 0, "value": initial}]
-    running = initial
-    for t in trades:
-        running += t.get("pnl_usd", 0)
-        equity.append({"time": t.get("exit_time", 0), "value": round(running, 2)})
-
     fmt_trades = []
     for t in reversed(trades[-50:]):
         fmt_trades.append({
@@ -448,7 +442,6 @@ async def dashboard(request: Request):
         "win_rate": win_rate, "total_trades": len(trades),
         "wins": len(wins), "losses": len(losses),
         "positions": fmt_pos, "trades": fmt_trades,
-        "equity_curve": json.dumps(equity),
         "has_api_keys": bool(user.coinbase_api_key) or bool(user.alpaca_api_key),
         "has_alpaca": bool(user.alpaca_api_key),
         "strategies": strategies,

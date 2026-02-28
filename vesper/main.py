@@ -150,11 +150,53 @@ class UserBot:
         # Predictions Autopilot: AI research on prediction markets, auto-betting
         self._run_predictions_autopilot()
 
+        # Record price snapshots for position P&L charts (runs every cycle = every minute)
+        self._record_price_snapshots(prices)
+
         summary = self.portfolio.summary(prices)
         self.logger.info(
             f"[User:{self.email}] Portfolio: ${summary['total_value']:,.2f} | "
             f"P&L: ${summary['total_pnl_usd']:+,.2f} ({summary['total_pnl_pct']:+.2f}%)"
         )
+
+    def _record_price_snapshots(self, prices: dict):
+        """Record a price data point for each open position (for sparkline charts)."""
+        import time as _time
+        import json as _json
+        now = _time.time()
+        raw = self.portfolio._load_raw()
+        positions = raw.get("positions", {})
+        changed = False
+        for pid, p in positions.items():
+            sym = p.get("symbol", "")
+            entry = p.get("entry_price", 0)
+            if not sym or not entry:
+                continue
+            current = prices.get(sym, 0)
+            if current <= 0:
+                continue
+            history = p.get("price_history", [])
+            # Only record if >30s since last snapshot
+            if history and (now - history[-1].get("t", 0)) < 30:
+                continue
+            sl = p.get("limits", {}).get("stop_loss_price", 0)
+            tp_max = p.get("limits", {}).get("take_profit_max_price", 0)
+            trailing_pct = p.get("trailing_stop_pct", 0)
+            highest = p.get("highest_price_seen", 0)
+            trailing_sl = highest * (1 - trailing_pct / 100) if trailing_pct > 0 and highest > 0 else 0
+            eff_sl = max(sl, trailing_sl) if trailing_sl > 0 else sl
+            range_total = tp_max - eff_sl if tp_max > eff_sl else 1
+            win_prob = max(0, min(100, ((current - eff_sl) / range_total) * 100))
+            history.append({"t": now, "p": current, "w": round(win_prob, 1)})
+            if len(history) > 120:
+                history = history[-120:]
+            p["price_history"] = history
+            changed = True
+        if changed:
+            raw["positions"] = positions
+            path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+            with open(path, "w") as f:
+                _json.dump(raw, f, indent=2)
 
     def _get_strategy(self, strategy_id: str):
         """Get or create a strategy instance for the given strategy_id."""
@@ -1107,6 +1149,11 @@ class UserBot:
             from vesper.ai_research import research_market
         except ImportError:
             self.logger.error(f"[User:{self.email}] Predictions: ai_research module not available")
+            self._save_autopilot_log({
+                "type": "predictions_scan", "markets_scanned": len(markets),
+                "status": "error", "error": "ai_research module missing",
+                "positions": len(pred_positions), "actions": [],
+            })
             return
 
         for market in candidates[:research_limit]:
