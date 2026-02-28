@@ -1517,8 +1517,9 @@ async def api_kalshi_markets(request: Request, limit: int = 20, max_days: int = 
 async def api_research_market(request: Request, question: str = "", market_prob: float = 50, category: str = ""):
     """Deep AI research for a specific prediction market question.
 
-    Uses Perplexity Sonar API to search the web and synthesize a probability estimate
-    with evidence, citations, and reasoning.
+    Uses platform-provided Perplexity + Claude pipeline:
+    1. Perplexity searches the web for current information
+    2. Claude analyzes evidence and produces a calibrated probability
     """
     user = _get_user(request)
     if not user:
@@ -1527,17 +1528,19 @@ async def api_research_market(request: Request, question: str = "", market_prob:
     if not question:
         return JSONResponse({"error": "question parameter required"}, status_code=400)
 
-    if not user.perplexity_api_key:
+    # Platform keys are used automatically (env vars)
+    # No per-user key needed
+    pplx_key = os.environ.get("PERPLEXITY_API_KEY", "")
+    if not pplx_key:
         return JSONResponse({
             "researched": False,
             "reason": "no_api_key",
-            "message": "Add your Perplexity API key in Settings to enable deep AI research.",
+            "message": "Research API not configured on this platform.",
         })
 
     try:
         from vesper.ai_research import research_market
-        api_key = user.get_perplexity_key()
-        result = research_market(question, market_prob, api_key, category)
+        result = research_market(question, market_prob, category=category)
         return result
     except Exception as e:
         return JSONResponse({"error": f"Research failed: {str(e)}"}, status_code=500)
