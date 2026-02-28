@@ -1635,15 +1635,8 @@ class UserBot:
         })
 
 
-# Global cycle tracker — accessible from health endpoint
-_cycle_state = {
-    "total_cycles": 0,
-    "last_cycle_time": 0,
-    "last_cycle_error": "",
-    "exchange_name": "",
-    "version": "v3-exchange-fix",
-    "startup_phase": "module_loaded",
-}
+# Shared state (separate module avoids __main__ vs vesper.main split)
+from vesper.state import cycle_state as _cycle_state
 
 
 class Vesper:
