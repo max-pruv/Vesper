@@ -200,124 +200,115 @@
         </div>
     </div>
 
-    <!-- AI Autopilot -->
-    <div class="card" id="autopilotCard" style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(168,85,247,0.06));border:1px solid rgba(99,102,241,0.2);">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <div>
-                <div class="card-title" style="margin-bottom:2px;display:flex;align-items:center;gap:8px;">
-                    AI Autopilot
-                    <span id="apStatus" style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:600;">OFF</span>
+    <!-- ═══ 3 Autopilot Cards ═══ -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px;">
+
+        <!-- Crypto Autopilot -->
+        <div class="card" id="cryptoCard" style="background:linear-gradient(135deg, rgba(34,197,94,0.08), rgba(16,185,129,0.06));border:1px solid rgba(34,197,94,0.2);">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                <div style="width:36px;height:36px;border-radius:10px;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:var(--green);">&#8383;</div>
+                <div style="flex:1;">
+                    <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;">
+                        Crypto
+                        <span id="cryptoStatus" style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:600;">OFF</span>
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);">60+ coins, trend scoring, trailing stops</div>
                 </div>
-                <div style="font-size:12px;color:var(--text-muted);">Give Vesper a budget — AI manages entries, exits, and allocation using whale tracking + sentiment</div>
+            </div>
+            <div id="cryptoOff" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <div style="position:relative;flex:1;min-width:100px;">
+                    <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;">$</span>
+                    <input type="number" id="cryptoAmount" placeholder="200" min="10" step="10"
+                           style="padding:8px 8px 8px 22px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:100%;font-size:13px;box-sizing:border-box;">
+                </div>
+                <button class="btn" style="background:var(--green);color:#000;font-weight:700;font-size:13px;padding:8px 16px;white-space:nowrap;" onclick="startSegment('crypto')">Start</button>
+            </div>
+            <div id="cryptoOn" style="display:none;">
+                <div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap;">
+                    <div><div style="font-size:20px;font-weight:700;" id="cryptoFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Fund</div></div>
+                    <div><div style="font-size:20px;font-weight:700;color:var(--green);" id="cryptoDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
+                    <div><div style="font-size:20px;font-weight:700;" id="cryptoPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
+                </div>
+                <div id="cryptoTopScores" style="margin-bottom:6px;"></div>
+                <div id="cryptoLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:8px;"></div>
+                <button class="btn" style="background:var(--border);font-size:11px;padding:5px 14px;" onclick="stopSegment('crypto')">Stop</button>
             </div>
         </div>
-        <div id="apOff" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-            <div style="position:relative;">
-                <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px;">$</span>
-                <input type="number" id="apAmount" placeholder="500" min="10" step="10"
-                       style="padding:8px 8px 8px 24px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:120px;font-size:14px;">
-            </div>
-            <select id="apSlots" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px;">
-                <option value="2">2 positions max</option>
-                <option value="3" selected>3 positions max</option>
-                <option value="5">5 positions max</option>
-            </select>
-            <button class="btn btn-accent" onclick="startAutopilot()">Start Autopilot</button>
-        </div>
-        <div id="apOn" style="display:none;">
-            <div style="display:flex;gap:24px;margin-bottom:12px;flex-wrap:wrap;">
-                <div>
-                    <div style="font-size:24px;font-weight:700;" id="apFund">$0</div>
-                    <div style="font-size:11px;color:var(--text-muted);">Total Fund</div>
-                </div>
-                <div>
-                    <div style="font-size:24px;font-weight:700;color:var(--green);" id="apDeployed">$0</div>
-                    <div style="font-size:11px;color:var(--text-muted);">Deployed</div>
-                </div>
-                <div>
-                    <div style="font-size:24px;font-weight:700;color:var(--text-muted);" id="apAvailable">$0</div>
-                    <div style="font-size:11px;color:var(--text-muted);">Available</div>
-                </div>
-                <div>
-                    <div style="font-size:24px;font-weight:700;" id="apPositions">0/3</div>
-                    <div style="font-size:11px;color:var(--text-muted);">Positions</div>
+
+        <!-- Stocks Autopilot -->
+        <div class="card" id="stocksCard" style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(168,85,247,0.06));border:1px solid rgba(99,102,241,0.2);">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                <div style="width:36px;height:36px;border-radius:10px;background:rgba(99,102,241,0.15);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#818cf8;">&#x1F4C8;</div>
+                <div style="flex:1;">
+                    <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;">
+                        Stocks
+                        <span id="stocksStatus" style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:600;">OFF</span>
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);">BTC + majors, whale tracking + sentiment</div>
                 </div>
             </div>
-            <div id="apLastScan" style="font-size:12px;color:var(--text-muted);margin-top:4px;"></div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-                <button class="btn" style="background:var(--border);font-size:12px;padding:6px 16px;" onclick="stopAutopilot()">Stop Autopilot</button>
+            <div id="stocksOff" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <div style="position:relative;flex:1;min-width:100px;">
+                    <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;">$</span>
+                    <input type="number" id="stocksAmount" placeholder="500" min="10" step="10"
+                           style="padding:8px 8px 8px 22px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:100%;font-size:13px;box-sizing:border-box;">
+                </div>
+                <button class="btn btn-accent" style="font-size:13px;padding:8px 16px;white-space:nowrap;" onclick="startSegment('stocks')">Start</button>
+            </div>
+            <div id="stocksOn" style="display:none;">
+                <div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap;">
+                    <div><div style="font-size:20px;font-weight:700;" id="stocksFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Fund</div></div>
+                    <div><div style="font-size:20px;font-weight:700;color:var(--green);" id="stocksDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
+                    <div><div style="font-size:20px;font-weight:700;" id="stocksPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
+                </div>
+                <div id="stocksLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:8px;"></div>
+                <button class="btn" style="background:var(--border);font-size:11px;padding:5px 14px;" onclick="stopSegment('stocks')">Stop</button>
             </div>
         </div>
+
+        <!-- Predictions Autopilot -->
+        <div class="card" id="predictionsCard" style="background:linear-gradient(135deg, rgba(245,166,35,0.08), rgba(234,88,12,0.06));border:1px solid rgba(245,166,35,0.2);">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                <div style="width:36px;height:36px;border-radius:10px;background:rgba(245,166,35,0.15);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#f5a623;">&#x1F52E;</div>
+                <div style="flex:1;">
+                    <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;">
+                        Predictions
+                        <span id="predStatus" style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:600;">OFF</span>
+                    </div>
+                    <div style="font-size:11px;color:var(--text-muted);">AI research on markets, auto-invests on edge</div>
+                </div>
+            </div>
+            <div id="predOff" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <div style="position:relative;flex:1;min-width:100px;">
+                    <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;">$</span>
+                    <input type="number" id="predAmount" placeholder="100" min="10" step="10"
+                           style="padding:8px 8px 8px 22px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:100%;font-size:13px;box-sizing:border-box;">
+                </div>
+                <button class="btn" style="background:#f5a623;color:#000;font-weight:700;font-size:13px;padding:8px 16px;white-space:nowrap;" onclick="startSegment('predictions')">Start</button>
+            </div>
+            <div id="predOn" style="display:none;">
+                <div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap;">
+                    <div><div style="font-size:20px;font-weight:700;" id="predFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Fund</div></div>
+                    <div><div style="font-size:20px;font-weight:700;color:var(--green);" id="predDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
+                    <div><div style="font-size:20px;font-weight:700;" id="predPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
+                </div>
+                <div id="predLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:8px;"></div>
+                <button class="btn" style="background:var(--border);font-size:11px;padding:5px 14px;" onclick="stopSegment('predictions')">Stop</button>
+            </div>
+        </div>
+
     </div>
 
-    <!-- Altcoin Hunter -->
-    <div class="card" id="hunterCard" style="background:linear-gradient(135deg, rgba(34,197,94,0.08), rgba(16,185,129,0.06));border:1px solid rgba(34,197,94,0.2);">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <div>
-                <div class="card-title" style="margin-bottom:2px;display:flex;align-items:center;gap:8px;">
-                    Altcoin Hunter
-                    <span id="ahStatus" style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:600;">OFF</span>
-                </div>
-                <div style="font-size:12px;color:var(--text-muted);">Scans 50+ altcoins, auto-invests in strongest trends, self-rebalances with trailing stops</div>
-            </div>
-        </div>
-        <div id="ahOff" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-            <div style="position:relative;">
-                <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px;">$</span>
-                <input type="number" id="ahAmount" placeholder="200" min="10" step="10"
-                       style="padding:8px 8px 8px 24px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:120px;font-size:14px;">
-            </div>
-            <select id="ahSlots" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px;">
-                <option value="3">3 positions</option>
-                <option value="5" selected>5 positions</option>
-                <option value="8">8 positions</option>
-                <option value="10">10 positions</option>
-            </select>
-            <select id="ahTrailing" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px;">
-                <option value="1.5">1.5% trailing</option>
-                <option value="2.0" selected>2% trailing</option>
-                <option value="3.0">3% trailing</option>
-                <option value="5.0">5% trailing</option>
-            </select>
-            <button class="btn" style="background:var(--green);color:#000;font-weight:700;" onclick="startAltcoinHunter()">Start Hunter</button>
-        </div>
-        <div id="ahOn" style="display:none;">
-            <div style="display:flex;gap:24px;margin-bottom:12px;flex-wrap:wrap;">
-                <div>
-                    <div style="font-size:24px;font-weight:700;" id="ahFund">$0</div>
-                    <div style="font-size:11px;color:var(--text-muted);">Total Fund</div>
-                </div>
-                <div>
-                    <div style="font-size:24px;font-weight:700;color:var(--green);" id="ahDeployed">$0</div>
-                    <div style="font-size:11px;color:var(--text-muted);">Deployed</div>
-                </div>
-                <div>
-                    <div style="font-size:24px;font-weight:700;color:var(--text-muted);" id="ahAvailable">$0</div>
-                    <div style="font-size:11px;color:var(--text-muted);">Available</div>
-                </div>
-                <div>
-                    <div style="font-size:24px;font-weight:700;" id="ahPositions">0/5</div>
-                    <div style="font-size:11px;color:var(--text-muted);">Positions</div>
-                </div>
-            </div>
-            <div id="ahTopScores" style="margin-bottom:8px;"></div>
-            <div id="ahLastScan" style="font-size:12px;color:var(--text-muted);margin-top:4px;"></div>
-            <div style="display:flex;gap:8px;margin-top:12px;">
-                <button class="btn" style="background:var(--border);font-size:12px;padding:6px 16px;" onclick="stopAltcoinHunter()">Stop Hunter</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Active Bets -->
+    <!-- Active Positions -->
     <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <div class="card-title" style="margin-bottom:0;">Active Bets</div>
-            <button class="btn btn-accent btn-sm" onclick="openTradeModal()">+ New Bet</button>
+            <div class="card-title" style="margin-bottom:0;">Active Positions</div>
+            <span style="font-size:12px;color:var(--text-muted);" id="positionCountLabel">0 open</span>
         </div>
         <div id="activeBets">
             <div class="empty-state">
                 <div class="empty-state-icon">~</div>
-                No active bets — use the autopilot or place a new bet
+                No active positions — start an autopilot above to begin auto-trading
             </div>
         </div>
     </div>
@@ -486,138 +477,10 @@
 </div>
 </div>
 
-<!-- Trade Modal -->
-<div class="modal-overlay" id="tradeModal">
-    <div class="modal">
-        <button class="modal-close" onclick="closeTradeModal()">&times;</button>
-        <div class="modal-title" id="modalTitle">New Bet</div>
-
-        <div class="input-group">
-            <label class="input-label">Strategy</label>
-            <select class="input" id="modalStrategy" onchange="updateModalDefaults()">
-                {% for s in strategies %}
-                <option value="{{ s.id }}"
-                        data-sl="{{ s.default_stop_loss_pct }}"
-                        data-tpmin="{{ s.min_return_pct }}"
-                        data-tpmax="{{ s.max_return_pct }}"
-                        data-mode="{{ s.default_mode }}"
-                        data-desc="{{ s.description }}">
-                    {{ s.icon }} {{ s.name }} — {{ s.timeframe }}
-                </option>
-                {% endfor %}
-            </select>
-        </div>
-
-        <!-- Strategy Callout -->
-        <div class="strategy-callout" id="strategyCallout">
-            <div class="strategy-callout-title">How it works</div>
-            <div id="strategyCalloutText">Select a strategy to see details.</div>
-        </div>
-
-        <div class="input-group">
-            <label class="input-label">Asset</label>
-            <select class="input" id="modalSymbol">
-                {% set symbols = user.symbols.split(',') %}
-                {% for sym in symbols %}
-                <option value="{{ sym.strip() }}">{{ sym.strip() }}</option>
-                {% endfor %}
-            </select>
-            <!-- AI Signal Badge -->
-            <div id="signalBadge" style="margin-top:8px;padding:10px 14px;border-radius:8px;font-size:13px;display:none;border:1px solid var(--border);">
-                <span id="signalIcon"></span>
-                <span id="signalText" style="font-weight:600;"></span>
-                <span id="signalConfidence" style="margin-left:4px;"></span>
-                <div id="signalReason" style="color:var(--text-secondary);margin-top:4px;font-size:12px;"></div>
-            </div>
-        </div>
-
-        <!-- Paper / Real Toggle -->
-        <div class="input-group">
-            <label class="input-label">Trade Type</label>
-            <div class="mode-toggle">
-                <button type="button" class="mode-toggle-btn active" id="modePaper"
-                        onclick="setTradeMode('paper')">Paper</button>
-                <button type="button" class="mode-toggle-btn" id="modeReal"
-                        onclick="setTradeMode('real')">Real</button>
-            </div>
-        </div>
-
-        <!-- One-Off / Continuous Toggle -->
-        <div class="input-group">
-            <label class="input-label">Bet Mode</label>
-            <div class="mode-toggle">
-                <button type="button" class="mode-toggle-btn active" id="modeOneOff"
-                        onclick="setBetMode('one_off')">One-Off</button>
-                <button type="button" class="mode-toggle-btn" id="modeContinuous"
-                        onclick="setBetMode('continuous')">Continuous</button>
-            </div>
-        </div>
-
-        <div class="input-group">
-            <label class="input-label">Position Size ($)</label>
-            <input type="number" class="input" id="modalAmount" value="50" min="1" step="1">
-        </div>
-
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
-            <div class="input-group">
-                <label class="input-label tooltip-wrap">
-                    Stop-Loss %
-                    <span class="tooltip-icon">?</span>
-                    <span class="tooltip-text">If the price drops by this %, your position auto-closes to limit losses.</span>
-                </label>
-                <input type="number" class="input" id="modalSL" value="2" min="0.1" step="0.1">
-            </div>
-            <div class="input-group">
-                <label class="input-label tooltip-wrap">
-                    TP Min %
-                    <span class="tooltip-icon">?</span>
-                    <span class="tooltip-text">Minimum take-profit target. The bot may start closing here for partial gains.</span>
-                </label>
-                <input type="number" class="input" id="modalTPMin" value="1.5" min="0.1" step="0.1">
-            </div>
-            <div class="input-group">
-                <label class="input-label tooltip-wrap">
-                    TP Max %
-                    <span class="tooltip-icon">?</span>
-                    <span class="tooltip-text">Maximum take-profit. Position auto-closes when the price reaches this gain.</span>
-                </label>
-                <input type="number" class="input" id="modalTPMax" value="5" min="0.1" step="0.1">
-            </div>
-        </div>
-
-        <div style="display:flex;align-items:center;gap:12px;margin-top:8px;">
-            <label class="input-label tooltip-wrap" style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0;">
-                <input type="checkbox" id="modalTrailing" onchange="toggleTrailing()" style="width:16px;height:16px;">
-                <span>Trailing Stop</span>
-                <span class="tooltip-icon">?</span>
-                <span class="tooltip-text">Instead of closing at a fixed profit target, the stop-loss follows the price up. Locks in gains while letting winners run indefinitely.</span>
-            </label>
-            <input type="number" class="input" id="modalTrailingPct" value="3" min="0.5" step="0.5"
-                   style="width:80px;display:none;" placeholder="%">
-            <span id="trailingLabel" style="display:none;font-size:12px;color:var(--text-muted);">trail %</span>
-        </div>
-
-        <div style="display:flex; justify-content:space-between; padding:10px 0; margin-top:4px; border-top:1px solid #222;">
-            <span style="color:var(--red); font-weight:600;" id="maxLossDisplay">Max Loss: -$1.00</span>
-            <span style="color:var(--text-muted); font-weight:600;" id="feeDisplay">Fee: ~$0.30</span>
-            <span style="color:var(--green); font-weight:600;" id="maxWinDisplay">Max Win: +$2.50</span>
-        </div>
-
-        <div id="modalError" class="alert alert-error" style="display:none;"></div>
-        <div id="modalSuccess" class="alert alert-success" style="display:none;"></div>
-
-        <button class="btn btn-accent btn-full" id="placeBetBtn" onclick="placeBet()" style="margin-top:8px;">
-            Place Bet
-        </button>
-    </div>
-</div>
-
 <script>
 // ═══════════════════════════════════════
 // State
 // ═══════════════════════════════════════
-let currentBetMode = 'one_off';
-let currentTradeMode = 'paper';
 // Track previous P&L values for flash animations
 let prevPnlMap = {};
 // Track known position IDs for detecting new cards
@@ -881,10 +744,14 @@ async function updatePositions() {
         const positions = await resp.json();
         const container = document.getElementById('activeBets');
 
+        // Update position count label
+        const countLabel = document.getElementById('positionCountLabel');
+        if (countLabel) countLabel.textContent = positions.length + ' open';
+
         if (positions.length === 0) {
             container.innerHTML = `<div class="empty-state">
                 <div class="empty-state-icon">~</div>
-                No active bets — use the autopilot or place a new bet
+                No active positions — start an autopilot above to begin auto-trading
             </div>`;
             knownPositionIds.clear();
             prevPnlMap = {};
@@ -916,198 +783,8 @@ updatePositions();
 setInterval(updatePositions, 3000);
 
 // ═══════════════════════════════════════
-// Trade Modal
+// Close Position (manual emergency close)
 // ═══════════════════════════════════════
-function openTradeModal(strategyId) {
-    document.getElementById('tradeModal').classList.add('active');
-    document.getElementById('modalError').style.display = 'none';
-    document.getElementById('modalSuccess').style.display = 'none';
-    if (strategyId) {
-        document.getElementById('modalStrategy').value = strategyId;
-    }
-    updateModalDefaults();
-    updateMaxWinLoss();
-    fetchSignal();
-}
-
-function closeTradeModal() {
-    document.getElementById('tradeModal').classList.remove('active');
-}
-
-function updateModalDefaults() {
-    const sel = document.getElementById('modalStrategy');
-    const opt = sel.options[sel.selectedIndex];
-    document.getElementById('modalSL').value = opt.dataset.sl || 2;
-    document.getElementById('modalTPMin').value = opt.dataset.tpmin || 1.5;
-    document.getElementById('modalTPMax').value = opt.dataset.tpmax || 5;
-    const mode = opt.dataset.mode || 'one_off';
-    setBetMode(mode);
-    // Update strategy callout
-    const desc = opt.dataset.desc || '';
-    document.getElementById('strategyCalloutText').textContent = desc || 'Select a strategy to see details.';
-    updateMaxWinLoss();
-}
-
-// Set initial callout on page load
-(function() {
-    const sel = document.getElementById('modalStrategy');
-    if (sel && sel.options.length > 0) {
-        const opt = sel.options[sel.selectedIndex];
-        document.getElementById('strategyCalloutText').textContent = opt.dataset.desc || '';
-    }
-})();
-
-// ═══════════════════════════════════════
-// AI Signal Prediction
-// ═══════════════════════════════════════
-async function fetchSignal() {
-    const badge = document.getElementById('signalBadge');
-    const sym = document.getElementById('modalSymbol').value;
-    if (!sym) { badge.style.display = 'none'; return; }
-
-    // Show loading state
-    badge.style.display = 'block';
-    badge.style.background = 'rgba(255,255,255,0.03)';
-    badge.style.borderColor = 'var(--border)';
-    document.getElementById('signalIcon').textContent = '';
-    document.getElementById('signalText').textContent = 'Analyzing...';
-    document.getElementById('signalText').style.color = 'var(--text-secondary)';
-    document.getElementById('signalConfidence').textContent = '';
-    document.getElementById('signalReason').textContent = '';
-
-    try {
-        const safeSym = sym.replace('/', '-');
-        const strategyId = document.getElementById('modalStrategy').value || 'smart_auto';
-        const resp = await fetch('/api/signal/' + safeSym + '?strategy=' + strategyId);
-        if (!resp.ok) { badge.style.display = 'none'; return; }
-        const data = await resp.json();
-
-        const sig = data.signal || 'HOLD';
-        const conf = Math.round((data.confidence || 0) * 100);
-        const reason = data.reason || '';
-
-        if (sig === 'BUY') {
-            badge.style.background = 'rgba(0,220,90,0.08)';
-            badge.style.borderColor = 'rgba(0,220,90,0.3)';
-            document.getElementById('signalIcon').textContent = '\u25B2';
-            document.getElementById('signalText').textContent = 'BUY';
-            document.getElementById('signalText').style.color = 'var(--green)';
-        } else if (sig === 'SELL') {
-            badge.style.background = 'rgba(255,59,48,0.08)';
-            badge.style.borderColor = 'rgba(255,59,48,0.3)';
-            document.getElementById('signalIcon').textContent = '\u25BC';
-            document.getElementById('signalText').textContent = 'SELL';
-            document.getElementById('signalText').style.color = 'var(--red)';
-        } else {
-            badge.style.background = 'rgba(255,255,255,0.03)';
-            badge.style.borderColor = 'var(--border)';
-            document.getElementById('signalIcon').textContent = '\u25CF';
-            document.getElementById('signalText').textContent = 'HOLD';
-            document.getElementById('signalText').style.color = 'var(--text-secondary)';
-        }
-        document.getElementById('signalConfidence').textContent = conf > 0 ? ' \u2014 ' + conf + '% confidence' : '';
-        document.getElementById('signalReason').textContent = reason;
-    } catch(e) {
-        badge.style.display = 'none';
-    }
-}
-
-// Fetch signal when asset or strategy changes
-document.getElementById('modalSymbol').addEventListener('change', fetchSignal);
-document.getElementById('modalStrategy').addEventListener('change', fetchSignal);
-
-function toggleTrailing() {
-    const checked = document.getElementById('modalTrailing').checked;
-    document.getElementById('modalTrailingPct').style.display = checked ? 'block' : 'none';
-    document.getElementById('trailingLabel').style.display = checked ? 'inline' : 'none';
-    document.getElementById('modalTPMax').disabled = checked;
-    document.getElementById('modalTPMax').style.opacity = checked ? '0.3' : '1';
-    updateMaxWinLoss();
-}
-
-function updateMaxWinLoss() {
-    const amount = parseFloat(document.getElementById('modalAmount').value) || 0;
-    const sl = parseFloat(document.getElementById('modalSL').value) || 0;
-    const tpMax = parseFloat(document.getElementById('modalTPMax').value) || 0;
-    const trailing = document.getElementById('modalTrailing').checked;
-    // Coinbase Advanced taker fee: ~0.60% per trade (entry + exit = ~1.2% round-trip)
-    const feeRate = 0.006;
-    const totalFee = amount * feeRate * 2;
-    // Net forecasts: factor in round-trip fees
-    const maxLoss = amount * (sl / 100) + totalFee;
-    document.getElementById('maxLossDisplay').textContent = 'Max Loss: -$' + maxLoss.toFixed(2);
-    document.getElementById('feeDisplay').textContent = 'Fee: ~$' + totalFee.toFixed(2);
-    if (trailing) {
-        document.getElementById('maxWinDisplay').innerHTML = '<span style="font-size:18px;">&#8734;</span> Unlimited';
-    } else {
-        const maxWin = Math.max(0, amount * (tpMax / 100) - totalFee);
-        document.getElementById('maxWinDisplay').textContent = 'Net Win: +$' + maxWin.toFixed(2);
-    }
-}
-
-['modalAmount', 'modalSL', 'modalTPMax', 'modalTrailingPct'].forEach(id => {
-    document.getElementById(id).addEventListener('input', updateMaxWinLoss);
-});
-
-function setTradeMode(mode) {
-    currentTradeMode = mode;
-    document.getElementById('modePaper').classList.toggle('active', mode === 'paper');
-    document.getElementById('modeReal').classList.toggle('active', mode === 'real');
-}
-
-function setBetMode(mode) {
-    currentBetMode = mode;
-    document.getElementById('modeOneOff').classList.toggle('active', mode === 'one_off');
-    document.getElementById('modeContinuous').classList.toggle('active', mode === 'continuous');
-}
-
-async function placeBet() {
-    const btn = document.getElementById('placeBetBtn');
-    const errEl = document.getElementById('modalError');
-    const okEl = document.getElementById('modalSuccess');
-    errEl.style.display = 'none';
-    okEl.style.display = 'none';
-    btn.disabled = true;
-    btn.textContent = 'Placing...';
-
-    try {
-        const resp = await fetch('/api/open-trade', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                symbol: document.getElementById('modalSymbol').value,
-                strategy_id: document.getElementById('modalStrategy').value,
-                amount_usd: parseFloat(document.getElementById('modalAmount').value),
-                stop_loss_pct: parseFloat(document.getElementById('modalSL').value),
-                tp_min_pct: parseFloat(document.getElementById('modalTPMin').value),
-                tp_max_pct: parseFloat(document.getElementById('modalTPMax').value),
-                trailing_stop_pct: document.getElementById('modalTrailing').checked
-                    ? parseFloat(document.getElementById('modalTrailingPct').value) || 0
-                    : 0,
-                bet_mode: currentBetMode,
-                trade_mode: currentTradeMode,
-            }),
-        });
-        const data = await resp.json();
-        if (data.ok) {
-            okEl.textContent = `Bet placed at $${data.entry_price.toLocaleString()}`;
-            okEl.style.display = 'block';
-            // Immediately refresh positions & portfolio — no page reload needed
-            updatePositions();
-            updatePortfolioStats();
-            setTimeout(closeTradeModal, 1200);
-        } else {
-            errEl.textContent = data.error || 'Failed to place bet';
-            errEl.style.display = 'block';
-        }
-    } catch(e) {
-        errEl.textContent = 'Network error';
-        errEl.style.display = 'block';
-    }
-    btn.disabled = false;
-    btn.textContent = 'Place Bet';
-}
-
 async function closeTrade(positionId) {
     if (!confirm('Close this position at market price?')) return;
     try {
@@ -1198,11 +875,6 @@ async function fetchReasoning(posId) {
         status.style.color = 'var(--red)';
     }
 }
-
-// Close modal on overlay click
-document.getElementById('tradeModal').addEventListener('click', function(e) {
-    if (e.target === this) closeTradeModal();
-});
 
 // ═══════════════════════════════════════
 // Live Portfolio Stats + P&L Chart (every 5s)
@@ -1354,143 +1026,96 @@ updatePortfolioStats();
 setInterval(updatePortfolioStats, 5000);
 
 // ═══════════════════════════════════════
-// Autopilot
+// Unified Autopilot Segments (Crypto / Stocks / Predictions)
 // ═══════════════════════════════════════
 
-function renderLastScan(log) {
+// Segment config: maps UI segment name → API endpoint + element IDs
+const SEGMENTS = {
+    crypto: {
+        api: '/api/altcoin-hunter',
+        statusEl: 'cryptoStatus', offEl: 'cryptoOff', onEl: 'cryptoOn',
+        fundEl: 'cryptoFund', deployedEl: 'cryptoDeployed', posEl: 'cryptoPositions',
+        scanEl: 'cryptoLastScan', topEl: 'cryptoTopScores', amountEl: 'cryptoAmount',
+        activeLabel: 'ACTIVE', activeColor: 'var(--green)',
+        extraBody: {max_positions: 5, trailing_stop_pct: 2.0},
+    },
+    stocks: {
+        api: '/api/autopilot',
+        statusEl: 'stocksStatus', offEl: 'stocksOff', onEl: 'stocksOn',
+        fundEl: 'stocksFund', deployedEl: 'stocksDeployed', posEl: 'stocksPositions',
+        scanEl: 'stocksLastScan', topEl: null, amountEl: 'stocksAmount',
+        activeLabel: 'ACTIVE', activeColor: '#818cf8',
+        extraBody: {max_positions: 3},
+    },
+    predictions: {
+        api: '/api/predictions-autopilot',
+        statusEl: 'predStatus', offEl: 'predOff', onEl: 'predOn',
+        fundEl: 'predFund', deployedEl: 'predDeployed', posEl: 'predPositions',
+        scanEl: 'predLastScan', topEl: null, amountEl: 'predAmount',
+        activeLabel: 'SCANNING', activeColor: '#f5a623',
+        extraBody: {max_positions: 3},
+    },
+};
+
+function renderScanInfo(log, segment) {
     if (!log || log.length === 0) return 'Waiting for first scan...';
     const e = log[log.length - 1];
     const t = e.time ? new Date(e.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '';
-    const scanned = e.symbols_scanned || 0;
+    const scanned = e.symbols_scanned || e.markets_scanned || 0;
+    const actions = e.actions || [];
+    const buys = actions.filter(a => a.action === 'BUY').length;
 
-    if (e.status === 'fully_deployed') return `Last scan at ${t} — all slots filled`;
-    if (e.status === 'low_funds') return `Last scan at ${t} — low funds ($${e.available_usd} available)`;
-    if (e.actions?.length > 0) return `Last scan at ${t} — opened ${e.actions.length} position(s)`;
-    return `Last scan at ${t} — ${scanned} symbols scanned, no opportunity. See AI Decisions below for details.`;
+    if (e.status === 'fully_deployed') return `Scan ${t} — all slots filled`;
+    if (e.status === 'low_funds') return `Scan ${t} — low funds`;
+    if (e.status === 'invested') return `Scan ${t} — ${buys} new position(s)`;
+    if (buys > 0) return `Scan ${t} — ${buys} position(s) opened`;
+    if (e.status === 'no_edge') return `Scan ${t} — ${e.researched || 0} researched, no edge found`;
+    return `Scan ${t} — ${scanned} scanned, no opportunity`;
 }
 
-async function fetchAutopilotStatus() {
+async function fetchSegmentStatus(segment) {
+    const cfg = SEGMENTS[segment];
+    if (!cfg) return;
     try {
-        const resp = await fetch('/api/autopilot');
+        const resp = await fetch(cfg.api);
         if (!resp.ok) return;
-        const ap = await resp.json();
-        const statusEl = document.getElementById('apStatus');
-        const onEl = document.getElementById('apOn');
-        const offEl = document.getElementById('apOff');
+        const data = await resp.json();
 
-        if (ap.enabled) {
-            statusEl.textContent = 'ACTIVE';
-            statusEl.style.background = 'var(--green)';
+        const statusEl = document.getElementById(cfg.statusEl);
+        const onEl = document.getElementById(cfg.onEl);
+        const offEl = document.getElementById(cfg.offEl);
+
+        if (data.enabled) {
+            statusEl.textContent = cfg.activeLabel;
+            statusEl.style.background = cfg.activeColor;
             statusEl.style.color = '#000';
             onEl.style.display = 'block';
             offEl.style.display = 'none';
-            document.getElementById('apFund').textContent = '$' + ap.fund_usd.toFixed(0);
-            document.getElementById('apDeployed').textContent = '$' + ap.deployed_usd.toFixed(0);
-            document.getElementById('apAvailable').textContent = '$' + ap.available_usd.toFixed(0);
-            document.getElementById('apPositions').textContent =
-                ap.positions.length + '/' + ap.max_positions;
-            // Show last scan summary
-            const lastScanEl = document.getElementById('apLastScan');
-            if (lastScanEl && ap.log) {
-                lastScanEl.textContent = renderLastScan(ap.log);
+            document.getElementById(cfg.fundEl).textContent = '$' + (data.fund_usd || 0).toFixed(0);
+            document.getElementById(cfg.deployedEl).textContent = '$' + (data.deployed_usd || 0).toFixed(0);
+            document.getElementById(cfg.posEl).textContent =
+                (data.positions || []).length + '/' + (data.max_positions || 3);
+
+            // Scan info
+            const scanEl = document.getElementById(cfg.scanEl);
+            if (scanEl && data.log) {
+                scanEl.textContent = renderScanInfo(data.log, segment);
             }
-        } else {
-            statusEl.textContent = 'OFF';
-            statusEl.style.background = 'var(--border)';
-            statusEl.style.color = 'var(--text-muted)';
-            onEl.style.display = 'none';
-            offEl.style.display = 'flex';
-        }
-    } catch(e) {}
-}
 
-async function startAutopilot() {
-    const amount = parseFloat(document.getElementById('apAmount').value);
-    const slots = parseInt(document.getElementById('apSlots').value);
-    if (!amount || amount < 10) {
-        alert('Minimum $10 for autopilot');
-        return;
-    }
-    try {
-        const resp = await fetch('/api/autopilot', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({action: 'start', amount_usd: amount, max_positions: slots}),
-        });
-        if (resp.ok) fetchAutopilotStatus();
-    } catch(e) {}
-}
-
-async function stopAutopilot() {
-    if (!confirm('Stop autopilot? Existing positions will be closed by AI on next cycle.')) return;
-    try {
-        const resp = await fetch('/api/autopilot', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({action: 'stop'}),
-        });
-        if (resp.ok) fetchAutopilotStatus();
-    } catch(e) {}
-}
-
-fetchAutopilotStatus();
-setInterval(fetchAutopilotStatus, 10000);
-
-// ═══════════════════════════════════════
-// Altcoin Hunter
-// ═══════════════════════════════════════
-
-async function fetchAltcoinHunterStatus() {
-    try {
-        const resp = await fetch('/api/altcoin-hunter');
-        if (!resp.ok) return;
-        const ah = await resp.json();
-        const statusEl = document.getElementById('ahStatus');
-        const onEl = document.getElementById('ahOn');
-        const offEl = document.getElementById('ahOff');
-
-        if (ah.enabled) {
-            statusEl.textContent = 'HUNTING';
-            statusEl.style.background = 'var(--green)';
-            statusEl.style.color = '#000';
-            onEl.style.display = 'block';
-            offEl.style.display = 'none';
-            document.getElementById('ahFund').textContent = '$' + ah.fund_usd.toFixed(0);
-            document.getElementById('ahDeployed').textContent = '$' + ah.deployed_usd.toFixed(0);
-            document.getElementById('ahAvailable').textContent = '$' + ah.available_usd.toFixed(0);
-            document.getElementById('ahPositions').textContent =
-                ah.positions.length + '/' + ah.max_positions;
-
-            // Show top scores from last scan
-            const topEl = document.getElementById('ahTopScores');
-            if (topEl && ah.log && ah.log.length > 0) {
-                const lastLog = ah.log[ah.log.length - 1];
+            // Top scores (crypto only)
+            if (cfg.topEl && data.log && data.log.length > 0) {
+                const topEl = document.getElementById(cfg.topEl);
+                const lastLog = data.log[data.log.length - 1];
                 const scores = lastLog.top_scores || [];
-                if (scores.length > 0) {
-                    topEl.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Top trending:</div>' +
-                        scores.slice(0, 5).map(s =>
-                            `<span style="display:inline-block;padding:2px 8px;margin:2px;border-radius:6px;font-size:11px;font-weight:600;` +
-                            `background:${s.score >= 0.65 ? 'var(--green-dim)' : 'rgba(255,255,255,0.05)'};` +
-                            `color:${s.score >= 0.65 ? 'var(--green)' : 'var(--text-muted)'};">` +
-                            `${s.symbol.replace('/USDT','')} ${(s.score*100).toFixed(0)}%</span>`
-                        ).join('');
+                if (topEl && scores.length > 0) {
+                    topEl.innerHTML = scores.slice(0, 5).map(s =>
+                        `<span style="display:inline-block;padding:2px 6px;margin:1px;border-radius:5px;font-size:10px;font-weight:600;` +
+                        `background:${s.score >= 0.65 ? 'var(--green-dim)' : 'rgba(255,255,255,0.05)'};` +
+                        `color:${s.score >= 0.65 ? 'var(--green)' : 'var(--text-muted)'};">` +
+                        `${s.symbol.replace('/USDT','')} ${(s.score*100).toFixed(0)}%</span>`
+                    ).join('');
                 }
             }
-
-            // Last scan info
-            const scanEl = document.getElementById('ahLastScan');
-            if (scanEl && ah.log && ah.log.length > 0) {
-                const e = ah.log[ah.log.length - 1];
-                const t = e.time ? new Date(e.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '';
-                const actions = e.actions || [];
-                const buys = actions.filter(a => a.action === 'BUY').length;
-                const sells = actions.filter(a => a.action === 'SELL').length;
-                let msg = `Last scan at ${t} — ${e.symbols_scanned || 0} coins scanned`;
-                if (buys > 0) msg += `, ${buys} bought`;
-                if (sells > 0) msg += `, ${sells} rebalanced`;
-                if (buys === 0 && sells === 0) msg += ', no action needed';
-                scanEl.textContent = msg;
-            }
         } else {
             statusEl.textContent = 'OFF';
             statusEl.style.background = 'var(--border)';
@@ -1501,38 +1126,45 @@ async function fetchAltcoinHunterStatus() {
     } catch(e) {}
 }
 
-async function startAltcoinHunter() {
-    const amount = parseFloat(document.getElementById('ahAmount').value);
-    const slots = parseInt(document.getElementById('ahSlots').value);
-    const trailing = parseFloat(document.getElementById('ahTrailing').value);
+async function startSegment(segment) {
+    const cfg = SEGMENTS[segment];
+    if (!cfg) return;
+    const amount = parseFloat(document.getElementById(cfg.amountEl).value);
     if (!amount || amount < 10) {
-        alert('Minimum $10 for Altcoin Hunter');
+        alert('Minimum $10');
         return;
     }
     try {
-        const resp = await fetch('/api/altcoin-hunter', {
+        const body = {action: 'start', amount_usd: amount, ...cfg.extraBody};
+        const resp = await fetch(cfg.api, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({action: 'start', amount_usd: amount, max_positions: slots, trailing_stop_pct: trailing}),
+            body: JSON.stringify(body),
         });
-        if (resp.ok) fetchAltcoinHunterStatus();
+        if (resp.ok) fetchSegmentStatus(segment);
     } catch(e) {}
 }
 
-async function stopAltcoinHunter() {
-    if (!confirm('Stop Altcoin Hunter? Existing positions will close on next rebalance cycle.')) return;
+async function stopSegment(segment) {
+    const cfg = SEGMENTS[segment];
+    if (!cfg) return;
+    const label = segment.charAt(0).toUpperCase() + segment.slice(1);
+    if (!confirm(`Stop ${label} autopilot? Existing positions will be managed on next cycle.`)) return;
     try {
-        const resp = await fetch('/api/altcoin-hunter', {
+        const resp = await fetch(cfg.api, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({action: 'stop'}),
         });
-        if (resp.ok) fetchAltcoinHunterStatus();
+        if (resp.ok) fetchSegmentStatus(segment);
     } catch(e) {}
 }
 
-fetchAltcoinHunterStatus();
-setInterval(fetchAltcoinHunterStatus, 10000);
+// Fetch all segments on load, refresh every 10s
+['crypto', 'stocks', 'predictions'].forEach(s => fetchSegmentStatus(s));
+setInterval(() => {
+    ['crypto', 'stocks', 'predictions'].forEach(s => fetchSegmentStatus(s));
+}, 10000);
 
 function escapeHtml(text) {
     const div = document.createElement('div');
@@ -1602,72 +1234,6 @@ function toggleMethodology() {
 function toggleSignals(id) {
     const el = document.getElementById('signals-' + id);
     if (el) el.classList.toggle('open');
-}
-
-async function researchMarket(id, question, marketProb, category) {
-    const btn = document.getElementById('research-btn-' + id);
-    const panel = document.getElementById('research-' + id);
-    if (!btn || !panel) return;
-
-    // Toggle if already loaded
-    if (panel.dataset.loaded === 'true') {
-        panel.classList.toggle('open');
-        return;
-    }
-
-    btn.classList.add('loading');
-    btn.textContent = 'Researching...';
-
-    try {
-        const params = new URLSearchParams({question, market_prob: marketProb, category: category || ''});
-        const resp = await fetch('/api/research/market?' + params);
-        const data = await resp.json();
-
-        if (!data.researched) {
-            panel.innerHTML = `<div class="pm-research-heading">AI Research</div>
-                <div style="font-size:11px;color:var(--text-muted);">${escapeHtml(data.message || data.reason || 'Research unavailable')}</div>`;
-            panel.classList.add('open');
-            panel.dataset.loaded = 'true';
-            btn.textContent = 'Research';
-            btn.classList.remove('loading');
-            return;
-        }
-
-        const yesFactors = (data.yes_factors || []).map(f => `<div class="pm-factor-item yes">${escapeHtml(f)}</div>`).join('');
-        const noFactors = (data.no_factors || []).map(f => `<div class="pm-factor-item no">${escapeHtml(f)}</div>`).join('');
-        const sources = (data.sources || []).map((s, i) => `<a href="${escapeHtml(s)}" target="_blank">[${i+1}]</a>`).join(' ');
-        const confClass = data.confidence || 'low';
-
-        panel.innerHTML = `
-            <div class="pm-research-heading">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-                Deep AI Research
-                <span style="font-size:9px;color:var(--text-muted);font-weight:400;">${data.engine === 'perplexity+claude' ? 'Perplexity + Claude' : 'Perplexity'}</span>
-                <span class="pm-research-prob">${data.probability}%</span>
-                <span class="pm-confidence ${confClass}" style="margin-left:4px;" title="${confClass} confidence"></span>
-            </div>
-            <div class="pm-research-reasoning">${escapeHtml(data.reasoning || '')}</div>
-            <div class="pm-research-factors">
-                <div class="pm-factor-col">
-                    <div class="label" style="color:var(--green);">Supporting YES</div>
-                    ${yesFactors || '<div class="pm-factor-item" style="color:var(--text-muted);">No strong factors</div>'}
-                </div>
-                <div class="pm-factor-col">
-                    <div class="label" style="color:var(--red);">Supporting NO</div>
-                    ${noFactors || '<div class="pm-factor-item" style="color:var(--text-muted);">No strong factors</div>'}
-                </div>
-            </div>
-            ${sources ? `<div class="pm-research-sources">Sources: ${sources}</div>` : ''}
-        `;
-        panel.classList.add('open');
-        panel.dataset.loaded = 'true';
-        btn.textContent = 'Hide Research';
-        btn.classList.remove('loading');
-    } catch(e) {
-        btn.textContent = 'Research failed';
-        btn.classList.remove('loading');
-        setTimeout(() => { btn.textContent = 'Deep Research'; }, 3000);
-    }
 }
 
 async function fetchPolymarkets() {
@@ -1770,7 +1336,7 @@ function renderPolymarkets(markets) {
             }
         }
 
-        // AI Edge row
+        // AI Edge row (auto-invested by Predictions autopilot when enabled)
         let aiRowHtml = '';
         if (hasEdge) {
             const confDot = `<span class="pm-confidence ${confidence}"></span>`;
@@ -1793,15 +1359,9 @@ function renderPolymarkets(markets) {
                     </div>
                 </div>
                 ${signalsList ? `
-                    <div style="display:flex;gap:8px;margin-top:6px;align-items:center;">
-                        <button class="pm-signals-toggle" onclick="toggleSignals('${m.id}')">View trading signals</button>
-                        <button class="pm-research-btn" id="research-btn-${m.id}" onclick="researchMarket('${m.id}', '${question.replace(/'/g, "\\'")}', ${mktProb}, '${escapeHtml((m.tags || [])[0] || '')}')">Deep Research</button>
-                    </div>
+                    <button class="pm-signals-toggle" onclick="toggleSignals('${m.id}')" style="margin-top:6px;">View trading signals</button>
                     <div class="pm-signals-list" id="signals-${m.id}">${signalsList}</div>
-                ` : `
-                    <button class="pm-research-btn" id="research-btn-${m.id}" onclick="researchMarket('${m.id}', '${question.replace(/'/g, "\\'")}', ${mktProb}, '${escapeHtml((m.tags || [])[0] || '')}')" style="margin-top:6px;">Deep Research</button>
-                `}
-                <div class="pm-research-panel" id="research-${m.id}"></div>
+                ` : ''}
             `;
         } else {
             aiRowHtml = `
@@ -1809,9 +1369,7 @@ function renderPolymarkets(markets) {
                     <div>
                         <div style="font-size:11px;color:var(--text-muted);">No significant edge detected</div>
                     </div>
-                    <button class="pm-research-btn" id="research-btn-${m.id}" onclick="researchMarket('${m.id}', '${question.replace(/'/g, "\\'")}', ${mktProb}, '${escapeHtml((m.tags || [])[0] || '')}')">Deep Research</button>
                 </div>
-                <div class="pm-research-panel" id="research-${m.id}"></div>
             `;
         }
 

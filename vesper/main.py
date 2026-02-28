@@ -92,6 +92,9 @@ class UserBot:
         # Altcoin Hunter: autonomous altcoin trend detection + self-investing
         self._run_altcoin_hunter(prices)
 
+        # Predictions Autopilot: AI research on prediction markets, auto-betting
+        self._run_predictions_autopilot()
+
         summary = self.portfolio.summary(prices)
         self.logger.info(
             f"[User:{self.email}] Portfolio: ${summary['total_value']:,.2f} | "
@@ -786,6 +789,307 @@ class UserBot:
         import json as _json
         with open(path, "w") as f:
             _json.dump(pdata, f, indent=2)
+
+    def _run_predictions_autopilot(self):
+        """Predictions Autopilot — AI-driven prediction market auto-investing.
+
+        Scans trending prediction markets, uses Perplexity + Claude deep research
+        to find mispricings, then auto-invests in markets with significant AI edge.
+
+        Rate-limited to once per hour to control AI research costs.
+        Cost: ~$0.30-0.50/day (3-5 markets researched per cycle, 4h cache).
+        """
+        import time as _time
+
+        pdata = self.portfolio._load_raw()
+        pred_cfg = pdata.get("predictions_autopilot")
+        if not pred_cfg or not pred_cfg.get("enabled"):
+            return
+
+        fund_total = pred_cfg.get("fund_usd", 0)
+        if fund_total <= 0:
+            return
+
+        # Rate limit: run predictions scan every 60 minutes
+        last_scan = pred_cfg.get("last_scan_time", 0)
+        if _time.time() - last_scan < 3600:
+            return
+
+        max_positions = pred_cfg.get("max_positions", 3)
+        min_edge = pred_cfg.get("min_edge_pct", 5.0)
+
+        # Collect existing prediction positions
+        pred_positions = [
+            pos for pos in self.portfolio.positions.values()
+            if pos.strategy_id == "predictions"
+        ]
+
+        deployed = sum(pos.cost_usd for pos in pred_positions)
+        available = fund_total - deployed
+        slots_open = max_positions - len(pred_positions)
+
+        # Update last scan time now (even if we don't find anything)
+        pred_cfg["last_scan_time"] = _time.time()
+        pdata["predictions_autopilot"] = pred_cfg
+
+        if slots_open <= 0 or available < 5:
+            self._save_autopilot_log({
+                "type": "predictions_scan",
+                "markets_scanned": 0,
+                "status": "fully_deployed" if slots_open <= 0 else "low_funds",
+                "positions": len(pred_positions),
+                "max_positions": max_positions,
+                "deployed_usd": round(deployed, 2),
+                "available_usd": round(available, 2),
+                "actions": [],
+            })
+            # Save updated last_scan_time
+            path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+            import json as _json
+            with open(path, "w") as f:
+                _json.dump(pdata, f, indent=2)
+            return
+
+        # Fetch trending prediction markets
+        try:
+            from vesper.polymarket import get_trending_markets
+            markets = get_trending_markets(limit=30, max_days=14)
+        except Exception as e:
+            self.logger.error(f"[User:{self.email}] Predictions: failed to fetch markets: {e}")
+            # Still save the last_scan_time update
+            path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+            import json as _json
+            with open(path, "w") as f:
+                _json.dump(pdata, f, indent=2)
+            return
+
+        if not markets:
+            self._save_autopilot_log({
+                "type": "predictions_scan",
+                "markets_scanned": 0,
+                "status": "no_markets",
+                "positions": len(pred_positions),
+                "max_positions": max_positions,
+                "deployed_usd": round(deployed, 2),
+                "available_usd": round(available, 2),
+                "actions": [],
+            })
+            path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+            import json as _json
+            with open(path, "w") as f:
+                _json.dump(pdata, f, indent=2)
+            return
+
+        # Pre-filter: markets with microstructure edge and decent volume
+        candidates = [
+            m for m in markets
+            if m.get("ai_edge", {}).get("ev_per_dollar", 0) > 0.01
+            and m.get("volume", 0) > 1000
+        ]
+
+        # Skip markets we already have positions on
+        held_questions = {
+            pos.prediction_question
+            for pos in pred_positions
+            if hasattr(pos, "prediction_question") and pos.prediction_question
+        }
+        # Also check raw pdata for prediction_question field
+        for pos in pred_positions:
+            raw_pos = pdata.get("positions", {}).get(pos.id, {})
+            q = raw_pos.get("prediction_question", "")
+            if q:
+                held_questions.add(q)
+
+        candidates = [
+            m for m in candidates
+            if m.get("question", "") not in held_questions
+        ]
+
+        # Deep AI research on top 3 candidates (cost control)
+        research_limit = min(3, len(candidates))
+        researched = []
+        scanned_count = len(markets)
+
+        try:
+            from vesper.ai_research import research_market
+        except ImportError:
+            self.logger.error("[User:{self.email}] Predictions: ai_research module not available")
+            return
+
+        for market in candidates[:research_limit]:
+            try:
+                question = market.get("question", "")
+                mkt_prob = market.get("market_probability", 50)
+                category = (market.get("tags") or [""])[0]
+
+                research = research_market(
+                    question=question,
+                    market_probability=mkt_prob,
+                    category=category,
+                )
+
+                if not research.get("researched"):
+                    continue
+
+                ai_prob = research.get("probability", mkt_prob)
+                edge = abs(ai_prob - mkt_prob)
+
+                self._save_decision({
+                    "action": "CANDIDATE" if edge >= min_edge else "SKIP",
+                    "symbol": question[:40],
+                    "strategy_id": "predictions",
+                    "source": "predictions_autopilot",
+                    "trade_mode": "paper",
+                    "confidence": round(edge / 100, 3),
+                    "reason": (
+                        f"AI: {ai_prob}% vs Market: {mkt_prob}% "
+                        f"(edge {edge:.1f}%) — {research.get('reasoning', '')[:100]}"
+                    ),
+                })
+
+                if edge >= min_edge:
+                    researched.append({
+                        "market": market,
+                        "research": research,
+                        "edge": edge,
+                        "ai_prob": ai_prob,
+                        "mkt_prob": mkt_prob,
+                    })
+            except Exception as e:
+                self.logger.warning(f"[User:{self.email}] Predictions research error: {e}")
+                continue
+
+        # Place paper bets on researched markets with sufficient edge
+        actions = []
+        for item in researched[:slots_open]:
+            market = item["market"]
+            research = item["research"]
+            ai_prob = item["ai_prob"]
+            mkt_prob = item["mkt_prob"]
+            edge = item["edge"]
+
+            amount_usd = min(available / max(slots_open, 1), available)
+            if amount_usd < 5:
+                break
+
+            question = market.get("question", "")
+            # Bet YES if AI thinks higher probability, NO if lower
+            pred_side = "yes" if ai_prob > mkt_prob else "no"
+            # Entry "price" = cost per share (e.g., YES at 65% costs $0.65/share)
+            share_price = (mkt_prob / 100) if pred_side == "yes" else (1 - mkt_prob / 100)
+            share_price = max(share_price, 0.01)
+            num_shares = amount_usd / share_price
+
+            # For predictions, SL/TP are based on probability shifts
+            # SL: if probability moves 15% against us, cut
+            # TP: if probability moves to 90%+ in our favor, take profit
+            if pred_side == "yes":
+                sl_price = max(0.05, share_price * 0.6)  # 40% drop in prob price
+                tp_price = min(0.95, share_price * 1.5)   # 50% gain in prob price
+            else:
+                sl_price = max(0.05, share_price * 0.6)
+                tp_price = min(0.95, share_price * 1.5)
+
+            pos_id = f"PRED-{int(_time.time())}-{len(actions)}"
+
+            limits = PositionLimits(
+                stop_loss_price=sl_price,
+                take_profit_min_price=tp_price * 0.8,
+                take_profit_max_price=tp_price,
+                position_size_usd=amount_usd,
+                position_size_asset=num_shares,
+            )
+
+            position = Position(
+                symbol=f"PRED:{question[:50]}",
+                side="buy",
+                entry_price=share_price,
+                amount=num_shares,
+                cost_usd=amount_usd,
+                limits=limits,
+                strategy_reason=(
+                    f"Predictions AI: {pred_side.upper()} {question[:60]} "
+                    f"(AI {ai_prob}% vs Mkt {mkt_prob}%, edge {edge:.1f}%)"
+                ),
+                strategy_id="predictions",
+                bet_mode="one_off",
+                trade_mode="paper",
+                stop_loss_pct=40.0,
+                tp_min_pct=40.0,
+                tp_max_pct=50.0,
+            )
+
+            if self.portfolio.open_position(position):
+                available -= amount_usd
+                slots_open -= 1
+                actions.append({
+                    "action": "BUY",
+                    "question": question[:80],
+                    "side": pred_side,
+                    "amount_usd": round(amount_usd, 2),
+                    "ai_prob": ai_prob,
+                    "mkt_prob": mkt_prob,
+                    "edge": round(edge, 1),
+                })
+
+                # Also store prediction-specific fields in the raw position
+                raw_pdata = self.portfolio._load_raw()
+                if position.id in raw_pdata.get("positions", {}):
+                    raw_pdata["positions"][position.id]["prediction_question"] = question
+                    raw_pdata["positions"][position.id]["prediction_side"] = pred_side
+                    raw_pdata["positions"][position.id]["prediction_ai_prob"] = ai_prob
+                    raw_pdata["positions"][position.id]["prediction_mkt_prob"] = mkt_prob
+                    raw_pdata["positions"][position.id]["prediction_edge"] = round(edge, 1)
+                    path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+                    import json as _json
+                    with open(path, "w") as f:
+                        _json.dump(raw_pdata, f, indent=2)
+
+                self._save_decision({
+                    "action": "ENTER_LONG",
+                    "symbol": f"PRED:{question[:40]}",
+                    "strategy_id": "predictions",
+                    "source": "predictions_autopilot",
+                    "trade_mode": "paper",
+                    "signal": "BUY",
+                    "confidence": round(edge / 100, 3),
+                    "reason": (
+                        f"{pred_side.upper()} @ {share_price:.2f} — "
+                        f"AI {ai_prob}% vs Mkt {mkt_prob}% — "
+                        f"{research.get('reasoning', '')[:80]}"
+                    ),
+                    "amount_usd": round(amount_usd, 2),
+                })
+
+                self.logger.info(
+                    f"[User:{self.email}] PREDICTIONS: {pred_side.upper()} "
+                    f"'{question[:50]}' ${amount_usd:.2f} "
+                    f"(AI: {ai_prob}% vs Market: {mkt_prob}%, edge: {edge:.1f}%)"
+                )
+
+        # Log scan results
+        self._save_autopilot_log({
+            "type": "predictions_scan",
+            "markets_scanned": scanned_count,
+            "researched": research_limit,
+            "status": "invested" if actions else "no_edge",
+            "positions": max_positions - slots_open,
+            "max_positions": max_positions,
+            "deployed_usd": round(deployed + sum(a.get("amount_usd", 0) for a in actions), 2),
+            "available_usd": round(available, 2),
+            "actions": actions,
+        })
+
+        # Make sure last_scan_time is persisted
+        final_pdata = self.portfolio._load_raw()
+        if "predictions_autopilot" not in final_pdata:
+            final_pdata["predictions_autopilot"] = pred_cfg
+        else:
+            final_pdata["predictions_autopilot"]["last_scan_time"] = _time.time()
+        path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+        import json as _json
+        with open(path, "w") as f:
+            _json.dump(final_pdata, f, indent=2)
 
     def _save_decision(self, decision: dict):
         """Save a structured decision to the decision log (keep last 100).

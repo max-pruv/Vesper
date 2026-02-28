@@ -1443,6 +1443,94 @@ async def api_altcoin_hunter_toggle(request: Request):
 
 
 # ═══════════════════════════════════════
+# Predictions Autopilot API
+# ═══════════════════════════════════════
+
+@app.get("/api/predictions-autopilot")
+async def api_predictions_autopilot_status(request: Request):
+    """Get predictions autopilot status and positions."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    portfolio = _load_portfolio(user.id)
+    pred_cfg = portfolio.get("predictions_autopilot", {})
+    positions = portfolio.get("positions", {})
+
+    pred_positions = []
+    deployed = 0.0
+    for pid, p in positions.items():
+        if p.get("strategy_id") == "predictions":
+            deployed += p.get("cost_usd", 0)
+            pred_positions.append({
+                "id": pid,
+                "symbol": p.get("symbol", ""),
+                "entry_price": p.get("entry_price", 0),
+                "cost_usd": p.get("cost_usd", 0),
+                "entry_time": p.get("entry_time", 0),
+                "strategy_reason": p.get("strategy_reason", ""),
+                "prediction_side": p.get("prediction_side", ""),
+                "prediction_question": p.get("prediction_question", ""),
+            })
+
+    fund_total = pred_cfg.get("fund_usd", 0)
+
+    # Get recent prediction scan logs
+    all_logs = portfolio.get("autopilot_log", [])
+    pred_logs = [l for l in all_logs if l.get("type") == "predictions_scan"][-10:]
+
+    return {
+        "enabled": pred_cfg.get("enabled", False),
+        "fund_usd": fund_total,
+        "deployed_usd": round(deployed, 2),
+        "available_usd": round(fund_total - deployed, 2),
+        "max_positions": pred_cfg.get("max_positions", 3),
+        "positions": pred_positions,
+        "log": pred_logs,
+        "last_scan_time": pred_cfg.get("last_scan_time", 0),
+    }
+
+
+@app.post("/api/predictions-autopilot")
+async def api_predictions_autopilot_toggle(request: Request):
+    """Enable/disable predictions autopilot."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    body = await request.json()
+    action = body.get("action", "")
+    amount = float(body.get("amount_usd", 0))
+
+    portfolio_path = os.path.join(
+        os.environ.get("VESPER_DATA_DIR", "data"),
+        f"portfolio_{user.id}.json",
+    )
+    pdata = {}
+    if os.path.exists(portfolio_path):
+        with open(portfolio_path) as f:
+            pdata = json.load(f)
+
+    if action == "start":
+        if amount < 10:
+            return JSONResponse({"error": "Minimum $10"}, status_code=400)
+        pdata["predictions_autopilot"] = {
+            "enabled": True,
+            "fund_usd": amount,
+            "max_positions": int(body.get("max_positions", 3)),
+            "min_edge_pct": float(body.get("min_edge_pct", 5.0)),
+            "started_at": time.time(),
+            "last_scan_time": 0,
+        }
+    elif action == "stop":
+        if "predictions_autopilot" in pdata:
+            pdata["predictions_autopilot"]["enabled"] = False
+
+    with open(portfolio_path, "w") as f:
+        json.dump(pdata, f, indent=2)
+
+    return {"ok": True, "predictions_autopilot": pdata.get("predictions_autopilot", {})}
+
+
+# ═══════════════════════════════════════
 # Polymarket API
 # ═══════════════════════════════════════
 
