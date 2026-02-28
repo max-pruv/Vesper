@@ -6,19 +6,24 @@ set -e
 
 REPO_DIR="/opt/vesper"
 LOG="/opt/vesper/deploy.log"
+DEPLOY_BRANCH="claude/deploy-openclaw-cloudflare-GkBQL"
 
-# Use whatever branch is currently checked out on the server
 cd "$REPO_DIR"
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
 echo "$(date) — Deploy triggered" >> "$LOG"
 
-cd "$REPO_DIR"
+# Ensure we're on the correct branch
+CURRENT=$(git rev-parse --abbrev-ref HEAD)
+if [ "$CURRENT" != "$DEPLOY_BRANCH" ]; then
+    echo "$(date) — Switching from $CURRENT to $DEPLOY_BRANCH" >> "$LOG"
+    git fetch origin "$DEPLOY_BRANCH" 2>>"$LOG"
+    git checkout "$DEPLOY_BRANCH" >> "$LOG" 2>&1
+fi
 
 # Pull latest
-git fetch origin "$BRANCH" 2>>"$LOG"
+git fetch origin "$DEPLOY_BRANCH" 2>>"$LOG"
 LOCAL=$(git rev-parse HEAD)
-REMOTE=$(git rev-parse "origin/$BRANCH")
+REMOTE=$(git rev-parse "origin/$DEPLOY_BRANCH")
 
 if [ "$LOCAL" = "$REMOTE" ]; then
     echo "$(date) — Already up to date ($LOCAL)" >> "$LOG"
@@ -26,7 +31,7 @@ if [ "$LOCAL" = "$REMOTE" ]; then
 fi
 
 echo "$(date) — Updating $LOCAL → $REMOTE" >> "$LOG"
-git pull origin "$BRANCH" >> "$LOG" 2>&1
+git pull origin "$DEPLOY_BRANCH" >> "$LOG" 2>&1
 
 # Rebuild and restart
 docker compose down >> "$LOG" 2>&1
