@@ -1320,6 +1320,8 @@ async def api_autopilot_status(request: Request):
         "deployed_usd": round(deployed, 2),
         "available_usd": round(fund_total - deployed, 2),
         "max_positions": autopilot.get("max_positions", 3),
+        "risk_level": autopilot.get("risk_level", "aggressive"),
+        "reinvest_pct": autopilot.get("reinvest_pct", 100),
         "positions": ap_positions,
         "log": portfolio.get("autopilot_log", [])[-20:],
     }
@@ -1351,6 +1353,9 @@ async def api_autopilot_toggle(request: Request):
             "enabled": True,
             "fund_usd": amount,
             "max_positions": int(body.get("max_positions", 3)),
+            "risk_level": body.get("risk_level", "aggressive"),
+            "reinvest_pct": float(body.get("reinvest_pct", 100)),
+            "trade_mode": body.get("trade_mode", "paper"),
             "started_at": time.time(),
         }
     elif action == "stop":
@@ -1364,6 +1369,12 @@ async def api_autopilot_toggle(request: Request):
         mp = body.get("max_positions")
         if mp:
             pdata["autopilot"]["max_positions"] = int(mp)
+        risk = body.get("risk_level")
+        if risk in ("conservative", "moderate", "aggressive"):
+            pdata["autopilot"]["risk_level"] = risk
+        rp = body.get("reinvest_pct")
+        if rp is not None:
+            pdata["autopilot"]["reinvest_pct"] = float(rp)
 
     with open(portfolio_path, "w") as f:
         json.dump(pdata, f, indent=2)
@@ -1412,7 +1423,8 @@ async def api_altcoin_hunter_status(request: Request):
         "available_usd": round(fund_total - deployed, 2),
         "max_positions": hunter.get("max_positions", 5),
         "trailing_stop_pct": hunter.get("trailing_stop_pct", 2.0),
-        "min_trend_score": hunter.get("min_trend_score", 0.60),
+        "risk_level": hunter.get("risk_level", "aggressive"),
+        "reinvest_pct": hunter.get("reinvest_pct", 100),
         "positions": hunter_positions,
         "log": hunter_logs,
     }
@@ -1445,12 +1457,25 @@ async def api_altcoin_hunter_toggle(request: Request):
             "fund_usd": amount,
             "max_positions": int(body.get("max_positions", 5)),
             "trailing_stop_pct": float(body.get("trailing_stop_pct", 2.0)),
-            "min_trend_score": float(body.get("min_trend_score", 0.60)),
+            "risk_level": body.get("risk_level", "aggressive"),
+            "reinvest_pct": float(body.get("reinvest_pct", 100)),
+            "trade_mode": body.get("trade_mode", "paper"),
             "started_at": time.time(),
         }
     elif action == "stop":
         if "altcoin_hunter" in pdata:
             pdata["altcoin_hunter"]["enabled"] = False
+    elif action == "update":
+        if "altcoin_hunter" not in pdata:
+            pdata["altcoin_hunter"] = {}
+        if amount > 0:
+            pdata["altcoin_hunter"]["fund_usd"] = amount
+        risk = body.get("risk_level")
+        if risk in ("conservative", "moderate", "aggressive"):
+            pdata["altcoin_hunter"]["risk_level"] = risk
+        rp = body.get("reinvest_pct")
+        if rp is not None:
+            pdata["altcoin_hunter"]["reinvest_pct"] = float(rp)
 
     with open(portfolio_path, "w") as f:
         json.dump(pdata, f, indent=2)
@@ -1500,6 +1525,8 @@ async def api_predictions_autopilot_status(request: Request):
         "deployed_usd": round(deployed, 2),
         "available_usd": round(fund_total - deployed, 2),
         "max_positions": pred_cfg.get("max_positions", 3),
+        "risk_level": pred_cfg.get("risk_level", "aggressive"),
+        "reinvest_pct": pred_cfg.get("reinvest_pct", 100),
         "positions": pred_positions,
         "log": pred_logs,
         "last_scan_time": pred_cfg.get("last_scan_time", 0),
@@ -1533,17 +1560,54 @@ async def api_predictions_autopilot_toggle(request: Request):
             "fund_usd": amount,
             "max_positions": int(body.get("max_positions", 3)),
             "min_edge_pct": float(body.get("min_edge_pct", 5.0)),
+            "risk_level": body.get("risk_level", "aggressive"),
+            "reinvest_pct": float(body.get("reinvest_pct", 100)),
+            "trade_mode": body.get("trade_mode", "paper"),
             "started_at": time.time(),
             "last_scan_time": 0,
         }
     elif action == "stop":
         if "predictions_autopilot" in pdata:
             pdata["predictions_autopilot"]["enabled"] = False
+    elif action == "update":
+        if "predictions_autopilot" not in pdata:
+            pdata["predictions_autopilot"] = {}
+        if amount > 0:
+            pdata["predictions_autopilot"]["fund_usd"] = amount
+        risk = body.get("risk_level")
+        if risk in ("conservative", "moderate", "aggressive"):
+            pdata["predictions_autopilot"]["risk_level"] = risk
+        rp = body.get("reinvest_pct")
+        if rp is not None:
+            pdata["predictions_autopilot"]["reinvest_pct"] = float(rp)
 
     with open(portfolio_path, "w") as f:
         json.dump(pdata, f, indent=2)
 
     return {"ok": True, "predictions_autopilot": pdata.get("predictions_autopilot", {})}
+
+
+# ═══════════════════════════════════════
+# Position Analysis API (Learn More)
+# ═══════════════════════════════════════
+
+@app.get("/api/position-analysis/{pid}")
+async def api_position_analysis(pid: str, request: Request):
+    """Get full AI analysis data for a position (indicators, deep search, reasoning)."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    portfolio = _load_portfolio(user.id)
+    analyses = portfolio.get("position_analyses", {})
+    analysis = analyses.get(pid, {})
+    if not analysis:
+        # Fallback: return position's strategy_reason
+        pos = portfolio.get("positions", {}).get(pid, {})
+        return {
+            "found": False,
+            "strategy_reason": pos.get("strategy_reason", "No detailed analysis available"),
+        }
+    return {"found": True, **analysis}
 
 
 # ═══════════════════════════════════════

@@ -151,6 +151,21 @@ class Portfolio:
             "win_rate": win_rate,
         }
 
+    def _save_position_analysis(self, position_id: str, analysis: dict):
+        """Store full analysis data for a position (for 'Learn More' feature)."""
+        raw = self._load_raw()
+        analyses = raw.get("position_analyses", {})
+        analyses[position_id] = analysis
+        # Prune old analyses (keep last 50)
+        if len(analyses) > 50:
+            keys = sorted(analyses.keys())
+            for k in keys[:len(analyses) - 50]:
+                del analyses[k]
+        raw["position_analyses"] = analyses
+        path = os.path.join(self.data_dir, self.filename)
+        with open(path, "w") as f:
+            json.dump(raw, f, indent=2)
+
     def _load_raw(self) -> dict:
         """Load the raw portfolio JSON (includes autopilot config and other metadata)."""
         path = os.path.join(self.data_dir, self.filename)

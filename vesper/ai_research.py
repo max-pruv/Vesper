@@ -323,3 +323,231 @@ def _empty_result(reason: str = "") -> dict:
         "engine": "none",
         "research_ts": 0,
     }
+
+
+# ═══════════════════════════════════════
+# Asset Deep Research (Crypto + Stocks)
+# ═══════════════════════════════════════
+
+# Separate cache for asset research
+_asset_cache: dict = {}
+ASSET_CACHE_TTL = 2 * 3600  # 2 hours
+
+
+def research_asset(
+    symbol: str,
+    indicators: dict,
+    price: float,
+    asset_type: str = "crypto",
+) -> dict:
+    """Deep research on a specific crypto or stock asset.
+
+    Stage 1: Perplexity searches for current news, events, catalysts
+    Stage 2: Claude combines technical indicators + fundamental research
+
+    Returns: {signal, confidence, reasoning, factors, sources, search_summary}
+    """
+    cache_key = symbol.lower().strip()
+    cached = _asset_cache.get(cache_key)
+    if cached and (time.time() - cached["ts"]) < ASSET_CACHE_TTL:
+        return cached["data"]
+
+    pplx_key, anthropic_key = _get_platform_keys()
+    if not pplx_key:
+        return _empty_asset_result("No Perplexity API key")
+
+    ticker = symbol.split("/")[0]  # "BTC/USDT" → "BTC"
+
+    try:
+        # Stage 1: Perplexity web search for the asset
+        search = _perplexity_asset_search(ticker, price, asset_type, pplx_key)
+
+        if not anthropic_key:
+            result = _asset_result_from_search(search)
+            _asset_cache[cache_key] = {"data": result, "ts": time.time()}
+            return result
+
+        # Stage 2: Claude combines technical + fundamental
+        analysis = _claude_asset_analyze(
+            ticker, price, indicators, search["search_results"],
+            asset_type, anthropic_key,
+        )
+        result = {
+            "signal": analysis.get("signal", "HOLD"),
+            "confidence": float(analysis.get("confidence", 0.5)),
+            "reasoning": analysis.get("reasoning", ""),
+            "bullish_factors": analysis.get("bullish_factors", []),
+            "bearish_factors": analysis.get("bearish_factors", []),
+            "catalysts": analysis.get("catalysts", []),
+            "sources": search.get("citations", [])[:5],
+            "search_summary": search["search_results"][:500],
+            "researched": True,
+            "engine": "perplexity+claude",
+            "research_ts": time.time(),
+        }
+        _asset_cache[cache_key] = {"data": result, "ts": time.time()}
+        # Prune cache
+        if len(_asset_cache) > 100:
+            oldest = sorted(_asset_cache.items(), key=lambda x: x[1]["ts"])
+            for k, _ in oldest[:30]:
+                _asset_cache.pop(k, None)
+        return result
+
+    except Exception as e:
+        logger.warning(f"Asset research failed for {symbol}: {e}")
+        return _empty_asset_result(str(e))
+
+
+def _perplexity_asset_search(ticker: str, price: float, asset_type: str, api_key: str) -> dict:
+    """Search the web for current information about a crypto/stock asset."""
+    if asset_type == "stock":
+        prompt = f"""Research the stock {ticker} thoroughly. Current price: ${price:.2f}.
+
+Find:
+- Latest earnings reports, revenue, guidance
+- Analyst upgrades/downgrades and price targets from the last 7 days
+- Major news: partnerships, product launches, regulatory actions
+- Sector/industry trends affecting this stock
+- Any upcoming catalysts (earnings dates, FDA decisions, product launches)
+- Short interest and institutional activity
+
+Provide a comprehensive, fact-based summary with specific numbers and dates."""
+    else:
+        prompt = f"""Research the cryptocurrency {ticker} thoroughly. Current price: ${price:.4f}.
+
+Find:
+- Latest protocol updates, upgrades, or technical milestones
+- Major partnerships, integrations, or ecosystem developments
+- Exchange listing/delisting news
+- Whale accumulation or distribution patterns
+- Regulatory developments affecting this asset
+- Social media sentiment and community activity trends
+- On-chain metrics trends (TVL, active addresses, transaction volume)
+- Any upcoming catalysts (unlocks, halvings, airdrops)
+
+Provide a comprehensive, fact-based summary with specific numbers and dates."""
+
+    resp = httpx.post(
+        PERPLEXITY_API,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "sonar",
+            "messages": [
+                {"role": "system", "content": "You are a financial research analyst. Provide thorough, factual summaries with specific details."},
+                {"role": "user", "content": prompt},
+            ],
+            "temperature": 0.1,
+            "max_tokens": 1200,
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    return {
+        "search_results": data["choices"][0]["message"]["content"].strip(),
+        "citations": data.get("citations", []),
+    }
+
+
+def _claude_asset_analyze(
+    ticker: str, price: float, indicators: dict,
+    search_results: str, asset_type: str, api_key: str,
+) -> dict:
+    """Claude combines technical indicators + fundamental research into a trading signal."""
+    # Format indicators
+    ind_lines = []
+    for k, v in indicators.items():
+        if isinstance(v, float):
+            ind_lines.append(f"  {k}: {v:.4f}")
+        else:
+            ind_lines.append(f"  {k}: {v}")
+    ind_text = "\n".join(ind_lines) if ind_lines else "  (none available)"
+
+    prompt = f"""You are an expert {asset_type} trader and analyst. Combine the technical indicators AND fundamental research below to produce a trading signal.
+
+**ASSET:** {ticker} @ ${price:.4f}
+
+**TECHNICAL INDICATORS:**
+{ind_text}
+
+**FUNDAMENTAL RESEARCH (from web search):**
+{search_results}
+
+INSTRUCTIONS:
+1. Weigh both technical and fundamental factors
+2. Technical indicators show SHORT-TERM momentum and trends
+3. Fundamental research shows MEDIUM-TERM catalysts and sentiment
+4. If fundamentals and technicals agree → high confidence
+5. If they disagree → lower confidence, lean toward fundamentals for direction
+
+Respond in this exact JSON format only (no markdown):
+{{"signal": "BUY", "confidence": 0.75, "reasoning": "2-3 sentence synthesis", "bullish_factors": ["specific factor 1", "specific factor 2"], "bearish_factors": ["specific factor 1", "specific factor 2"], "catalysts": ["upcoming event or catalyst"]}}
+
+Rules:
+- signal: "BUY", "SELL", or "HOLD"
+- confidence: float 0.0-1.0
+- reasoning: concise synthesis of why this signal
+- bullish_factors: 2-4 evidence-based reasons for upside
+- bearish_factors: 2-4 evidence-based reasons for downside
+- catalysts: 1-3 upcoming events that could move the price"""
+
+    resp = httpx.post(
+        ANTHROPIC_API,
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "claude-haiku-4-5-20251001",
+            "max_tokens": 600,
+            "temperature": 0.1,
+            "messages": [{"role": "user", "content": prompt}],
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    content = data["content"][0]["text"].strip()
+    if content.startswith("```"):
+        content = content.split("\n", 1)[-1]
+        if content.endswith("```"):
+            content = content[:-3]
+        content = content.strip()
+    return json.loads(content)
+
+
+def _asset_result_from_search(search: dict) -> dict:
+    """Fallback when Claude is unavailable — return raw search without analysis."""
+    return {
+        "signal": "HOLD",
+        "confidence": 0.3,
+        "reasoning": "Deep analysis unavailable, search results only",
+        "bullish_factors": [],
+        "bearish_factors": [],
+        "catalysts": [],
+        "sources": search.get("citations", [])[:5],
+        "search_summary": search["search_results"][:500],
+        "researched": True,
+        "engine": "perplexity",
+        "research_ts": time.time(),
+    }
+
+
+def _empty_asset_result(reason: str = "") -> dict:
+    return {
+        "signal": "HOLD",
+        "confidence": 0.0,
+        "reasoning": reason,
+        "bullish_factors": [],
+        "bearish_factors": [],
+        "catalysts": [],
+        "sources": [],
+        "search_summary": "",
+        "researched": False,
+        "engine": "none",
+        "research_ts": 0,
+    }

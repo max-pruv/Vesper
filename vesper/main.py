@@ -542,7 +542,11 @@ class UserBot:
 
         max_positions = hunter_cfg.get("max_positions", 5)
         trailing_pct = hunter_cfg.get("trailing_stop_pct", 2.0)
-        min_score = hunter_cfg.get("min_trend_score", 0.50)
+
+        # Risk tolerance controls thresholds
+        risk_level = hunter_cfg.get("risk_level", "aggressive")
+        score_thresholds = {"conservative": 0.60, "moderate": 0.50, "aggressive": 0.40}
+        min_score = score_thresholds.get(risk_level, 0.50)
 
         # Collect existing altcoin_hunter positions
         hunter_positions = [
@@ -638,14 +642,48 @@ class UserBot:
             })
             return
 
-        # Filter candidates: strong uptrend + not already holding
+        # Filter candidates based on risk level
         held_symbols = {pos.symbol for pos in self.portfolio.positions.values()}
-        candidates = [
-            s for s in scored
-            if s["score"] >= min_score
-            and s["signal"] == Signal.BUY
-            and s["symbol"] not in held_symbols
-        ]
+        if risk_level == "aggressive":
+            # Aggressive: accept any signal above score threshold (incl. HOLD)
+            candidates = [
+                s for s in scored
+                if s["score"] >= min_score
+                and s["signal"] != Signal.SELL
+                and s["symbol"] not in held_symbols
+            ]
+        else:
+            # Moderate/Conservative: require explicit BUY signal
+            candidates = [
+                s for s in scored
+                if s["score"] >= min_score
+                and s["signal"] == Signal.BUY
+                and s["symbol"] not in held_symbols
+            ]
+
+        # Deep research on top candidates (max 3 to control costs)
+        from vesper.ai_research import research_asset
+        for c in candidates[:3]:
+            try:
+                research = research_asset(
+                    c["symbol"],
+                    c["factors"],
+                    c["snapshot"]["price"],
+                    asset_type="crypto",
+                )
+                c["deep_research"] = research
+                # Boost score if deep research agrees
+                if research.get("researched") and research.get("signal") == "BUY":
+                    c["score"] = min(1.0, c["score"] + research["confidence"] * 0.15)
+                    c["confidence"] = min(1.0, c.get("confidence", 0.5) + 0.10)
+                elif research.get("researched") and research.get("signal") == "SELL":
+                    c["score"] = max(0.0, c["score"] - 0.20)
+            except Exception:
+                c["deep_research"] = {}
+
+        # Re-sort after research adjustments
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        candidates = [c for c in candidates if c["score"] >= min_score]
 
         to_open = candidates[:slots_open]
         if not to_open:
@@ -699,16 +737,24 @@ class UserBot:
                 highest_price_seen=new_price,
             )
 
+            # Build deep reasoning string
+            deep = candidate.get("deep_research", {})
+            reason_parts = [f"Altcoin Hunter: score {score:.2f}"]
+            reason_parts.append(" | ".join(f"{k}={v:.2f}" for k, v in candidate["factors"].items()))
+            if deep.get("researched"):
+                reason_parts.append(f"Deep Search ({deep.get('engine', 'AI')}): {deep.get('reasoning', '')[:200]}")
+                if deep.get("bullish_factors"):
+                    reason_parts.append("Bullish: " + "; ".join(deep["bullish_factors"][:3]))
+                if deep.get("bearish_factors"):
+                    reason_parts.append("Bearish: " + "; ".join(deep["bearish_factors"][:3]))
+
             position = Position(
                 symbol=sym, side="buy",
                 entry_price=new_price,
                 amount=limits.position_size_asset,
                 cost_usd=amount_usd,
                 limits=limits,
-                strategy_reason=(
-                    f"Altcoin Hunter: score {score:.2f} | "
-                    f"{', '.join(f'{k}={v:.2f}' for k, v in candidate['factors'].items())}"
-                ),
+                strategy_reason=" | ".join(reason_parts),
                 strategy_id="altcoin_hunter",
                 bet_mode="continuous",
                 trade_mode=self.mode if self.mode == "live" else "paper",
@@ -732,6 +778,26 @@ class UserBot:
                     continue
 
             if self.portfolio.open_position(position):
+                # Store full analysis data for "Learn More"
+                analysis_data = {
+                    "indicators": self._snapshot_indicators(snap),
+                    "trend_factors": candidate["factors"],
+                    "trend_score": score,
+                    "deep_research": {
+                        "signal": deep.get("signal", ""),
+                        "confidence": deep.get("confidence", 0),
+                        "reasoning": deep.get("reasoning", ""),
+                        "bullish_factors": deep.get("bullish_factors", []),
+                        "bearish_factors": deep.get("bearish_factors", []),
+                        "catalysts": deep.get("catalysts", []),
+                        "sources": deep.get("sources", []),
+                        "search_summary": deep.get("search_summary", ""),
+                        "engine": deep.get("engine", ""),
+                    },
+                    "risk_level": risk_level,
+                }
+                self.portfolio._save_position_analysis(position.id, analysis_data)
+
                 available -= amount_usd
                 deployed += amount_usd
                 slots_open -= 1
@@ -1134,6 +1200,13 @@ class UserBot:
 
         max_positions = autopilot.get("max_positions", 3)
 
+        # Risk tolerance
+        risk_level = autopilot.get("risk_level", "aggressive")
+        ensemble_conf = {"conservative": 0.45, "moderate": 0.30, "aggressive": 0.15}
+        entry_conf = {"conservative": 0.55, "moderate": 0.35, "aggressive": 0.20}
+        min_ensemble_conf = ensemble_conf.get(risk_level, 0.30)
+        min_entry_conf = entry_conf.get(risk_level, 0.35)
+
         # Count existing autopilot positions
         autopilot_positions = [
             pos for pos in self.portfolio.positions.values()
@@ -1160,7 +1233,7 @@ class UserBot:
             return
 
         # Scan all symbols for the best opportunity
-        strategy = self._get_strategy("autopilot") or EnhancedEnsemble()
+        strategy = EnhancedEnsemble(min_confidence=min_ensemble_conf)
         candidates = []
         scanned = 0
         scan_details = []
@@ -1183,7 +1256,7 @@ class UserBot:
                     "sentiment": round(snap.get("sentiment_score", 0), 2),
                     "reason": result.reason[:100],
                 })
-                if result.signal == Signal.BUY and result.confidence >= 0.40:
+                if result.signal == Signal.BUY and result.confidence >= min_entry_conf:
                     candidates.append((result.confidence, sym, snap, result))
             except Exception:
                 continue
@@ -1207,14 +1280,14 @@ class UserBot:
                         "sentiment": 0.0,
                         "reason": result.reason[:100],
                     })
-                    if result.signal == Signal.BUY and result.confidence >= 0.40:
+                    if result.signal == Signal.BUY and result.confidence >= min_entry_conf:
                         candidates.append((result.confidence, sym, snap, result))
                 except Exception:
                     continue
 
         # Save per-symbol decision reasoning for the autopilot scan
         for detail in scan_details:
-            if detail["signal"] == "BUY" and detail["confidence"] >= 0.40:
+            if detail["signal"] == "BUY" and detail["confidence"] >= min_entry_conf:
                 action = "CANDIDATE"
             else:
                 action = "SKIP"
@@ -1253,6 +1326,20 @@ class UserBot:
         candidates.sort(reverse=True, key=lambda x: x[0])
         to_open = candidates[:slots_open]
 
+        # Deep research on top candidates before opening (max 3 to control costs)
+        from vesper.ai_research import research_asset
+        deep_research_map = {}
+        for _conf, sym, snap, _result in to_open[:3]:
+            try:
+                asset_type = "stock" if is_stock_symbol(sym) else "crypto"
+                research = research_asset(
+                    sym, self._snapshot_indicators(snap),
+                    snap["price"], asset_type=asset_type,
+                )
+                deep_research_map[sym] = research
+            except Exception:
+                deep_research_map[sym] = {}
+
         # Allocate funds evenly across new positions
         per_position = available / len(to_open)
         actions = []
@@ -1262,6 +1349,8 @@ class UserBot:
             amount_usd = min(per_position, available)
             if amount_usd < 10:
                 break
+
+            deep = deep_research_map.get(sym, {})
 
             # Dynamic SL based on ATR
             atr = snap.get("atr", 0)
@@ -1284,13 +1373,22 @@ class UserBot:
                 highest_price_seen=new_price,
             )
 
+            # Build rich strategy reason with deep search
+            reason_parts = [f"Autopilot AI: {result.reason[:150]}"]
+            if deep.get("researched"):
+                reason_parts.append(f"Deep Search ({deep.get('engine', 'AI')}): {deep.get('reasoning', '')[:200]}")
+                if deep.get("bullish_factors"):
+                    reason_parts.append("Bullish: " + "; ".join(deep["bullish_factors"][:3]))
+                if deep.get("bearish_factors"):
+                    reason_parts.append("Bearish: " + "; ".join(deep["bearish_factors"][:3]))
+
             position = Position(
                 symbol=sym, side="buy",
                 entry_price=new_price,
                 amount=limits.position_size_asset,
                 cost_usd=amount_usd,
                 limits=limits,
-                strategy_reason=f"Autopilot AI: {result.reason[:120]}",
+                strategy_reason=" | ".join(reason_parts),
                 strategy_id="autopilot",
                 bet_mode="continuous",
                 trade_mode=self.mode if self.mode == "live" else "paper",
@@ -1320,6 +1418,29 @@ class UserBot:
                     continue
 
             if self.portfolio.open_position(position):
+                # Store full analysis for "Learn More"
+                analysis_data = {
+                    "indicators": self._snapshot_indicators(snap),
+                    "strategy_signals": result.reason,
+                    "confidence": round(confidence, 3),
+                    "whale_score": round(snap.get("whale_score", 0), 2),
+                    "sentiment_score": round(snap.get("sentiment_score", 0), 2),
+                    "fear_greed": snap.get("fear_greed"),
+                    "deep_research": {
+                        "signal": deep.get("signal", ""),
+                        "confidence": deep.get("confidence", 0),
+                        "reasoning": deep.get("reasoning", ""),
+                        "bullish_factors": deep.get("bullish_factors", []),
+                        "bearish_factors": deep.get("bearish_factors", []),
+                        "catalysts": deep.get("catalysts", []),
+                        "sources": deep.get("sources", []),
+                        "search_summary": deep.get("search_summary", ""),
+                        "engine": deep.get("engine", ""),
+                    },
+                    "risk_level": risk_level,
+                }
+                self.portfolio._save_position_analysis(position.id, analysis_data)
+
                 available -= amount_usd
                 actions.append({
                     "action": "BUY",

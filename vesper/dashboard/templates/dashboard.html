@@ -17,11 +17,20 @@
 
 <div class="page-wrapper">
 
-<!-- Main Tabs -->
-<div style="display:flex;justify-content:center;padding:16px 0 0;">
+<!-- Top Bar: Tabs + Trade Mode Toggle -->
+<div style="display:flex;justify-content:center;align-items:center;padding:16px 0 0;gap:16px;flex-wrap:wrap;">
     <div style="display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px;" id="mainTabs">
         <button class="tab-pill active" onclick="switchTab('trading')" id="tabTrading">Trading</button>
         <button class="tab-pill" onclick="switchTab('predictions')" id="tabPredictions">Predictions</button>
+    </div>
+    <!-- Paper / Real Mode Toggle -->
+    <div id="tradeModeToggle" style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--glass-border);">
+        <button class="trade-mode-btn active" id="modePaper" onclick="setTradeMode('paper')" data-mode="paper">
+            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f5a623;margin-right:4px;"></span>Paper
+        </button>
+        <button class="trade-mode-btn" id="modeReal" onclick="setTradeMode('real')" data-mode="real">
+            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px;"></span>Real
+        </button>
     </div>
 </div>
 <style>
@@ -35,6 +44,19 @@
     .tab-pill.active { background: var(--card); color: var(--text); }
     .tab-content { display: none; }
     .tab-content.active { display: block; }
+
+    /* Paper / Real mode toggle */
+    .trade-mode-btn {
+        padding: 6px 14px; border: none; border-radius: 8px;
+        font-size: 12px; font-weight: 700; cursor: pointer;
+        background: transparent; color: var(--text-muted);
+        font-family: inherit; transition: all 0.2s;
+        display: inline-flex; align-items: center;
+        text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .trade-mode-btn:hover { color: var(--text-secondary); }
+    .trade-mode-btn.active[data-mode="paper"] { background: rgba(245,166,35,0.12); color: #f5a623; }
+    .trade-mode-btn.active[data-mode="real"] { background: rgba(0,232,94,0.12); color: var(--green); }
     .pm-card {
         background: var(--surface); border: 1px solid var(--border);
         border-radius: 14px; padding: 18px; transition: all 0.2s;
@@ -167,11 +189,11 @@
     {% endif %}
 
     <!-- Portfolio Overview -->
-    <div style="margin-bottom:24px;">
+    <div style="margin-bottom:28px;" class="fade-in">
         <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
             <div>
-                <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px;">Portfolio Value</div>
-                <div style="font-size:44px;font-weight:700;letter-spacing:-2px;line-height:1;" id="portfolioValue">${{ "%.2f"|format(cash) }}</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;">Portfolio Value</div>
+                <div style="font-size:42px;font-weight:800;letter-spacing:-2px;line-height:1;background:linear-gradient(135deg, var(--text), var(--text-secondary));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;" id="portfolioValue">${{ "%.2f"|format(cash) }}</div>
                 <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
                     <span id="totalPnl" class="{{ 'positive' if total_pnl >= 0 else 'negative' }}" style="font-size:15px;font-weight:600;">
                         ${{ "%+.2f"|format(total_pnl) }} ({{ "%+.2f"|format(total_pnl_pct) }}%)
@@ -180,130 +202,193 @@
                 </div>
             </div>
         </div>
-        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
-                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Invested</div>
-                <div style="font-size:22px;font-weight:700;" id="statInvested">$0.00</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;">
+            <div class="stat-glass">
+                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">Invested</div>
+                <div style="font-size:20px;font-weight:700;" id="statInvested">$0.00</div>
             </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
-                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Realized P&L</div>
-                <div style="font-size:22px;font-weight:700;" id="statRealized">${{ "%+.2f"|format(total_pnl) }}</div>
+            <div class="stat-glass">
+                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">Realized P&L</div>
+                <div style="font-size:20px;font-weight:700;" id="statRealized">${{ "%+.2f"|format(total_pnl) }}</div>
             </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
-                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Unrealized P&L</div>
-                <div style="font-size:22px;font-weight:700;" id="statUnrealized">$0.00</div>
+            <div class="stat-glass">
+                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">Unrealized P&L</div>
+                <div style="font-size:20px;font-weight:700;" id="statUnrealized">$0.00</div>
             </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
-                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Win Rate</div>
-                <div style="font-size:22px;font-weight:700;display:flex;align-items:baseline;gap:6px;">
+            <div class="stat-glass">
+                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">Win Rate</div>
+                <div style="font-size:20px;font-weight:700;display:flex;align-items:baseline;gap:6px;">
                     <span id="statWinRate">{{ "%.0f"|format(win_rate) }}%</span>
-                    <span style="font-size:12px;font-weight:500;color:var(--text-muted);"><span id="statTrades">{{ total_trades }}</span> trades</span>
+                    <span style="font-size:11px;font-weight:500;color:var(--text-muted);"><span id="statTrades">{{ total_trades }}</span> trades</span>
                 </div>
             </div>
-            <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
-                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;margin-bottom:6px;">Open Positions</div>
-                <div style="font-size:22px;font-weight:700;" id="statOpen">0</div>
+            <div class="stat-glass">
+                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">Open</div>
+                <div style="font-size:20px;font-weight:700;" id="statOpen">0</div>
             </div>
         </div>
     </div>
 
     <!-- ═══ 3 Autopilot Cards ═══ -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-bottom:24px;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px;margin-bottom:24px;">
 
         <!-- Crypto Autopilot -->
-        <div class="card" id="cryptoCard" style="background:linear-gradient(135deg, rgba(34,197,94,0.08), rgba(16,185,129,0.06));border:1px solid rgba(34,197,94,0.2);">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-                <div style="width:36px;height:36px;border-radius:10px;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;color:var(--green);">&#8383;</div>
+        <div class="card slide-up" id="cryptoCard" style="background:linear-gradient(135deg, rgba(0,232,94,0.04), rgba(0,180,255,0.02));border-color:rgba(0,232,94,0.12);">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                <div style="width:38px;height:38px;border-radius:11px;background:rgba(0,232,94,0.1);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;color:var(--green);box-shadow:0 0 20px rgba(0,232,94,0.1);">&#8383;</div>
                 <div style="flex:1;">
                     <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;">
                         Crypto
-                        <span id="cryptoStatus" style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:600;">OFF</span>
+                        <span id="cryptoStatus" style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.04);color:var(--text-muted);font-weight:600;">OFF</span>
                     </div>
-                    <div style="font-size:11px;color:var(--text-muted);">60+ coins, trend scoring, trailing stops</div>
+                    <div style="font-size:11px;color:var(--text-muted);">60+ coins &middot; Deep Search &middot; Trailing stops</div>
                 </div>
             </div>
-            <div id="cryptoOff" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <div style="position:relative;flex:1;min-width:100px;">
-                    <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;">$</span>
-                    <input type="number" id="cryptoAmount" placeholder="200" min="10" step="10"
-                           style="padding:8px 8px 8px 22px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:100%;font-size:13px;box-sizing:border-box;">
+            <div id="cryptoOff">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                    <div style="position:relative;flex:1;min-width:80px;">
+                        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;">$</span>
+                        <input type="number" id="cryptoAmount" placeholder="200" min="10" step="10"
+                               style="padding:8px 8px 8px 22px;border:1px solid var(--glass-border);border-radius:10px;background:rgba(255,255,255,0.03);color:var(--text);width:100%;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <button class="btn btn-accent" style="font-size:13px;padding:8px 18px;white-space:nowrap;" onclick="startSegment('crypto')">Start</button>
                 </div>
-                <button class="btn" style="background:var(--green);color:#000;font-weight:700;font-size:13px;padding:8px 16px;white-space:nowrap;" onclick="startSegment('crypto')">Start</button>
+                <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;min-width:28px;">Risk</span>
+                    <div class="risk-selector" id="cryptoRisk">
+                        <button class="risk-btn" data-risk="conservative" onclick="setRisk('crypto','conservative')">Safe</button>
+                        <button class="risk-btn" data-risk="moderate" onclick="setRisk('crypto','moderate')">Mod</button>
+                        <button class="risk-btn active" data-risk="aggressive" onclick="setRisk('crypto','aggressive')">Aggro</button>
+                    </div>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;min-width:28px;">Re%</span>
+                    <input type="range" id="cryptoReinvest" min="0" max="100" value="100" style="flex:1;accent-color:var(--green);">
+                    <span id="cryptoReinvestLabel" style="font-size:11px;color:var(--text-secondary);min-width:30px;text-align:right;">100%</span>
+                </div>
             </div>
             <div id="cryptoOn" style="display:none;">
-                <div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap;">
+                <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap;">
                     <div><div style="font-size:20px;font-weight:700;" id="cryptoFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Fund</div></div>
                     <div><div style="font-size:20px;font-weight:700;color:var(--green);" id="cryptoDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
                     <div><div style="font-size:20px;font-weight:700;" id="cryptoPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
                 </div>
                 <div id="cryptoTopScores" style="margin-bottom:6px;"></div>
-                <div id="cryptoLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:8px;"></div>
-                <button class="btn" style="background:var(--border);font-size:11px;padding:5px 14px;" onclick="stopSegment('crypto')">Stop</button>
+                <div id="cryptoLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;"></div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button class="btn btn-outline btn-sm" onclick="stopSegment('crypto')">Stop</button>
+                    <button class="btn btn-sm" style="background:rgba(255,255,255,0.04);color:var(--text-secondary);font-size:11px;" onclick="editFund('crypto')">Edit Fund</button>
+                </div>
             </div>
         </div>
 
         <!-- Stocks Autopilot -->
-        <div class="card" id="stocksCard" style="background:linear-gradient(135deg, rgba(99,102,241,0.08), rgba(168,85,247,0.06));border:1px solid rgba(99,102,241,0.2);">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-                <div style="width:36px;height:36px;border-radius:10px;background:rgba(99,102,241,0.15);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#818cf8;">&#x1F4C8;</div>
+        <div class="card slide-up" id="stocksCard" style="background:linear-gradient(135deg, rgba(99,102,241,0.04), rgba(168,85,247,0.03));border-color:rgba(99,102,241,0.12);animation-delay:0.05s;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                <div style="width:38px;height:38px;border-radius:11px;background:rgba(99,102,241,0.1);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#818cf8;box-shadow:0 0 20px rgba(99,102,241,0.08);">&#x1F4C8;</div>
                 <div style="flex:1;">
                     <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;">
                         Stocks
-                        <span id="stocksStatus" style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:600;">OFF</span>
+                        <span id="stocksStatus" style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.04);color:var(--text-muted);font-weight:600;">OFF</span>
                     </div>
-                    <div style="font-size:11px;color:var(--text-muted);">BTC + majors, whale tracking + sentiment</div>
+                    <div style="font-size:11px;color:var(--text-muted);">AI brain &middot; Deep Search &middot; Whale tracking</div>
                 </div>
             </div>
-            <div id="stocksOff" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <div style="position:relative;flex:1;min-width:100px;">
-                    <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;">$</span>
-                    <input type="number" id="stocksAmount" placeholder="500" min="10" step="10"
-                           style="padding:8px 8px 8px 22px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:100%;font-size:13px;box-sizing:border-box;">
+            <div id="stocksOff">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                    <div style="position:relative;flex:1;min-width:80px;">
+                        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;">$</span>
+                        <input type="number" id="stocksAmount" placeholder="500" min="10" step="10"
+                               style="padding:8px 8px 8px 22px;border:1px solid var(--glass-border);border-radius:10px;background:rgba(255,255,255,0.03);color:var(--text);width:100%;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <button class="btn btn-accent" style="font-size:13px;padding:8px 18px;white-space:nowrap;" onclick="startSegment('stocks')">Start</button>
                 </div>
-                <button class="btn btn-accent" style="font-size:13px;padding:8px 16px;white-space:nowrap;" onclick="startSegment('stocks')">Start</button>
+                <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;min-width:28px;">Risk</span>
+                    <div class="risk-selector" id="stocksRisk">
+                        <button class="risk-btn" data-risk="conservative" onclick="setRisk('stocks','conservative')">Safe</button>
+                        <button class="risk-btn" data-risk="moderate" onclick="setRisk('stocks','moderate')">Mod</button>
+                        <button class="risk-btn active" data-risk="aggressive" onclick="setRisk('stocks','aggressive')">Aggro</button>
+                    </div>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;min-width:28px;">Re%</span>
+                    <input type="range" id="stocksReinvest" min="0" max="100" value="100" style="flex:1;accent-color:var(--green);">
+                    <span id="stocksReinvestLabel" style="font-size:11px;color:var(--text-secondary);min-width:30px;text-align:right;">100%</span>
+                </div>
             </div>
             <div id="stocksOn" style="display:none;">
-                <div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap;">
+                <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap;">
                     <div><div style="font-size:20px;font-weight:700;" id="stocksFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Fund</div></div>
                     <div><div style="font-size:20px;font-weight:700;color:var(--green);" id="stocksDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
                     <div><div style="font-size:20px;font-weight:700;" id="stocksPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
                 </div>
-                <div id="stocksLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:8px;"></div>
-                <button class="btn" style="background:var(--border);font-size:11px;padding:5px 14px;" onclick="stopSegment('stocks')">Stop</button>
+                <div id="stocksLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;"></div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button class="btn btn-outline btn-sm" onclick="stopSegment('stocks')">Stop</button>
+                    <button class="btn btn-sm" style="background:rgba(255,255,255,0.04);color:var(--text-secondary);font-size:11px;" onclick="editFund('stocks')">Edit Fund</button>
+                </div>
             </div>
         </div>
 
         <!-- Predictions Autopilot -->
-        <div class="card" id="predictionsCard" style="background:linear-gradient(135deg, rgba(245,166,35,0.08), rgba(234,88,12,0.06));border:1px solid rgba(245,166,35,0.2);">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-                <div style="width:36px;height:36px;border-radius:10px;background:rgba(245,166,35,0.15);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#f5a623;">&#x1F52E;</div>
+        <div class="card slide-up" id="predictionsCard" style="background:linear-gradient(135deg, rgba(245,166,35,0.04), rgba(234,88,12,0.02));border-color:rgba(245,166,35,0.12);animation-delay:0.1s;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                <div style="width:38px;height:38px;border-radius:11px;background:rgba(245,166,35,0.1);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#f5a623;box-shadow:0 0 20px rgba(245,166,35,0.08);">&#x1F52E;</div>
                 <div style="flex:1;">
                     <div style="font-size:15px;font-weight:700;display:flex;align-items:center;gap:8px;">
                         Predictions
-                        <span id="predStatus" style="font-size:10px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:600;">OFF</span>
+                        <span id="predStatus" style="font-size:10px;padding:2px 8px;border-radius:10px;background:rgba(255,255,255,0.04);color:var(--text-muted);font-weight:600;">OFF</span>
                     </div>
-                    <div style="font-size:11px;color:var(--text-muted);">AI research on markets, auto-invests on edge</div>
+                    <div style="font-size:11px;color:var(--text-muted);">Perplexity + Claude &middot; Auto-invests on edge</div>
                 </div>
             </div>
-            <div id="predOff" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                <div style="position:relative;flex:1;min-width:100px;">
-                    <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;">$</span>
-                    <input type="number" id="predAmount" placeholder="100" min="10" step="10"
-                           style="padding:8px 8px 8px 22px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:100%;font-size:13px;box-sizing:border-box;">
+            <div id="predOff">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+                    <div style="position:relative;flex:1;min-width:80px;">
+                        <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:13px;">$</span>
+                        <input type="number" id="predAmount" placeholder="100" min="10" step="10"
+                               style="padding:8px 8px 8px 22px;border:1px solid var(--glass-border);border-radius:10px;background:rgba(255,255,255,0.03);color:var(--text);width:100%;font-size:13px;box-sizing:border-box;">
+                    </div>
+                    <button class="btn" style="background:linear-gradient(135deg,#f5a623,#e67700);color:#000;font-weight:700;font-size:13px;padding:8px 18px;white-space:nowrap;" onclick="startSegment('predictions')">Start</button>
                 </div>
-                <button class="btn" style="background:#f5a623;color:#000;font-weight:700;font-size:13px;padding:8px 16px;white-space:nowrap;" onclick="startSegment('predictions')">Start</button>
+                <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">
+                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;min-width:28px;">Risk</span>
+                    <div class="risk-selector" id="predRisk">
+                        <button class="risk-btn" data-risk="conservative" onclick="setRisk('predictions','conservative')">Safe</button>
+                        <button class="risk-btn" data-risk="moderate" onclick="setRisk('predictions','moderate')">Mod</button>
+                        <button class="risk-btn active" data-risk="aggressive" onclick="setRisk('predictions','aggressive')">Aggro</button>
+                    </div>
+                </div>
+                <div style="display:flex;gap:6px;align-items:center;">
+                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;min-width:28px;">Re%</span>
+                    <input type="range" id="predReinvest" min="0" max="100" value="100" style="flex:1;accent-color:#f5a623;">
+                    <span id="predReinvestLabel" style="font-size:11px;color:var(--text-secondary);min-width:30px;text-align:right;">100%</span>
+                </div>
             </div>
             <div id="predOn" style="display:none;">
-                <div style="display:flex;gap:16px;margin-bottom:8px;flex-wrap:wrap;">
+                <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap;">
                     <div><div style="font-size:20px;font-weight:700;" id="predFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Fund</div></div>
                     <div><div style="font-size:20px;font-weight:700;color:var(--green);" id="predDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
                     <div><div style="font-size:20px;font-weight:700;" id="predPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
                 </div>
-                <div id="predLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:8px;"></div>
-                <button class="btn" style="background:var(--border);font-size:11px;padding:5px 14px;" onclick="stopSegment('predictions')">Stop</button>
+                <div id="predLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;"></div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button class="btn btn-outline btn-sm" onclick="stopSegment('predictions')">Stop</button>
+                    <button class="btn btn-sm" style="background:rgba(255,255,255,0.04);color:var(--text-secondary);font-size:11px;" onclick="editFund('predictions')">Edit Fund</button>
+                </div>
             </div>
         </div>
 
+    </div>
+
+    <!-- Learn More Modal -->
+    <div class="modal-overlay" id="learnMoreModal">
+        <div class="modal" style="max-width:640px;">
+            <button class="modal-close" onclick="closeLearnMore()">&times;</button>
+            <div class="modal-title" id="learnMoreTitle">AI Analysis</div>
+            <div id="learnMoreBody" style="font-size:13px;color:var(--text-secondary);line-height:1.7;">Loading...</div>
+        </div>
     </div>
 
     <!-- Active Positions -->
@@ -705,10 +790,13 @@ function renderBetCard(p, isNew) {
             <div class="bet-progress-fill" style="width:${progressPct}%;background:${progressColor};"></div>
         </div>
         ${slTpRow}
-        <!-- AI Entry Reason (always shown) -->
-        ${p.strategy_reason ? `<div style="margin-top:10px;padding:10px;background:rgba(0,220,90,0.04);border:1px solid rgba(0,220,90,0.12);border-radius:8px;font-size:12px;">
-            <div style="font-weight:600;color:var(--accent);margin-bottom:4px;">Why AI entered this trade</div>
-            <div style="color:var(--text-secondary);line-height:1.5;">${p.strategy_reason}</div>
+        <!-- AI Entry Reason -->
+        ${p.strategy_reason ? `<div style="margin-top:10px;padding:10px 12px;background:rgba(0,232,94,0.03);border:1px solid rgba(0,232,94,0.08);border-radius:10px;font-size:12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                <span style="font-weight:600;color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:0.3px;">AI Reasoning</span>
+                <button style="background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer;font-weight:600;font-family:inherit;padding:2px 6px;" onclick="openLearnMore('${p.id}','${p.name || p.symbol}')">Learn More</button>
+            </div>
+            <div style="color:var(--text-secondary);line-height:1.5;">${p.strategy_reason.substring(0, 200)}${p.strategy_reason.length > 200 ? '...' : ''}</div>
         </div>` : ''}
         <button class="btn btn-outline btn-sm" style="width:100%;margin-top:12px;"
                 onclick="closeTrade('${p.id}')">Close Position</button>
@@ -961,12 +1049,15 @@ setInterval(updatePortfolioStats, 5000);
 // ═══════════════════════════════════════
 
 // Segment config: maps UI segment name → API endpoint + element IDs
+let currentTradeMode = 'paper';
+
 const SEGMENTS = {
     crypto: {
         api: '/api/altcoin-hunter',
         statusEl: 'cryptoStatus', offEl: 'cryptoOff', onEl: 'cryptoOn',
         fundEl: 'cryptoFund', deployedEl: 'cryptoDeployed', posEl: 'cryptoPositions',
         scanEl: 'cryptoLastScan', topEl: 'cryptoTopScores', amountEl: 'cryptoAmount',
+        riskEl: 'cryptoRisk', reinvestEl: 'cryptoReinvest', reinvestLabelEl: 'cryptoReinvestLabel',
         activeLabel: 'ACTIVE', activeColor: 'var(--green)',
         extraBody: {max_positions: 5, trailing_stop_pct: 2.0},
     },
@@ -975,6 +1066,7 @@ const SEGMENTS = {
         statusEl: 'stocksStatus', offEl: 'stocksOff', onEl: 'stocksOn',
         fundEl: 'stocksFund', deployedEl: 'stocksDeployed', posEl: 'stocksPositions',
         scanEl: 'stocksLastScan', topEl: null, amountEl: 'stocksAmount',
+        riskEl: 'stocksRisk', reinvestEl: 'stocksReinvest', reinvestLabelEl: 'stocksReinvestLabel',
         activeLabel: 'ACTIVE', activeColor: '#818cf8',
         extraBody: {max_positions: 3},
     },
@@ -983,6 +1075,7 @@ const SEGMENTS = {
         statusEl: 'predStatus', offEl: 'predOff', onEl: 'predOn',
         fundEl: 'predFund', deployedEl: 'predDeployed', posEl: 'predPositions',
         scanEl: 'predLastScan', topEl: null, amountEl: 'predAmount',
+        riskEl: 'predRisk', reinvestEl: 'predReinvest', reinvestLabelEl: 'predReinvestLabel',
         activeLabel: 'SCANNING', activeColor: '#f5a623',
         extraBody: {max_positions: 3},
     },
@@ -1027,6 +1120,19 @@ async function fetchSegmentStatus(segment) {
             document.getElementById(cfg.posEl).textContent =
                 (data.positions || []).length + '/' + (data.max_positions || 3);
 
+            // Sync risk level from server
+            if (data.risk_level && cfg.riskEl) {
+                setRisk(segment, data.risk_level);
+            }
+
+            // Sync reinvest pct from server
+            if (data.reinvest_pct !== undefined && cfg.reinvestEl) {
+                const slider = document.getElementById(cfg.reinvestEl);
+                const label = document.getElementById(cfg.reinvestLabelEl);
+                if (slider) slider.value = data.reinvest_pct;
+                if (label) label.textContent = data.reinvest_pct + '%';
+            }
+
             // Scan info
             const scanEl = document.getElementById(cfg.scanEl);
             if (scanEl && data.log) {
@@ -1052,9 +1158,25 @@ async function fetchSegmentStatus(segment) {
             statusEl.style.background = 'var(--border)';
             statusEl.style.color = 'var(--text-muted)';
             onEl.style.display = 'none';
-            offEl.style.display = 'flex';
+            offEl.style.display = 'block';
         }
     } catch(e) {}
+}
+
+function getSelectedRisk(segment) {
+    const cfg = SEGMENTS[segment];
+    if (!cfg || !cfg.riskEl) return 'aggressive';
+    const riskEl = document.getElementById(cfg.riskEl);
+    if (!riskEl) return 'aggressive';
+    const active = riskEl.querySelector('.risk-btn.active');
+    return active ? active.getAttribute('data-risk') : 'aggressive';
+}
+
+function getReinvestPct(segment) {
+    const cfg = SEGMENTS[segment];
+    if (!cfg || !cfg.reinvestEl) return 100;
+    const slider = document.getElementById(cfg.reinvestEl);
+    return slider ? parseInt(slider.value) : 100;
 }
 
 async function startSegment(segment) {
@@ -1066,7 +1188,14 @@ async function startSegment(segment) {
         return;
     }
     try {
-        const body = {action: 'start', amount_usd: amount, ...cfg.extraBody};
+        const body = {
+            action: 'start',
+            amount_usd: amount,
+            risk_level: getSelectedRisk(segment),
+            reinvest_pct: getReinvestPct(segment),
+            trade_mode: currentTradeMode,
+            ...cfg.extraBody,
+        };
         const resp = await fetch(cfg.api, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -1096,6 +1225,191 @@ async function stopSegment(segment) {
 setInterval(() => {
     ['crypto', 'stocks', 'predictions'].forEach(s => fetchSegmentStatus(s));
 }, 10000);
+
+// ═══════════════════════════════════════
+// Risk Level Selector
+// ═══════════════════════════════════════
+function setRisk(segment, level) {
+    const cfg = SEGMENTS[segment];
+    if (!cfg || !cfg.riskEl) return;
+    const container = document.getElementById(cfg.riskEl);
+    container.querySelectorAll('.risk-btn').forEach(b => b.classList.remove('active'));
+    const btn = container.querySelector(`[data-risk="${level}"]`);
+    if (btn) btn.classList.add('active');
+}
+
+// ═══════════════════════════════════════
+// Edit Fund (while autopilot is running)
+// ═══════════════════════════════════════
+async function editFund(segment) {
+    const cfg = SEGMENTS[segment];
+    if (!cfg) return;
+    const label = segment.charAt(0).toUpperCase() + segment.slice(1);
+    const newAmount = prompt(`New fund amount for ${label} autopilot ($):`);
+    if (!newAmount) return;
+    const val = parseFloat(newAmount);
+    if (!val || val < 10) { alert('Minimum $10'); return; }
+    try {
+        const body = {
+            action: 'update',
+            amount_usd: val,
+            risk_level: getSelectedRisk(segment),
+            reinvest_pct: getReinvestPct(segment),
+        };
+        const resp = await fetch(cfg.api, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body),
+        });
+        if (resp.ok) fetchSegmentStatus(segment);
+    } catch(e) {}
+}
+
+// ═══════════════════════════════════════
+// Learn More Modal — Full AI Analysis
+// ═══════════════════════════════════════
+async function openLearnMore(pid, name) {
+    const modal = document.getElementById('learnMoreModal');
+    const title = document.getElementById('learnMoreTitle');
+    const body = document.getElementById('learnMoreBody');
+    title.textContent = `AI Analysis — ${name}`;
+    body.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);">Loading full analysis...</div>';
+    modal.classList.add('active');
+    try {
+        const resp = await fetch(`/api/position-analysis/${encodeURIComponent(pid)}`);
+        if (!resp.ok) {
+            body.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:20px;">No detailed analysis available for this position.</div>';
+            return;
+        }
+        const data = await resp.json();
+        let html = '';
+
+        // Signal & Confidence
+        if (data.signal || data.confidence) {
+            const signalColor = data.signal === 'BUY' ? 'var(--green)' : data.signal === 'SELL' ? 'var(--red)' : 'var(--text-secondary)';
+            const confPct = data.confidence ? (data.confidence * 100).toFixed(0) : '?';
+            html += `<div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;">
+                <span style="padding:4px 14px;border-radius:8px;font-weight:800;font-size:14px;background:${data.signal === 'BUY' ? 'var(--green-dim)' : data.signal === 'SELL' ? 'var(--red-dim)' : 'rgba(255,255,255,0.05)'};color:${signalColor};">${data.signal || 'N/A'}</span>
+                <span style="font-size:13px;color:var(--text-secondary);">Confidence: <b>${confPct}%</b></span>
+            </div>`;
+        }
+
+        // Deep Search Summary
+        if (data.search_summary) {
+            html += `<div style="margin-bottom:16px;">
+                <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:14px;">&#x1F50D;</span> Deep Search
+                </div>
+                <div style="padding:12px;border-radius:10px;background:rgba(0,232,94,0.03);border:1px solid rgba(0,232,94,0.08);font-size:12px;color:var(--text-secondary);line-height:1.6;">${escapeHtml(data.search_summary)}</div>
+            </div>`;
+        }
+
+        // AI Reasoning
+        if (data.reasoning) {
+            html += `<div style="margin-bottom:16px;">
+                <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:14px;">&#x1F9E0;</span> AI Reasoning
+                </div>
+                <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);font-size:12px;color:var(--text-secondary);line-height:1.7;">${escapeHtml(data.reasoning)}</div>
+            </div>`;
+        }
+
+        // Bullish / Bearish Factors
+        if ((data.bullish_factors && data.bullish_factors.length) || (data.bearish_factors && data.bearish_factors.length)) {
+            html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">`;
+            if (data.bullish_factors && data.bullish_factors.length) {
+                html += `<div><div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:6px;">Bullish Factors</div>`;
+                data.bullish_factors.forEach(f => {
+                    html += `<div style="font-size:11px;color:var(--text-secondary);padding:3px 0 3px 12px;position:relative;"><span style="position:absolute;left:0;color:var(--green);">+</span>${escapeHtml(f)}</div>`;
+                });
+                html += `</div>`;
+            }
+            if (data.bearish_factors && data.bearish_factors.length) {
+                html += `<div><div style="font-size:11px;font-weight:700;color:var(--red);margin-bottom:6px;">Bearish Factors</div>`;
+                data.bearish_factors.forEach(f => {
+                    html += `<div style="font-size:11px;color:var(--text-secondary);padding:3px 0 3px 12px;position:relative;"><span style="position:absolute;left:0;color:var(--red);">-</span>${escapeHtml(f)}</div>`;
+                });
+                html += `</div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Catalysts
+        if (data.catalysts && data.catalysts.length) {
+            html += `<div style="margin-bottom:16px;">
+                <div style="font-size:11px;font-weight:700;color:#f5a623;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Catalysts</div>`;
+            data.catalysts.forEach(c => {
+                html += `<div style="font-size:11px;color:var(--text-secondary);padding:2px 0;">&#x26A1; ${escapeHtml(c)}</div>`;
+            });
+            html += `</div>`;
+        }
+
+        // Technical Indicators
+        if (data.indicators) {
+            const ind = data.indicators;
+            const parts = [];
+            if (ind.rsi) parts.push(['RSI', ind.rsi]);
+            if (ind.ema_trend) parts.push(['EMA Trend', ind.ema_trend]);
+            if (ind.adx) parts.push(['ADX', ind.adx]);
+            if (ind.atr_pct) parts.push(['ATR%', ind.atr_pct]);
+            if (ind.whale_score !== undefined) parts.push(['Whale', ind.whale_score]);
+            if (ind.sentiment !== undefined) parts.push(['Sentiment', ind.sentiment]);
+            if (ind.bb_position !== undefined) parts.push(['BB Pos', (ind.bb_position * 100).toFixed(0) + '%']);
+            if (parts.length > 0) {
+                html += `<div style="margin-bottom:16px;">
+                    <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Technical Indicators</div>
+                    <div style="display:flex;flex-wrap:wrap;gap:6px;">`;
+                parts.forEach(([label, val]) => {
+                    html += `<span style="padding:4px 10px;border-radius:8px;font-size:11px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);"><b>${label}</b> ${val}</span>`;
+                });
+                html += `</div></div>`;
+            }
+        }
+
+        // Sources
+        if (data.sources && data.sources.length) {
+            html += `<div><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Sources</div>`;
+            html += `<div style="font-size:11px;color:var(--text-muted);line-height:1.6;">${data.sources.map(s => escapeHtml(s)).join(' &middot; ')}</div></div>`;
+        }
+
+        body.innerHTML = html || '<div style="color:var(--text-muted);text-align:center;">No detailed data available.</div>';
+    } catch(e) {
+        body.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px;">Failed to load analysis.</div>';
+    }
+}
+
+function closeLearnMore() {
+    document.getElementById('learnMoreModal').classList.remove('active');
+}
+// Close modal on overlay click
+document.getElementById('learnMoreModal').addEventListener('click', function(e) {
+    if (e.target === this) closeLearnMore();
+});
+
+// ═══════════════════════════════════════
+// Paper / Real Trade Mode
+// ═══════════════════════════════════════
+function setTradeMode(mode) {
+    currentTradeMode = mode;
+    document.getElementById('modePaper').classList.toggle('active', mode === 'paper');
+    document.getElementById('modeReal').classList.toggle('active', mode === 'real');
+    // Visual indicator on the whole page
+    document.body.setAttribute('data-trade-mode', mode);
+}
+
+// ═══════════════════════════════════════
+// Reinvest Slider Listeners
+// ═══════════════════════════════════════
+['crypto', 'stocks', 'predictions'].forEach(segment => {
+    const cfg = SEGMENTS[segment];
+    const slider = document.getElementById(cfg.reinvestEl);
+    const label = document.getElementById(cfg.reinvestLabelEl);
+    if (slider && label) {
+        slider.addEventListener('input', () => {
+            label.textContent = slider.value + '%';
+        });
+    }
+});
 
 function escapeHtml(text) {
     const div = document.createElement('div');
