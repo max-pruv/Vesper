@@ -1,40 +1,316 @@
 {% extends "base.html" %}
 {% block title %}Vesper{% endblock %}
 {% block body %}
-<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:100vh;padding:24px;">
-    <div style="text-align:center;max-width:420px;width:100%;">
+<style>
+    /* ═══ Space-inspired animated landing ═══ */
+    .landing-wrapper {
+        min-height: 100vh; display: flex; flex-direction: column;
+        justify-content: center; align-items: center; padding: 24px;
+        position: relative; overflow: hidden;
+    }
 
+    /* Animated star field */
+    .stars {
+        position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    }
+    .stars canvas { width: 100%; height: 100%; }
+
+    /* Orbiting rings */
+    .orbit-ring {
+        position: absolute; border-radius: 50%;
+        border: 1px solid rgba(0,232,94,0.04);
+        animation: orbit-spin 60s linear infinite;
+    }
+    .orbit-ring:nth-child(1) {
+        width: 600px; height: 600px; top: calc(50% - 300px); left: calc(50% - 300px);
+        border-color: rgba(0,232,94,0.05);
+    }
+    .orbit-ring:nth-child(2) {
+        width: 800px; height: 800px; top: calc(50% - 400px); left: calc(50% - 400px);
+        animation-duration: 80s; animation-direction: reverse;
+        border-color: rgba(0,180,255,0.03);
+    }
+    .orbit-ring:nth-child(3) {
+        width: 1000px; height: 1000px; top: calc(50% - 500px); left: calc(50% - 500px);
+        animation-duration: 100s;
+        border-color: rgba(168,85,247,0.025);
+    }
+    @keyframes orbit-spin { to { transform: rotate(360deg); } }
+
+    /* Floating orbs (nebula glow) */
+    .glow-orb {
+        position: absolute; border-radius: 50%; filter: blur(80px);
+        pointer-events: none; animation: float-orb 20s ease-in-out infinite;
+    }
+    .glow-orb-1 {
+        width: 400px; height: 400px; background: rgba(0,232,94,0.06);
+        top: 20%; left: -10%; animation-delay: 0s;
+    }
+    .glow-orb-2 {
+        width: 350px; height: 350px; background: rgba(0,180,255,0.05);
+        bottom: 10%; right: -5%; animation-delay: -7s; animation-duration: 25s;
+    }
+    .glow-orb-3 {
+        width: 300px; height: 300px; background: rgba(168,85,247,0.04);
+        top: 50%; left: 60%; animation-delay: -14s; animation-duration: 30s;
+    }
+    @keyframes float-orb {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        33% { transform: translate(30px, -20px) scale(1.1); }
+        66% { transform: translate(-20px, 15px) scale(0.95); }
+    }
+
+    /* Main card */
+    .landing-card {
+        position: relative; z-index: 2; text-align: center;
+        max-width: 440px; width: 100%;
+        padding: 48px 40px;
+        background: linear-gradient(160deg, rgba(14,14,20,0.8), rgba(8,8,12,0.85));
+        border: 1px solid rgba(255,255,255,0.07);
+        border-radius: 28px;
+        backdrop-filter: blur(40px) saturate(1.4);
+        -webkit-backdrop-filter: blur(40px) saturate(1.4);
+        box-shadow:
+            0 32px 80px rgba(0,0,0,0.5),
+            0 0 0 1px rgba(255,255,255,0.03) inset,
+            0 1px 0 rgba(255,255,255,0.05) inset;
+        animation: card-entrance 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    .landing-card::before {
+        content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(0,232,94,0.2), rgba(0,180,255,0.15), transparent);
+        border-radius: 28px 28px 0 0;
+    }
+    @keyframes card-entrance {
+        from { opacity: 0; transform: translateY(40px) scale(0.95); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* Logo */
+    .landing-logo {
+        font-size: 56px; font-weight: 800; letter-spacing: -3px;
+        background: linear-gradient(135deg, #fff 0%, var(--accent) 40%, #00b8ff 60%, #fff 100%);
+        background-size: 300% auto;
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        background-clip: text;
+        animation: logo-shimmer 6s linear infinite;
+        margin-bottom: 8px; line-height: 1;
+    }
+    @keyframes logo-shimmer {
+        to { background-position: 300% center; }
+    }
+
+    .landing-subtitle {
+        font-size: 15px; color: var(--text-secondary); font-weight: 400;
+        margin-bottom: 40px; line-height: 1.5;
+        animation: fade-up 0.8s 0.3s both;
+    }
+
+    @keyframes fade-up {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* CTA buttons */
+    .landing-cta { animation: fade-up 0.8s 0.5s both; }
+    .landing-btn-primary {
+        display: flex; align-items: center; justify-content: center;
+        width: 100%; padding: 16px; border: none; border-radius: 14px;
+        font-size: 15px; font-weight: 700; cursor: pointer;
+        font-family: inherit;
+        background: linear-gradient(135deg, var(--accent), #00c050);
+        color: #000;
+        box-shadow: 0 4px 24px rgba(0,232,94,0.2), 0 0 60px rgba(0,232,94,0.05);
+        position: relative; overflow: hidden;
+        transition: all 0.3s; margin-bottom: 12px;
+        text-decoration: none;
+    }
+    .landing-btn-primary::before {
+        content: ''; position: absolute; inset: 0;
+        background: linear-gradient(135deg, transparent, rgba(255,255,255,0.25), transparent);
+        transform: translateX(-100%); transition: transform 0.5s;
+    }
+    .landing-btn-primary:hover::before { transform: translateX(100%); }
+    .landing-btn-primary:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 32px rgba(0,232,94,0.3), 0 0 80px rgba(0,232,94,0.1);
+    }
+
+    .landing-btn-secondary {
+        display: flex; align-items: center; justify-content: center;
+        width: 100%; padding: 16px; border-radius: 14px;
+        font-size: 15px; font-weight: 600; cursor: pointer;
+        font-family: inherit;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        color: var(--text);
+        backdrop-filter: blur(8px);
+        transition: all 0.3s;
+        text-decoration: none;
+    }
+    .landing-btn-secondary:hover {
+        background: rgba(255,255,255,0.07);
+        border-color: rgba(255,255,255,0.15);
+        transform: translateY(-1px);
+    }
+
+    /* Stats bar */
+    .landing-stats {
+        display: flex; justify-content: center; gap: 40px;
+        margin-top: 40px; animation: fade-up 0.8s 0.7s both;
+    }
+    .landing-stat-value {
+        font-size: 24px; font-weight: 800; letter-spacing: -0.5px;
+    }
+    .landing-stat-label {
+        font-size: 10px; color: var(--text-muted); text-transform: uppercase;
+        letter-spacing: 1px; margin-top: 4px;
+    }
+
+    /* Ticker strip at bottom */
+    .ticker-strip {
+        position: fixed; bottom: 0; left: 0; right: 0;
+        height: 36px; z-index: 5;
+        background: rgba(3,3,6,0.7); backdrop-filter: blur(12px);
+        border-top: 1px solid rgba(255,255,255,0.04);
+        overflow: hidden; display: flex; align-items: center;
+    }
+    .ticker-track {
+        display: flex; gap: 32px; white-space: nowrap;
+        animation: ticker-scroll 40s linear infinite;
+        font-size: 12px; color: var(--text-muted); font-weight: 500;
+    }
+    @keyframes ticker-scroll {
+        0% { transform: translateX(0); }
+        100% { transform: translateX(-50%); }
+    }
+    .ticker-item { display: inline-flex; gap: 6px; align-items: center; }
+    .ticker-sym { color: var(--text-secondary); font-weight: 600; }
+    .ticker-up { color: var(--green); }
+    .ticker-down { color: var(--red); }
+
+    /* Particle canvas */
+    .particle-canvas {
+        position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    }
+</style>
+
+<!-- Background layers -->
+<div class="glow-orb glow-orb-1"></div>
+<div class="glow-orb glow-orb-2"></div>
+<div class="glow-orb glow-orb-3"></div>
+<div class="orbit-ring"></div>
+<div class="orbit-ring"></div>
+<div class="orbit-ring"></div>
+<canvas class="particle-canvas" id="particleCanvas"></canvas>
+
+<div class="landing-wrapper">
+    <div class="landing-card">
         <!-- Logo -->
-        <div style="margin-bottom:48px;">
-            <div style="font-size:42px;font-weight:700;letter-spacing:-2px;margin-bottom:8px;">vesper</div>
-            <div style="font-size:15px;color:var(--text-secondary);font-weight:400;">
-                Automated crypto trading
-            </div>
+        <div class="landing-logo">vesper</div>
+        <div class="landing-subtitle">
+            Autonomous AI trading across crypto, stocks &amp; prediction markets.
+            Set a budget, press start, let the AI work.
         </div>
 
         <!-- CTA -->
-        <a href="/register" class="btn btn-accent btn-full" style="padding:16px;font-size:15px;margin-bottom:12px;">
-            Get Started
-        </a>
-        <a href="/login" class="btn btn-outline btn-full" style="padding:16px;font-size:15px;">
-            Log In
-        </a>
+        <div class="landing-cta">
+            <a href="/register" class="landing-btn-primary">Get Started</a>
+            <a href="/login" class="landing-btn-secondary">Log In</a>
+        </div>
 
         <!-- Stats -->
-        <div style="margin-top:64px;display:flex;justify-content:center;gap:48px;">
+        <div class="landing-stats">
             <div>
-                <div style="font-size:28px;font-weight:700;color:var(--green);">3</div>
-                <div style="font-size: 11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px;">Strategies</div>
+                <div class="landing-stat-value" style="color:var(--green);">3</div>
+                <div class="landing-stat-label">Autopilots</div>
             </div>
             <div>
-                <div style="font-size:28px;font-weight:700;">24/7</div>
-                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px;">Uptime</div>
+                <div class="landing-stat-value">24/7</div>
+                <div class="landing-stat-label">Uptime</div>
             </div>
             <div>
-                <div style="font-size:28px;font-weight:700;">2FA</div>
-                <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:1px;margin-top:4px;">Secured</div>
+                <div class="landing-stat-value">60+</div>
+                <div class="landing-stat-label">Assets</div>
             </div>
         </div>
     </div>
 </div>
+
+<!-- Scrolling ticker -->
+<div class="ticker-strip">
+    <div class="ticker-track" id="tickerTrack">
+        <span class="ticker-item"><span class="ticker-sym">BTC</span> <span class="ticker-up">+2.4%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">ETH</span> <span class="ticker-up">+1.8%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">SOL</span> <span class="ticker-down">-0.9%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">NVDA</span> <span class="ticker-up">+3.1%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">AAPL</span> <span class="ticker-up">+0.5%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">TSLA</span> <span class="ticker-down">-1.2%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">DOGE</span> <span class="ticker-up">+4.7%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">PEPE</span> <span class="ticker-up">+6.2%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">SUI</span> <span class="ticker-up">+3.8%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">META</span> <span class="ticker-up">+1.1%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">AVAX</span> <span class="ticker-down">-0.3%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">LINK</span> <span class="ticker-up">+2.9%</span></span>
+        <!-- Duplicate for seamless loop -->
+        <span class="ticker-item"><span class="ticker-sym">BTC</span> <span class="ticker-up">+2.4%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">ETH</span> <span class="ticker-up">+1.8%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">SOL</span> <span class="ticker-down">-0.9%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">NVDA</span> <span class="ticker-up">+3.1%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">AAPL</span> <span class="ticker-up">+0.5%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">TSLA</span> <span class="ticker-down">-1.2%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">DOGE</span> <span class="ticker-up">+4.7%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">PEPE</span> <span class="ticker-up">+6.2%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">SUI</span> <span class="ticker-up">+3.8%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">META</span> <span class="ticker-up">+1.1%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">AVAX</span> <span class="ticker-down">-0.3%</span></span>
+        <span class="ticker-item"><span class="ticker-sym">LINK</span> <span class="ticker-up">+2.9%</span></span>
+    </div>
+</div>
+
+<script>
+// Particle field — floating dots drifting like stars
+(function() {
+    const canvas = document.getElementById('particleCanvas');
+    const ctx = canvas.getContext('2d');
+    let w, h, particles = [];
+    const COUNT = 80;
+
+    function resize() {
+        w = canvas.width = window.innerWidth;
+        h = canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    for (let i = 0; i < COUNT; i++) {
+        particles.push({
+            x: Math.random() * w,
+            y: Math.random() * h,
+            r: Math.random() * 1.5 + 0.3,
+            vx: (Math.random() - 0.5) * 0.15,
+            vy: (Math.random() - 0.5) * 0.15,
+            alpha: Math.random() * 0.4 + 0.1,
+        });
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, w, h);
+        for (const p of particles) {
+            p.x += p.vx;
+            p.y += p.vy;
+            if (p.x < 0) p.x = w;
+            if (p.x > w) p.x = 0;
+            if (p.y < 0) p.y = h;
+            if (p.y > h) p.y = 0;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255,255,255,${p.alpha})`;
+            ctx.fill();
+        }
+        requestAnimationFrame(draw);
+    }
+    draw();
+})();
+</script>
 {% endblock %}

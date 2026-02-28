@@ -1028,7 +1028,15 @@ async def api_positions(request: Request):
     for pid, p in positions.items():
         sym = p.get("symbol", "")
         entry = p.get("entry_price", 0)
-        current = price_map.get(sym, entry)
+        # For prediction positions (PRED:*), use stored probability data for P&L
+        is_prediction = sym.startswith("PRED:")
+        if is_prediction:
+            # Entry price = probability at entry (e.g. 0.35 means 35%)
+            # Current value = latest probability or stored estimate
+            stored_prob = p.get("current_probability", entry)
+            current = stored_prob
+        else:
+            current = price_map.get(sym, entry)
         amount = p.get("amount", 0)
         side = p.get("side", "buy")
 
@@ -1634,12 +1642,40 @@ async def api_position_analysis(pid: str, request: Request):
     analyses = portfolio.get("position_analyses", {})
     analysis = analyses.get(pid, {})
     if not analysis:
-        # Fallback: return position's strategy_reason
+        # Build analysis from position metadata as fallback
         pos = portfolio.get("positions", {}).get(pid, {})
-        return {
-            "found": False,
-            "strategy_reason": pos.get("strategy_reason", "No detailed analysis available"),
+        if not pos:
+            return {"found": False, "strategy_reason": "Position not found."}
+        limits = pos.get("limits", {})
+        fallback = {
+            "found": True,
+            "signal": "BUY" if pos.get("side", "buy") == "buy" else "SELL",
+            "confidence": pos.get("confidence", 0),
+            "reasoning": pos.get("strategy_reason", ""),
+            "indicators": pos.get("indicators", {}),
         }
+        # Include search summary if available
+        if pos.get("search_summary"):
+            fallback["search_summary"] = pos["search_summary"]
+        # Build factors from strategy reason text
+        reason = pos.get("strategy_reason", "")
+        if reason:
+            bullish = []
+            bearish = []
+            for line in reason.replace(";", ".").split("."):
+                line = line.strip()
+                if not line:
+                    continue
+                lower = line.lower()
+                if any(w in lower for w in ["bullish", "uptrend", "above", "support", "momentum", "surge", "accumulation", "buy", "positive"]):
+                    bullish.append(line)
+                elif any(w in lower for w in ["bearish", "downtrend", "below", "resistance", "overbought", "sell", "negative", "weak"]):
+                    bearish.append(line)
+            if bullish:
+                fallback["bullish_factors"] = bullish[:5]
+            if bearish:
+                fallback["bearish_factors"] = bearish[:5]
+        return fallback
     return {"found": True, **analysis}
 
 

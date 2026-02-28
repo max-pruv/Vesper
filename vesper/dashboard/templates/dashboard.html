@@ -391,6 +391,57 @@
         </div>
     </div>
 
+    <!-- Edit Fund Modal -->
+    <div class="modal-overlay" id="editFundModal">
+        <div class="modal" style="max-width:400px;">
+            <button class="modal-close" onclick="closeEditFund()">&times;</button>
+            <div class="modal-title" id="editFundTitle">Edit Fund</div>
+            <div style="margin-bottom:20px;">
+                <label class="input-label">New fund amount ($)</label>
+                <input type="number" id="editFundInput" class="input" placeholder="500" min="10" step="10">
+            </div>
+            <div style="display:flex;gap:10px;">
+                <button class="btn btn-accent" style="flex:1;" onclick="submitEditFund()">Update Fund</button>
+                <button class="btn btn-outline" style="flex:1;" onclick="closeEditFund()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Real Mode Confirmation Modal -->
+    <div class="modal-overlay" id="realModeModal">
+        <div class="modal" style="max-width:440px;">
+            <button class="modal-close" onclick="closeRealMode()">&times;</button>
+            <div style="text-align:center;padding:8px 0 20px;">
+                <div style="font-size:36px;margin-bottom:12px;">&#x26A0;</div>
+                <div class="modal-title" style="margin-bottom:8px;">Switch to Real Mode</div>
+                <div style="font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:24px;">
+                    You're about to trade with <strong style="color:var(--text);">real money</strong>. All new autopilot sessions and trades will execute actual orders on your connected exchange accounts.<br><br>
+                    Make sure your API keys are configured and you understand the risks involved.
+                </div>
+                <div style="display:flex;gap:10px;">
+                    <button class="btn btn-outline" style="flex:1;" onclick="closeRealMode()">Stay in Paper</button>
+                    <button class="btn" style="flex:1;background:linear-gradient(135deg,var(--red),#cc2200);color:#fff;" onclick="confirmRealMode()">I Understand, Go Real</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Portfolio Value Stream Chart -->
+    <div class="card" style="margin-bottom:0;padding:16px 24px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">Portfolio Value</div>
+            <div style="display:flex;gap:4px;" id="portfolioChartRange">
+                <button class="tab-pill active" onclick="setPortfolioRange('24h')" data-range="24h" style="padding:4px 10px;font-size:11px;">24H</button>
+                <button class="tab-pill" onclick="setPortfolioRange('7d')" data-range="7d" style="padding:4px 10px;font-size:11px;">7D</button>
+                <button class="tab-pill" onclick="setPortfolioRange('30d')" data-range="30d" style="padding:4px 10px;font-size:11px;">30D</button>
+                <button class="tab-pill" onclick="setPortfolioRange('all')" data-range="all" style="padding:4px 10px;font-size:11px;">All</button>
+            </div>
+        </div>
+        <div style="height:120px;">
+            <canvas id="portfolioStreamChart"></canvas>
+        </div>
+    </div>
+
     <!-- Active Positions -->
     <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
@@ -653,7 +704,7 @@ function renderDecision(d) {
             ${sourceBadge}${modeBadge}
             <span style="color:var(--text-muted);font-size:11px;margin-left:auto;">${date} ${t}</span>
         </div>
-        <div style="margin-top:3px;font-size:12px;color:var(--text-secondary);padding-left:2px;">${escapeHtml(d.reason || '')}</div>
+        <div style="margin-top:3px;font-size:12px;color:var(--text-secondary);padding-left:2px;">${humanizeReason(d.reason || '')}</div>
         ${indicatorsHtml}
     </div>`;
 }
@@ -817,12 +868,14 @@ async function updatePositions() {
     try {
         const resp = await fetch('/api/positions');
         if (!resp.ok) return;
-        const positions = await resp.json();
+        const allPositions = await resp.json();
+        // Filter by current trade mode
+        const positions = allPositions.filter(p => (p.trade_mode || 'paper') === currentTradeMode);
         const container = document.getElementById('activeBets');
 
         // Update position count label
         const countLabel = document.getElementById('positionCountLabel');
-        if (countLabel) countLabel.textContent = positions.length + ' open';
+        if (countLabel) countLabel.textContent = positions.length + ' open' + (allPositions.length !== positions.length ? ` (${allPositions.length} total)` : '');
 
         if (positions.length === 0) {
             container.innerHTML = `<div class="empty-state">
@@ -1315,28 +1368,45 @@ function setRisk(segment, level) {
 // ═══════════════════════════════════════
 // Edit Fund (while autopilot is running)
 // ═══════════════════════════════════════
-async function editFund(segment) {
-    const cfg = SEGMENTS[segment];
-    if (!cfg) return;
+let editFundSegment = null;
+function editFund(segment) {
+    editFundSegment = segment;
     const label = segment.charAt(0).toUpperCase() + segment.slice(1);
-    const newAmount = prompt(`New fund amount for ${label} autopilot ($):`);
-    if (!newAmount) return;
-    const val = parseFloat(newAmount);
-    if (!val || val < 10) { alert('Minimum $10'); return; }
+    document.getElementById('editFundTitle').textContent = `Edit ${label} Fund`;
+    document.getElementById('editFundInput').value = '';
+    document.getElementById('editFundModal').classList.add('active');
+    setTimeout(() => document.getElementById('editFundInput').focus(), 100);
+}
+function closeEditFund() {
+    document.getElementById('editFundModal').classList.remove('active');
+    editFundSegment = null;
+}
+document.getElementById('editFundModal').addEventListener('click', function(e) {
+    if (e.target === this) closeEditFund();
+});
+async function submitEditFund() {
+    if (!editFundSegment) return;
+    const cfg = SEGMENTS[editFundSegment];
+    const val = parseFloat(document.getElementById('editFundInput').value);
+    if (!val || val < 10) {
+        document.getElementById('editFundInput').style.borderColor = 'var(--red)';
+        return;
+    }
     try {
         const body = {
             action: 'update',
             amount_usd: val,
-            risk_level: getSelectedRisk(segment),
-            reinvest_pct: getReinvestPct(segment),
+            risk_level: getSelectedRisk(editFundSegment),
+            reinvest_pct: getReinvestPct(editFundSegment),
         };
         const resp = await fetch(cfg.api, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body),
         });
-        if (resp.ok) fetchSegmentStatus(segment);
+        if (resp.ok) fetchSegmentStatus(editFundSegment);
     } catch(e) {}
+    closeEditFund();
 }
 
 // ═══════════════════════════════════════
@@ -1464,12 +1534,32 @@ document.getElementById('learnMoreModal').addEventListener('click', function(e) 
 // Paper / Real Trade Mode
 // ═══════════════════════════════════════
 function setTradeMode(mode) {
+    if (mode === 'real' && currentTradeMode !== 'real') {
+        // Show confirmation modal
+        document.getElementById('realModeModal').classList.add('active');
+        return;
+    }
     currentTradeMode = mode;
     document.getElementById('modePaper').classList.toggle('active', mode === 'paper');
     document.getElementById('modeReal').classList.toggle('active', mode === 'real');
-    // Visual indicator on the whole page
     document.body.setAttribute('data-trade-mode', mode);
+    // Refresh positions to filter by mode
+    updatePositions();
 }
+function confirmRealMode() {
+    document.getElementById('realModeModal').classList.remove('active');
+    currentTradeMode = 'real';
+    document.getElementById('modePaper').classList.remove('active');
+    document.getElementById('modeReal').classList.add('active');
+    document.body.setAttribute('data-trade-mode', 'real');
+    updatePositions();
+}
+function closeRealMode() {
+    document.getElementById('realModeModal').classList.remove('active');
+}
+document.getElementById('realModeModal').addEventListener('click', function(e) {
+    if (e.target === this) closeRealMode();
+});
 
 // ═══════════════════════════════════════
 // Reinvest Slider Listeners
@@ -1485,11 +1575,137 @@ function setTradeMode(mode) {
     }
 });
 
+// ═══════════════════════════════════════
+// Humanize AI Decision Reasons
+// ═══════════════════════════════════════
+function humanizeReason(raw) {
+    if (!raw) return '';
+    let text = raw;
+    // Parse "[strategy_name] SIGNAL(score)" patterns
+    text = text.replace(/\[trend_following\]\s*BUY\(([0-9.]+)\)/gi, 'Trend strategy: BUY signal ($1 confidence)');
+    text = text.replace(/\[trend_following\]\s*SELL\(([0-9.]+)\)/gi, 'Trend strategy: SELL signal ($1 confidence)');
+    text = text.replace(/\[trend_following\]\s*HOLD\(([0-9.]+)\)/gi, 'Trend strategy: HOLD ($1)');
+    text = text.replace(/\[mean_reversion\]\s*BUY\(([0-9.]+)\)/gi, 'Mean reversion: BUY signal ($1 confidence)');
+    text = text.replace(/\[mean_reversion\]\s*SELL\(([0-9.]+)\)/gi, 'Mean reversion: SELL signal ($1 confidence)');
+    text = text.replace(/\[mean_reversion\]\s*HOLD\(([0-9.]+)\)/gi, 'Mean reversion: HOLD ($1)');
+    text = text.replace(/\[momentum\]\s*BUY\(([0-9.]+)\)/gi, 'Momentum strategy: BUY signal ($1 confidence)');
+    text = text.replace(/\[momentum\]\s*SELL\(([0-9.]+)\)/gi, 'Momentum strategy: SELL signal ($1 confidence)');
+    text = text.replace(/\[momentum\]\s*HOLD\(([0-9.]+)\)/gi, 'Momentum strategy: HOLD ($1)');
+    // Parse ensemble notation
+    text = text.replace(/ensemble_conf=([0-9.]+)/gi, 'ensemble confidence: $1');
+    text = text.replace(/combined_conf=([0-9.]+)/gi, 'combined confidence: $1');
+    text = text.replace(/whale_score=([0-9.-]+)/gi, 'whale activity: $1');
+    text = text.replace(/sentiment=([0-9.-]+)/gi, 'sentiment: $1');
+    text = text.replace(/ob_pressure=([0-9.-]+)/gi, 'order book pressure: $1');
+    text = text.replace(/adx=([0-9.]+)/gi, 'ADX (trend strength): $1');
+    text = text.replace(/rsi=([0-9.]+)/gi, 'RSI: $1');
+    text = text.replace(/atr_pct=([0-9.]+)/gi, 'volatility (ATR%): $1');
+    text = text.replace(/tf_align=([0-9.]+)/gi, 'timeframe alignment: $1');
+    // Simplify common patterns
+    text = text.replace(/below threshold/gi, 'below minimum threshold');
+    text = text.replace(/conf\s*[<>=]+\s*([0-9.]+)/gi, 'confidence $1');
+    text = text.replace(/score:\s*([0-9.]+)/gi, 'score: $1');
+    // Clean up pipe/bracket separators
+    text = text.replace(/\s*\|\s*/g, ' · ');
+    text = text.replace(/\s*;\s*/g, ' · ');
+    return escapeHtml(text);
+}
+
 function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
 }
+
+// ═══════════════════════════════════════
+// Portfolio Value Stream Chart (Robinhood-style)
+// ═══════════════════════════════════════
+let portfolioChart = null;
+let portfolioRange = '24h';
+const portfolioHistory = {{ equity_curve|safe }};
+
+function setPortfolioRange(range) {
+    portfolioRange = range;
+    document.querySelectorAll('#portfolioChartRange .tab-pill').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-range') === range);
+    });
+    renderPortfolioChart();
+}
+
+function renderPortfolioChart() {
+    const ctx = document.getElementById('portfolioStreamChart');
+    if (!ctx) return;
+    let data = portfolioHistory.slice();
+    if (data.length < 2) return;
+
+    // Filter by range
+    const now = Date.now() / 1000;
+    const ranges = { '24h': 86400, '7d': 604800, '30d': 2592000, 'all': 0 };
+    const cutoff = ranges[portfolioRange] ? now - ranges[portfolioRange] : 0;
+    if (cutoff > 0) {
+        data = data.filter(d => d.time >= cutoff || d.time === 0);
+        if (data.length < 2) data = portfolioHistory.slice(-10);
+    }
+
+    const labels = data.map(d => {
+        if (!d.time) return '';
+        const dt = new Date(d.time * 1000);
+        return portfolioRange === '24h'
+            ? dt.toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false})
+            : dt.toLocaleDateString('en', {month:'short', day:'numeric'});
+    });
+    const values = data.map(d => d.value);
+    const first = values[0] || 0;
+    const last = values[values.length - 1] || 0;
+    const positive = last >= first;
+    const lineColor = positive ? '#00e85e' : '#ff4444';
+    const fillColor = positive ? 'rgba(0,232,94,0.08)' : 'rgba(255,68,68,0.08)';
+
+    if (portfolioChart) portfolioChart.destroy();
+    portfolioChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                data: values,
+                borderColor: lineColor,
+                borderWidth: 2,
+                fill: true,
+                backgroundColor: fillColor,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                pointHoverBackgroundColor: lineColor,
+                tension: 0.3,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    mode: 'index', intersect: false,
+                    backgroundColor: '#1a1a1a', borderColor: '#2a2a2a', borderWidth: 1,
+                    titleColor: '#9ca3af', bodyColor: '#fff', bodyFont: { weight: '600' },
+                    padding: 10, cornerRadius: 8,
+                    callbacks: {
+                        label: c => '$' + c.parsed.y.toFixed(2)
+                    }
+                }
+            },
+            scales: {
+                x: { display: false },
+                y: {
+                    display: true,
+                    position: 'right',
+                    ticks: { color: '#444', font: { size: 10 }, callback: v => '$' + v, maxTicksLimit: 4 },
+                    grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false },
+                }
+            },
+            interaction: { mode: 'nearest', axis: 'x', intersect: false }
+        }
+    });
+}
+renderPortfolioChart();
 
 // ═══════════════════════════════════════
 // Tab Navigation
@@ -1703,6 +1919,13 @@ function renderPolymarkets(markets) {
             endHtml = `<span style="font-size:11px;${urgency}">${daysLabel} left &middot; ${endStr}</span>`;
         }
 
+        // Market link
+        const slug = m.slug || '';
+        const marketUrl = pmSource === 'kalshi'
+            ? (slug ? `https://kalshi.com/markets/${slug}` : `https://kalshi.com`)
+            : (slug ? `https://polymarket.com/event/${slug}` : `https://polymarket.com`);
+        const linkLabel = pmSource === 'kalshi' ? 'View on Kalshi' : 'View on Polymarket';
+
         html += `
         <div class="pm-card${hasEdge ? ' has-edge' : ''}">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
@@ -1714,6 +1937,7 @@ function renderPolymarkets(markets) {
                         <span class="pm-volume">24h: ${vol24}</span>
                         <span class="pm-volume">Liq: ${liq}</span>
                         ${endHtml}
+                        <a href="${marketUrl}" target="_blank" rel="noopener" style="font-size:11px;color:var(--accent);font-weight:600;text-decoration:none;display:inline-flex;align-items:center;gap:3px;">${linkLabel} &#x2197;</a>
                     </div>
                 </div>
             </div>
