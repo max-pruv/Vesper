@@ -876,7 +876,15 @@ def _build_segment_statuses(portfolio: dict, pos_list: list) -> dict:
 
 @app.get("/api/health")
 async def health():
-    return {"status": "running", "time": datetime.now().isoformat()}
+    import os as _os
+    return {
+        "status": "running",
+        "time": datetime.now().isoformat(),
+        "ai_keys": {
+            "perplexity": bool(_os.environ.get("PERPLEXITY_API_KEY", "")),
+            "anthropic": bool(_os.environ.get("ANTHROPIC_API_KEY", "")),
+        },
+    }
 
 
 # ── WebSocket: real-time position & portfolio updates ──
