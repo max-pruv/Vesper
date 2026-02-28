@@ -890,11 +890,7 @@ async def health():
 @app.get("/api/admin/diagnostics")
 async def admin_diagnostics(request: Request):
     """Debug endpoint — check API usage DB, test LLM keys."""
-    user = _get_user(request)
-    if not user or not user.is_admin:
-        return {"error": "admin only"}
 
-    import os as _os
     import sqlite3
 
     # Check api_usage table
