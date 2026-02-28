@@ -14,7 +14,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 import threading
 
-DEPLOY_TOKEN = os.environ.get("DEPLOY_TOKEN", "2ZEpTRKXvR2OHNOb5jX6ExicR_DZU6mR2es3M_9krCE")
+DEPLOY_TOKEN = os.environ.get("DEPLOY_TOKEN", "")
+if not DEPLOY_TOKEN:
+    raise RuntimeError("DEPLOY_TOKEN environment variable is required")
 REPO_DIR = "/opt/vesper"
 BRANCH = "claude/deploy-openclaw-cloudflare-GkBQL"
 PORT = 9876

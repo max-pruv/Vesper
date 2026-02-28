@@ -27,27 +27,13 @@ from vesper.dashboard.database import (
     set_bot_active, update_trading_mode, create_oauth_user, User,
     add_trusted_device, is_device_trusted, remove_trusted_device,
 )
-from vesper.strategies.catalog import get_strategy_catalog, get_strategy_by_id
-from vesper.strategies import (
-    EnsembleStrategy, EnhancedEnsemble,
-    TrendFollowingStrategy, MeanReversionStrategy, MomentumStrategy,
-)
+from vesper.strategies.catalog import get_strategy_catalog, get_strategy_by_id, STRATEGY_MAP as _SIGNAL_STRATEGY_MAP
 from vesper.market_data import (
     get_market_snapshot, get_multi_tf_snapshot,
     get_order_book_pressure, fetch_fear_greed,
 )
 from vesper.portfolio import Portfolio, Position
 from vesper.risk import PositionLimits
-
-# Strategy routing for signal endpoint — same map as main.py
-_SIGNAL_STRATEGY_MAP = {
-    "scalper":        {"strategy": MomentumStrategy,       "timeframe": "15m"},
-    "trend_rider":    {"strategy": TrendFollowingStrategy,  "timeframe": "4h"},
-    "mean_revert":    {"strategy": MeanReversionStrategy,   "timeframe": "1h"},
-    "smart_auto":     {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
-    "trend_scanner":  {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
-    "set_and_forget": {"strategy": None,                    "timeframe": None},
-}
 
 app = FastAPI(title="Vesper", docs_url=None, redoc_url=None)
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
@@ -376,8 +362,21 @@ async def dashboard(request: Request):
     portfolio = _load_portfolio(user.id)
     cash = portfolio.get("cash", user.paper_balance)
     initial = portfolio.get("initial_balance", user.paper_balance)
-    positions = portfolio.get("positions", {})
-    trades = portfolio.get("trade_history", [])
+    all_positions = portfolio.get("positions", {})
+    all_trades = portfolio.get("trade_history", [])
+
+    # Silo by trade_mode: only show positions/trades matching the user's active mode
+    active_mode = user.trading_mode  # "paper" or "live"
+    mode_match = {"live": "real", "paper": "paper"}
+    current_mode = mode_match.get(active_mode, "paper")
+    positions = {
+        pid: p for pid, p in all_positions.items()
+        if p.get("trade_mode", "paper") == current_mode
+    }
+    trades = [
+        t for t in all_trades
+        if t.get("trade_mode", "paper") == current_mode
+    ]
     total_pnl = sum(t.get("pnl_usd", 0) for t in trades)
     wins = [t for t in trades if t.get("pnl_usd", 0) > 0]
     losses = [t for t in trades if t.get("pnl_usd", 0) <= 0]
@@ -949,8 +948,20 @@ async def api_portfolio_stats(request: Request):
     portfolio = _load_portfolio(user.id)
     cash = portfolio.get("cash", user.paper_balance)
     initial = portfolio.get("initial_balance", user.paper_balance)
-    positions = portfolio.get("positions", {})
-    trades = portfolio.get("trade_history", [])
+    all_positions = portfolio.get("positions", {})
+    all_trades = portfolio.get("trade_history", [])
+
+    # Filter by current trading mode
+    mode_match = {"live": "real", "paper": "paper"}
+    current_mode = mode_match.get(user.trading_mode, "paper")
+    positions = {
+        pid: p for pid, p in all_positions.items()
+        if p.get("trade_mode", "paper") == current_mode
+    }
+    trades = [
+        t for t in all_trades
+        if t.get("trade_mode", "paper") == current_mode
+    ]
 
     # Realized P&L from closed trades
     realized_pnl = sum(t.get("pnl_usd", 0) for t in trades)
@@ -1017,7 +1028,15 @@ async def api_positions(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     portfolio = _load_portfolio(user.id)
-    positions = portfolio.get("positions", {})
+    all_positions = portfolio.get("positions", {})
+
+    # Filter by current trading mode
+    mode_match = {"live": "real", "paper": "paper"}
+    current_mode = mode_match.get(user.trading_mode, "paper")
+    positions = {
+        pid: p for pid, p in all_positions.items()
+        if p.get("trade_mode", "paper") == current_mode
+    }
     if not positions:
         return []
 
@@ -1289,7 +1308,7 @@ async def api_close_trade(request: Request):
         pnl_usd = (entry - current_price) * amount
         pnl_pct = ((entry - current_price) / entry * 100) if entry > 0 else 0
 
-    # Record trade
+    # Record trade (preserve trade_mode for siloing)
     trade = {
         "symbol": pos["symbol"],
         "side": pos.get("side", "buy"),
@@ -1302,6 +1321,7 @@ async def api_close_trade(request: Request):
         "exit_time": time.time(),
         "reason": "Manual close",
         "strategy_reason": pos.get("strategy_reason", ""),
+        "trade_mode": pos.get("trade_mode", "paper"),
     }
 
     pdata["cash"] = pdata.get("cash", 0) + pos.get("cost_usd", 0) + pnl_usd

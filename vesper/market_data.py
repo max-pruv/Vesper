@@ -1,6 +1,9 @@
 """Market data fetcher and technical indicator calculator."""
 
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 
 import ccxt
 import httpx
@@ -151,7 +154,8 @@ def get_multi_tf_snapshot(exchange: ccxt.Exchange, symbol: str) -> dict:
         }
         snapshot["tf_alignment"] = alignment
         snapshot["adx_4h"] = latest_4h.get("adx", 0)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"4h timeframe fetch failed for {symbol}: {e}")
         snapshot["tf_4h"] = {}
         snapshot["tf_alignment"] = 0.5
         snapshot["adx_4h"] = 0
@@ -176,7 +180,8 @@ def enrich_with_intelligence(exchange: ccxt.Exchange, symbol: str, snapshot: dic
         snapshot["large_buys"] = whale["large_buys"]
         snapshot["large_sells"] = whale["large_sells"]
         snapshot["volume_anomaly"] = whale["volume_anomaly"]
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Whale tracking failed for {symbol}: {e}")
         snapshot["whale_score"] = 0.0
         snapshot["whale_details"] = []
 
@@ -188,7 +193,8 @@ def enrich_with_intelligence(exchange: ccxt.Exchange, symbol: str, snapshot: dic
         snapshot["sentiment_details"] = sentiment["details"]
         snapshot["reddit_score"] = sentiment.get("reddit_score", 0.0)
         snapshot["momentum_score"] = sentiment.get("momentum_score", 0.0)
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Sentiment fetch failed for {symbol}: {e}")
         snapshot["sentiment_score"] = 0.0
         snapshot["sentiment_details"] = []
 
@@ -252,7 +258,8 @@ def get_order_book_pressure(exchange: ccxt.Exchange, symbol: str) -> dict:
             "buy_pressure": round(buy_pressure, 3),
             "spread_pct": round(spread_pct, 4),
         }
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Order book fetch failed for {symbol}: {e}")
         return {"buy_pressure": 0.5, "spread_pct": 0.0}
 
 
@@ -283,5 +290,6 @@ def fetch_fear_greed() -> int:
         value = int(data["data"][0]["value"])
         _fear_greed_cache = {"value": value, "time": now}
         return value
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Fear & Greed fetch failed: {e}")
         return _fear_greed_cache["value"]

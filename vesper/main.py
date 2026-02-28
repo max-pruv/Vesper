@@ -1,12 +1,7 @@
 """Vesper — Main orchestrator and scheduler for multi-user trading."""
 
-import sys
 import os
 import signal
-
-# Add project root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import threading
 
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -19,28 +14,11 @@ from vesper.market_data import (
     get_order_book_pressure, fetch_fear_greed,
     enrich_with_intelligence, get_stock_snapshot,
 )
-from vesper.strategies import (
-    Signal, EnsembleStrategy, EnhancedEnsemble,
-    TrendFollowingStrategy, MeanReversionStrategy, MomentumStrategy,
-)
-from vesper.strategies.altcoin_hunter import AltcoinHunterStrategy
+from vesper.strategies import Signal
+from vesper.strategies.catalog import STRATEGY_MAP
 from vesper.risk import RiskManager, PositionLimits
 from vesper.portfolio import Portfolio, Position
 from vesper.logger import setup_logger, console
-
-
-# Maps strategy_id → (StrategyClass, timeframe)
-# Each strategy uses a genuinely different analysis engine + timeframe
-STRATEGY_MAP = {
-    "scalper":        {"strategy": MomentumStrategy,       "timeframe": "15m"},
-    "trend_rider":    {"strategy": TrendFollowingStrategy,  "timeframe": "4h"},
-    "mean_revert":    {"strategy": MeanReversionStrategy,   "timeframe": "1h"},
-    "smart_auto":     {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
-    "trend_scanner":  {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
-    "autopilot":      {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
-    "altcoin_hunter": {"strategy": AltcoinHunterStrategy,   "timeframe": "multi"},
-    "set_and_forget": {"strategy": None,                    "timeframe": None},
-}
 
 
 class UserBot:

@@ -8,9 +8,12 @@ Sources:
 Returns a whale_score from -1.0 (bearish whales dumping) to +1.0 (bullish whales buying).
 """
 
+import logging
 import time
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # Per-symbol cache: {symbol: {"data": ..., "time": ...}}
 _whale_cache: dict[str, dict] = {}
@@ -103,8 +106,8 @@ def fetch_whale_activity(exchange, symbol: str) -> dict:
                         result["details"].append(
                             f"Volume drop: {anomaly:.1f}x — low interest"
                         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Whale trade detection failed for {symbol}: {e}")
 
     # ── Signal 2: BTC mempool activity (blockchain.info, free no auth) ──
     if "BTC" in symbol.upper():
@@ -130,8 +133,8 @@ def fetch_whale_activity(exchange, symbol: str) -> dict:
                     result["details"].append(
                         f"BTC mempool calm: {unconfirmed:,} unconfirmed"
                     )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"BTC mempool fetch failed: {e}")
 
     # ── Signal 3: Hashrate proxy (blockchain.info) ──
     if "BTC" in symbol.upper():
@@ -146,8 +149,8 @@ def fetch_whale_activity(exchange, symbol: str) -> dict:
                 result["details"].append(
                     f"BTC hashrate: {hashrate_gh / 1e6:.0f} EH/s"
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"BTC hashrate fetch failed: {e}")
 
     # ── Combine signals ──
     if signals:

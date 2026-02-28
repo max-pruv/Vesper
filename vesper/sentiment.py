@@ -4,9 +4,12 @@ Returns a composite_score from -1.0 (very bearish crowd) to +1.0 (very bullish).
 The AI ensemble uses this to confirm or override technical signals.
 """
 
+import logging
 import time
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # Per-symbol cache
 _sentiment_cache: dict[str, dict] = {}
@@ -81,7 +84,8 @@ def _fetch_reddit_sentiment(symbol: str) -> tuple[float, list[str]]:
                     title = post.get("data", {}).get("title", "")
                     if title:
                         texts.append(title)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Reddit fetch failed for r/{sub}: {e}")
             continue
 
     if texts:
@@ -135,7 +139,8 @@ def _fetch_coingecko_momentum(symbol: str) -> tuple[float, list[str]]:
 
         details = [f"Price momentum: {pct_24h:+.1f}% (24h), {pct_7d:+.1f}% (7d)"]
         return momentum, details
-    except Exception:
+    except Exception as e:
+        logger.debug(f"CoinGecko momentum fetch failed for {symbol}: {e}")
         return 0.0, []
 
 
@@ -184,8 +189,8 @@ def fetch_composite_sentiment(symbol: str, fear_greed: int = 50) -> dict:
         result["reddit_score"] = round(reddit_score, 2)
         signals.append(("reddit", reddit_score, 0.35))
         result["details"].extend(reddit_details)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Reddit sentiment failed for {symbol}: {e}")
 
     # Source 3: CoinGecko price momentum
     try:
@@ -193,8 +198,8 @@ def fetch_composite_sentiment(symbol: str, fear_greed: int = 50) -> dict:
         result["momentum_score"] = round(momentum_score, 2)
         signals.append(("momentum", momentum_score, 0.35))
         result["details"].extend(momentum_details)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"CoinGecko momentum failed for {symbol}: {e}")
 
     # Combine with weights
     if signals:

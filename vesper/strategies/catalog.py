@@ -1,6 +1,16 @@
-"""Strategy catalog — user-facing strategy definitions with metadata."""
+"""Strategy catalog — user-facing strategy definitions and canonical strategy map.
+
+The STRATEGY_MAP here is the single source of truth used by both the scheduler
+(main.py) and the dashboard (app.py).
+"""
 
 from dataclasses import dataclass, asdict
+
+from .trend_following import TrendFollowingStrategy
+from .mean_reversion import MeanReversionStrategy
+from .momentum import MomentumStrategy
+from .ensemble import EnhancedEnsemble
+from .altcoin_hunter import AltcoinHunterStrategy
 
 
 @dataclass
@@ -124,3 +134,17 @@ def get_strategy_by_id(strategy_id: str) -> StrategyInfo | None:
         if s.id == strategy_id:
             return s
     return None
+
+
+# Canonical strategy_id → (StrategyClass, timeframe) mapping.
+# Used by both the scheduler and the dashboard signal endpoint.
+STRATEGY_MAP: dict[str, dict] = {
+    "scalper":        {"strategy": MomentumStrategy,       "timeframe": "15m"},
+    "trend_rider":    {"strategy": TrendFollowingStrategy,  "timeframe": "4h"},
+    "mean_revert":    {"strategy": MeanReversionStrategy,   "timeframe": "1h"},
+    "smart_auto":     {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
+    "trend_scanner":  {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
+    "autopilot":      {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
+    "altcoin_hunter": {"strategy": AltcoinHunterStrategy,   "timeframe": "multi"},
+    "set_and_forget": {"strategy": None,                    "timeframe": None},
+}

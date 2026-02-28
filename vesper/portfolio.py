@@ -55,6 +55,7 @@ class TradeRecord:
     exit_time: float
     reason: str
     strategy_reason: str
+    trade_mode: str = "paper"
 
 
 class Portfolio:
@@ -107,6 +108,7 @@ class Portfolio:
             exit_time=time.time(),
             reason=reason,
             strategy_reason=pos.strategy_reason,
+            trade_mode=pos.trade_mode,
         )
         self.trade_history.append(record)
         del self.positions[position_id]

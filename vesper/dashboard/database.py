@@ -17,8 +17,13 @@ DB_PATH = os.path.join(DATA_DIR, "vesper.db")
 # Encryption key for API secrets — generated once and stored
 _ENCRYPTION_KEY_FILE = os.path.join(DATA_DIR, ".encryption_key")
 
+_fernet_instance: Fernet | None = None
+
 
 def _get_fernet() -> Fernet:
+    global _fernet_instance
+    if _fernet_instance is not None:
+        return _fernet_instance
     if os.path.exists(_ENCRYPTION_KEY_FILE):
         with open(_ENCRYPTION_KEY_FILE, "rb") as f:
             key = f.read()
@@ -28,7 +33,8 @@ def _get_fernet() -> Fernet:
         with open(_ENCRYPTION_KEY_FILE, "wb") as f:
             f.write(key)
         os.chmod(_ENCRYPTION_KEY_FILE, 0o600)
-    return Fernet(key)
+    _fernet_instance = Fernet(key)
+    return _fernet_instance
 
 
 def _encrypt(value: str) -> str:
@@ -105,10 +111,17 @@ class User:
         return bool(self.kalshi_api_key)
 
 
+def _get_conn() -> sqlite3.Connection:
+    """Get a SQLite connection with WAL mode and a reasonable busy timeout."""
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
 def init_db():
     """Initialize the database schema."""
     os.makedirs(DATA_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -167,9 +180,37 @@ def init_db():
     conn.close()
 
 
+def _row_to_user(row: sqlite3.Row) -> User:
+    """Convert a sqlite3.Row to a User dataclass."""
+    keys = row.keys()
+    return User(
+        id=row["id"],
+        email=row["email"],
+        password_hash=row["password_hash"],
+        totp_secret=row["totp_secret"],
+        coinbase_api_key=row["coinbase_api_key"],
+        coinbase_api_secret=row["coinbase_api_secret"],
+        alpaca_api_key=row["alpaca_api_key"] if "alpaca_api_key" in keys else "",
+        alpaca_api_secret=row["alpaca_api_secret"] if "alpaca_api_secret" in keys else "",
+        kalshi_api_key=row["kalshi_api_key"] if "kalshi_api_key" in keys else "",
+        kalshi_api_secret=row["kalshi_api_secret"] if "kalshi_api_secret" in keys else "",
+        perplexity_api_key=row["perplexity_api_key"] if "perplexity_api_key" in keys else "",
+        paper_balance=row["paper_balance"],
+        trading_mode=row["trading_mode"],
+        symbols=row["symbols"],
+        stop_loss_pct=row["stop_loss_pct"],
+        take_profit_min_pct=row["take_profit_min_pct"],
+        take_profit_max_pct=row["take_profit_max_pct"],
+        max_position_pct=row["max_position_pct"],
+        interval_minutes=row["interval_minutes"],
+        bot_active=bool(row["bot_active"]),
+        created_at=row["created_at"],
+    )
+
+
 def add_trusted_device(user_id: int, token_hash: str, expires_at: float):
     """Store a trusted device token hash for skipping 2FA."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.execute(
         "INSERT INTO trusted_devices (user_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)",
         (user_id, token_hash, expires_at, time.time()),
@@ -180,7 +221,7 @@ def add_trusted_device(user_id: int, token_hash: str, expires_at: float):
 
 def is_device_trusted(user_id: int, token_hash: str) -> bool:
     """Check if a trust token is valid for this user. Prunes expired rows."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     now = time.time()
     conn.execute("DELETE FROM trusted_devices WHERE expires_at < ?", (now,))
     conn.commit()
@@ -194,7 +235,7 @@ def is_device_trusted(user_id: int, token_hash: str) -> bool:
 
 def remove_trusted_device(token_hash: str):
     """Remove a trusted device token (on logout)."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.execute("DELETE FROM trusted_devices WHERE token_hash = ?", (token_hash,))
     conn.commit()
     conn.close()
@@ -203,7 +244,7 @@ def remove_trusted_device(token_hash: str):
 def create_user(email: str, password: str, totp_secret: str) -> User | None:
     """Create a new user. Returns None if email already exists."""
     pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     try:
         conn.execute(
             "INSERT INTO users (email, password_hash, totp_secret, created_at) VALUES (?, ?, ?, ?)",
@@ -218,67 +259,23 @@ def create_user(email: str, password: str, totp_secret: str) -> User | None:
 
 
 def get_user_by_email(email: str) -> User | None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM users WHERE email = ?", (email.lower().strip(),)).fetchone()
     conn.close()
     if not row:
         return None
-    return User(
-        id=row["id"],
-        email=row["email"],
-        password_hash=row["password_hash"],
-        totp_secret=row["totp_secret"],
-        coinbase_api_key=row["coinbase_api_key"],
-        coinbase_api_secret=row["coinbase_api_secret"],
-        alpaca_api_key=row["alpaca_api_key"] if "alpaca_api_key" in row.keys() else "",
-        alpaca_api_secret=row["alpaca_api_secret"] if "alpaca_api_secret" in row.keys() else "",
-        kalshi_api_key=row["kalshi_api_key"] if "kalshi_api_key" in row.keys() else "",
-        kalshi_api_secret=row["kalshi_api_secret"] if "kalshi_api_secret" in row.keys() else "",
-        perplexity_api_key=row["perplexity_api_key"] if "perplexity_api_key" in row.keys() else "",
-        paper_balance=row["paper_balance"],
-        trading_mode=row["trading_mode"],
-        symbols=row["symbols"],
-        stop_loss_pct=row["stop_loss_pct"],
-        take_profit_min_pct=row["take_profit_min_pct"],
-        take_profit_max_pct=row["take_profit_max_pct"],
-        max_position_pct=row["max_position_pct"],
-        interval_minutes=row["interval_minutes"],
-        bot_active=bool(row["bot_active"]),
-        created_at=row["created_at"],
-    )
+    return _row_to_user(row)
 
 
 def get_user_by_id(user_id: int) -> User | None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.row_factory = sqlite3.Row
     row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     conn.close()
     if not row:
         return None
-    return User(
-        id=row["id"],
-        email=row["email"],
-        password_hash=row["password_hash"],
-        totp_secret=row["totp_secret"],
-        coinbase_api_key=row["coinbase_api_key"],
-        coinbase_api_secret=row["coinbase_api_secret"],
-        alpaca_api_key=row["alpaca_api_key"] if "alpaca_api_key" in row.keys() else "",
-        alpaca_api_secret=row["alpaca_api_secret"] if "alpaca_api_secret" in row.keys() else "",
-        kalshi_api_key=row["kalshi_api_key"] if "kalshi_api_key" in row.keys() else "",
-        kalshi_api_secret=row["kalshi_api_secret"] if "kalshi_api_secret" in row.keys() else "",
-        perplexity_api_key=row["perplexity_api_key"] if "perplexity_api_key" in row.keys() else "",
-        paper_balance=row["paper_balance"],
-        trading_mode=row["trading_mode"],
-        symbols=row["symbols"],
-        stop_loss_pct=row["stop_loss_pct"],
-        take_profit_min_pct=row["take_profit_min_pct"],
-        take_profit_max_pct=row["take_profit_max_pct"],
-        max_position_pct=row["max_position_pct"],
-        interval_minutes=row["interval_minutes"],
-        bot_active=bool(row["bot_active"]),
-        created_at=row["created_at"],
-    )
+    return _row_to_user(row)
 
 
 def verify_password(user: User, password: str) -> bool:
@@ -286,7 +283,7 @@ def verify_password(user: User, password: str) -> bool:
 
 
 def update_api_keys(user_id: int, api_key: str, api_secret: str):
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.execute(
         "UPDATE users SET coinbase_api_key = ?, coinbase_api_secret = ? WHERE id = ?",
         (_encrypt(api_key), _encrypt(api_secret), user_id),
@@ -296,7 +293,7 @@ def update_api_keys(user_id: int, api_key: str, api_secret: str):
 
 
 def update_alpaca_keys(user_id: int, api_key: str, api_secret: str):
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.execute(
         "UPDATE users SET alpaca_api_key = ?, alpaca_api_secret = ? WHERE id = ?",
         (_encrypt(api_key), _encrypt(api_secret), user_id),
@@ -306,7 +303,7 @@ def update_alpaca_keys(user_id: int, api_key: str, api_secret: str):
 
 
 def update_kalshi_keys(user_id: int, api_key: str, api_secret: str):
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.execute(
         "UPDATE users SET kalshi_api_key = ?, kalshi_api_secret = ? WHERE id = ?",
         (_encrypt(api_key), _encrypt(api_secret), user_id),
@@ -316,7 +313,7 @@ def update_kalshi_keys(user_id: int, api_key: str, api_secret: str):
 
 
 def update_perplexity_key(user_id: int, api_key: str):
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.execute(
         "UPDATE users SET perplexity_api_key = ? WHERE id = ?",
         (_encrypt(api_key), user_id),
@@ -336,7 +333,7 @@ def update_trading_config(
     max_position_pct: float,
     interval_minutes: int,
 ):
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.execute(
         """UPDATE users SET
             paper_balance = ?, trading_mode = ?, symbols = ?,
@@ -353,7 +350,7 @@ def update_trading_config(
 
 
 def set_bot_active(user_id: int, active: bool):
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.execute("UPDATE users SET bot_active = ? WHERE id = ?", (int(active), user_id))
     conn.commit()
     conn.close()
@@ -363,7 +360,7 @@ def create_oauth_user(email: str) -> User | None:
     """Create a user from OAuth sign-in (no password/TOTP required)."""
     placeholder_hash = bcrypt.hashpw(secrets.token_hex(32).encode(), bcrypt.gensalt()).decode()
     placeholder_totp = pyotp.random_base32()
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     try:
         conn.execute(
             "INSERT INTO users (email, password_hash, totp_secret, created_at) VALUES (?, ?, ?, ?)",
@@ -379,7 +376,7 @@ def create_oauth_user(email: str) -> User | None:
 
 def update_trading_mode(user_id: int, mode: str):
     """Update just the trading mode (paper/live)."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.execute("UPDATE users SET trading_mode = ? WHERE id = ?", (mode, user_id))
     conn.commit()
     conn.close()
@@ -387,33 +384,8 @@ def update_trading_mode(user_id: int, mode: str):
 
 def get_active_users() -> list[User]:
     """Get all users with active bots."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = _get_conn()
     conn.row_factory = sqlite3.Row
     rows = conn.execute("SELECT * FROM users WHERE bot_active = 1").fetchall()
     conn.close()
-    users = []
-    for row in rows:
-        users.append(User(
-            id=row["id"],
-            email=row["email"],
-            password_hash=row["password_hash"],
-            totp_secret=row["totp_secret"],
-            coinbase_api_key=row["coinbase_api_key"],
-            coinbase_api_secret=row["coinbase_api_secret"],
-            alpaca_api_key=row["alpaca_api_key"] if "alpaca_api_key" in row.keys() else "",
-            alpaca_api_secret=row["alpaca_api_secret"] if "alpaca_api_secret" in row.keys() else "",
-            kalshi_api_key=row["kalshi_api_key"] if "kalshi_api_key" in row.keys() else "",
-            kalshi_api_secret=row["kalshi_api_secret"] if "kalshi_api_secret" in row.keys() else "",
-            perplexity_api_key=row["perplexity_api_key"] if "perplexity_api_key" in row.keys() else "",
-            paper_balance=row["paper_balance"],
-            trading_mode=row["trading_mode"],
-            symbols=row["symbols"],
-            stop_loss_pct=row["stop_loss_pct"],
-            take_profit_min_pct=row["take_profit_min_pct"],
-            take_profit_max_pct=row["take_profit_max_pct"],
-            max_position_pct=row["max_position_pct"],
-            interval_minutes=row["interval_minutes"],
-            bot_active=bool(row["bot_active"]),
-            created_at=row["created_at"],
-        ))
-    return users
+    return [_row_to_user(row) for row in rows]
