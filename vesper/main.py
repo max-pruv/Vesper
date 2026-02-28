@@ -691,10 +691,10 @@ class UserBot:
             ]
 
         # Deep research on top candidates (max 3 to control costs)
+        top5 = [(c['symbol'], round(c['score'], 2)) for c in candidates[:5]]
         self.logger.info(
             f"[User:{self.email}] [altcoin_hunter] {len(candidates)} candidates "
-            f"above min_score={min_score}: "
-            f"{[c['symbol'] + f'({c[\"score\"]:.2f})' for c in candidates[:5]]}"
+            f"above min_score={min_score}: {top5}"
         )
         from vesper.ai_research import research_asset
         for c in candidates[:3]:
