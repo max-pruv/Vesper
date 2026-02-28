@@ -82,16 +82,16 @@ class AlpacaExchange:
     def fetch_ohlcv(self, symbol: str, timeframe: str = "1Hour", limit: int = 100):
         """Fetch OHLCV bars for a stock. Returns list of [timestamp, O, H, L, C, V]."""
         from alpaca.data.requests import StockBarsRequest
-        from alpaca.data.timeframe import TimeFrame
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
         from datetime import datetime, timedelta
 
         ticker = symbol.split("/")[0]
         tf_map = {
             "1m": TimeFrame.Minute,
-            "5m": TimeFrame(5, "Min"),
-            "15m": TimeFrame(15, "Min"),
+            "5m": TimeFrame(5, TimeFrameUnit.Minute),
+            "15m": TimeFrame(15, TimeFrameUnit.Minute),
             "1h": TimeFrame.Hour,
-            "4h": TimeFrame(4, "Hour"),
+            "4h": TimeFrame(4, TimeFrameUnit.Hour),
             "1d": TimeFrame.Day,
         }
         tf = tf_map.get(timeframe, TimeFrame.Hour)
