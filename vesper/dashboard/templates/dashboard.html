@@ -282,20 +282,12 @@
                         <div style="font-size:14px;font-weight:700;" id="cryptoRealized">$0</div><div style="font-size:10px;color:var(--text-muted);">Realized P&L</div>
                     </div>
                 </div>
-                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Max/Bet</span>
-                    <div style="position:relative;flex:1;max-width:100px;">
-                        <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:11px;">$</span>
-                        <input type="number" id="cryptoMaxBet" min="5" step="5" placeholder="auto"
-                               onchange="updateMaxBet('crypto', this.value)"
-                               style="padding:4px 4px 4px 18px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.03);color:var(--text);width:100%;font-size:12px;box-sizing:border-box;">
-                    </div>
-                </div>
+                <input type="hidden" id="cryptoMaxBet">
                 <div id="cryptoTopScores" style="margin-bottom:6px;"></div>
                 <div id="cryptoLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;"></div>
                 <div style="display:flex;gap:8px;align-items:center;">
                     <button class="btn btn-outline btn-sm" onclick="stopSegment('crypto')">Stop</button>
-                    <button class="btn btn-sm" style="background:rgba(255,255,255,0.04);color:var(--text-secondary);font-size:11px;" onclick="editFund('crypto')">Edit Fund</button>
+                    <button class="btn btn-sm" style="background:rgba(255,255,255,0.04);color:var(--text-secondary);font-size:11px;" onclick="editSegment('crypto')">Edit</button>
                 </div>
             </div>
         </div>
@@ -349,19 +341,11 @@
                         <div style="font-size:14px;font-weight:700;" id="stocksRealized">$0</div><div style="font-size:10px;color:var(--text-muted);">Realized P&L</div>
                     </div>
                 </div>
-                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Max/Bet</span>
-                    <div style="position:relative;flex:1;max-width:100px;">
-                        <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:11px;">$</span>
-                        <input type="number" id="stocksMaxBet" min="5" step="5" placeholder="auto"
-                               onchange="updateMaxBet('stocks', this.value)"
-                               style="padding:4px 4px 4px 18px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.03);color:var(--text);width:100%;font-size:12px;box-sizing:border-box;">
-                    </div>
-                </div>
+                <input type="hidden" id="stocksMaxBet">
                 <div id="stocksLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;"></div>
                 <div style="display:flex;gap:8px;align-items:center;">
                     <button class="btn btn-outline btn-sm" onclick="stopSegment('stocks')">Stop</button>
-                    <button class="btn btn-sm" style="background:rgba(255,255,255,0.04);color:var(--text-secondary);font-size:11px;" onclick="editFund('stocks')">Edit Fund</button>
+                    <button class="btn btn-sm" style="background:rgba(255,255,255,0.04);color:var(--text-secondary);font-size:11px;" onclick="editSegment('stocks')">Edit</button>
                 </div>
             </div>
         </div>
@@ -415,19 +399,11 @@
                         <div style="font-size:14px;font-weight:700;" id="predRealized">$0</div><div style="font-size:10px;color:var(--text-muted);">Realized P&L</div>
                     </div>
                 </div>
-                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
-                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Max/Bet</span>
-                    <div style="position:relative;flex:1;max-width:100px;">
-                        <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:11px;">$</span>
-                        <input type="number" id="predMaxBet" min="5" step="5" placeholder="auto"
-                               onchange="updateMaxBet('predictions', this.value)"
-                               style="padding:4px 4px 4px 18px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.03);color:var(--text);width:100%;font-size:12px;box-sizing:border-box;">
-                    </div>
-                </div>
+                <input type="hidden" id="predMaxBet">
                 <div id="predLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;"></div>
                 <div style="display:flex;gap:8px;align-items:center;">
                     <button class="btn btn-outline btn-sm" onclick="stopSegment('predictions')">Stop</button>
-                    <button class="btn btn-sm" style="background:rgba(255,255,255,0.04);color:var(--text-secondary);font-size:11px;" onclick="editFund('predictions')">Edit Fund</button>
+                    <button class="btn btn-sm" style="background:rgba(255,255,255,0.04);color:var(--text-secondary);font-size:11px;" onclick="editSegment('predictions')">Edit</button>
                 </div>
             </div>
         </div>
@@ -443,18 +419,40 @@
         </div>
     </div>
 
-    <!-- Edit Fund Modal -->
-    <div class="modal-overlay" id="editFundModal">
-        <div class="modal" style="max-width:400px;">
-            <button class="modal-close" onclick="closeEditFund()">&times;</button>
-            <div class="modal-title" id="editFundTitle">Edit Fund</div>
-            <div style="margin-bottom:20px;">
-                <label class="input-label">New fund amount ($)</label>
-                <input type="number" id="editFundInput" class="input" placeholder="500" min="10" step="10">
+    <!-- Edit Segment Modal (unified: fund + max bet + risk + reinvest) -->
+    <div class="modal-overlay" id="editSegmentModal">
+        <div class="modal" style="max-width:420px;">
+            <button class="modal-close" onclick="closeEditSegment()">&times;</button>
+            <div class="modal-title" id="editSegmentTitle">Edit Settings</div>
+            <div style="display:flex;flex-direction:column;gap:16px;margin-bottom:20px;">
+                <div>
+                    <label class="input-label">Fund Amount ($)</label>
+                    <input type="number" id="editSegFund" class="input" placeholder="500" min="10" step="10">
+                </div>
+                <div>
+                    <label class="input-label">Max Bet per Position ($)</label>
+                    <input type="number" id="editSegMaxBet" class="input" placeholder="auto" min="5" step="5">
+                    <div style="font-size:10px;color:var(--text-muted);margin-top:4px;">Leave empty for auto-sizing based on fund and risk level.</div>
+                </div>
+                <div>
+                    <label class="input-label">Risk Level</label>
+                    <div class="risk-selector" id="editSegRisk" style="margin-top:4px;">
+                        <button class="risk-btn" data-risk="conservative" onclick="document.querySelectorAll('#editSegRisk .risk-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active');">Safe</button>
+                        <button class="risk-btn" data-risk="moderate" onclick="document.querySelectorAll('#editSegRisk .risk-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active');">Mod</button>
+                        <button class="risk-btn active" data-risk="aggressive" onclick="document.querySelectorAll('#editSegRisk .risk-btn').forEach(b=>b.classList.remove('active'));this.classList.add('active');">Aggro</button>
+                    </div>
+                </div>
+                <div>
+                    <label class="input-label">Reinvest Profits (%)</label>
+                    <div style="display:flex;align-items:center;gap:8px;margin-top:4px;">
+                        <input type="range" id="editSegReinvest" min="0" max="100" value="100" style="flex:1;accent-color:var(--green);" oninput="document.getElementById('editSegReinvestLabel').textContent=this.value+'%'">
+                        <span id="editSegReinvestLabel" style="font-size:12px;color:var(--text-secondary);min-width:36px;text-align:right;">100%</span>
+                    </div>
+                </div>
             </div>
             <div style="display:flex;gap:10px;">
-                <button class="btn btn-accent" style="flex:1;" onclick="submitEditFund()">Update Fund</button>
-                <button class="btn btn-outline" style="flex:1;" onclick="closeEditFund()">Cancel</button>
+                <button class="btn btn-accent" style="flex:1;" onclick="submitEditSegment()">Save</button>
+                <button class="btn btn-outline" style="flex:1;" onclick="closeEditSegment()">Cancel</button>
             </div>
         </div>
     </div>
@@ -841,6 +839,51 @@ function formatPrice(price) {
     return price.toFixed(4);
 }
 
+function formatAiReasoning(p) {
+    // Convert raw score/factor dump into clear human language
+    const reason = p.strategy_reason || '';
+    const name = (p.name || p.symbol.split('/')[0]).replace('PRED:', '');
+
+    // If reason already contains Deep Search results, show them cleanly
+    if (reason.includes('Deep Search')) {
+        const parts = reason.split('Deep Search');
+        const deepPart = parts[1] || '';
+        // Extract the AI reasoning portion
+        const cleanDeep = deepPart.replace(/^\s*\([^)]*\)\s*:\s*/, '').split('|')[0].trim();
+        if (cleanDeep.length > 30) return cleanDeep.substring(0, 250) + (cleanDeep.length > 250 ? '...' : '');
+    }
+
+    // For Altcoin Hunter: parse score and factors into a sentence
+    const scoreMatch = reason.match(/score\s+([\d.]+)/);
+    const score = scoreMatch ? parseFloat(scoreMatch[1]) : 0;
+    if (p.strategy_id === 'altcoin_hunter' && score > 0) {
+        const strength = score >= 0.7 ? 'very strong' : score >= 0.6 ? 'strong' : score >= 0.5 ? 'moderate' : 'emerging';
+        const factors = [];
+        if (reason.includes('momentum=1.0') || reason.includes('momentum=0.9')) factors.push('strong upward momentum');
+        if (reason.includes('adx_strength=0.8') || reason.includes('adx_strength=0.9') || reason.includes('adx_strength=1.0')) factors.push('strong trend strength');
+        if (reason.includes('rsi=0.8') || reason.includes('rsi=0.7')) factors.push('bullish RSI positioning');
+        if (reason.includes('volume_surge=0.5') || reason.includes('volume_surge=0.6') || reason.includes('volume_surge=0.7')) factors.push('above-average volume');
+        if (reason.includes('ema_alignment=0.75') || reason.includes('ema_alignment=1.0')) factors.push('perfectly aligned moving averages');
+        if (reason.includes('btc_relative=0.6') || reason.includes('btc_relative=0.7')) factors.push('outperforming Bitcoin');
+        const topFactors = factors.length > 0 ? factors.slice(0, 3).join(', ') : 'multiple technical indicators';
+        return `${name} shows a ${strength} uptrend (score ${(score*100).toFixed(0)}/100), driven by ${topFactors}.`;
+    }
+
+    // For Predictions: show the AI edge reasoning
+    if (p.strategy_id === 'predictions') {
+        const edgeMatch = reason.match(/edge\s+([\d.]+)%/);
+        return reason.replace(/Predictions AI:\s*/, '').substring(0, 250);
+    }
+
+    // For Autopilot: clean up the signal description
+    if (p.strategy_id === 'autopilot') {
+        return reason.replace(/Smart Auto:\s*/, '').substring(0, 250);
+    }
+
+    // Fallback: first 200 chars
+    return reason.substring(0, 200) + (reason.length > 200 ? '...' : '');
+}
+
 function renderBetCard(p, isNew) {
     const pnlCls = p.pnl_usd >= 0 ? 'positive' : 'negative';
     const pnlSign = p.pnl_usd >= 0 ? '+' : '';
@@ -867,13 +910,13 @@ function renderBetCard(p, isNew) {
     let slTpRow;
     if (hasTrailing) {
         slTpRow = `<div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px;">
-            <span style="color:var(--text-muted);">SL $${formatPrice(p.stop_loss)}</span>
-            <span style="color:var(--accent);font-weight:600;">Trailing ${p.trailing_stop_pct}% &mdash; SL $${formatPrice(p.trailing_sl_price)} (peak $${formatPrice(p.highest_price_seen)})</span>
+            <span style="color:var(--text-muted);" title="Stop-Loss: price at which the position auto-closes to limit losses.">SL $${formatPrice(p.stop_loss)}</span>
+            <span style="color:var(--accent);font-weight:600;" title="Trailing Stop: the stop-loss follows the price up by ${p.trailing_stop_pct}%. If price drops ${p.trailing_stop_pct}% from its peak, the position closes — locking in profits while letting winners run.">Trailing ${p.trailing_stop_pct}% &mdash; SL $${formatPrice(p.trailing_sl_price)} (peak $${formatPrice(p.highest_price_seen)})</span>
         </div>`;
     } else {
         slTpRow = `<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-top:4px;">
-            <span>SL $${formatPrice(p.stop_loss)}</span>
-            <span>TP $${formatPrice(p.tp_min)} &ndash; $${formatPrice(p.tp_max)}</span>
+            <span title="Stop-Loss: the position auto-closes at this price to limit your downside.">SL $${formatPrice(p.stop_loss)}</span>
+            <span title="Take-Profit range: the position auto-closes when price reaches this zone to lock in gains.">TP $${formatPrice(p.tp_min)} &ndash; $${formatPrice(p.tp_max)}</span>
         </div>`;
     }
 
@@ -885,13 +928,21 @@ function renderBetCard(p, isNew) {
     // Strategy badge
     const stratLabel = p.strategy_id ? p.strategy_id.replace('_', ' ') : '';
 
-    // Symbol display with company name for stocks
+    // Asset type icon + symbol display
     const baseSym = p.symbol.split('/')[0];
     const isStock = p.symbol.endsWith('/USD');
+    const isPrediction = p.symbol.startsWith('PRED:');
     const companyName = STOCK_NAMES[baseSym] || '';
-    const titleHtml = isStock && companyName
-        ? `<span style="font-size:15px;font-weight:800;color:var(--accent);letter-spacing:0.3px;">${baseSym}</span> <span style="font-size:14px;color:var(--text-secondary);font-weight:500;">${companyName}</span>`
-        : `<span style="font-size:16px;font-weight:700;">${p.name || baseSym}</span>`;
+    const assetIcon = isPrediction
+        ? '<span style="font-size:14px;margin-right:4px;" title="Prediction Market">&#x1F3AF;</span>'
+        : isStock
+        ? '<span style="font-size:14px;margin-right:4px;" title="Stock">&#x1F4C8;</span>'
+        : '<span style="font-size:14px;margin-right:4px;" title="Cryptocurrency">&#x20BF;</span>';
+    const titleHtml = isPrediction
+        ? `${assetIcon}<span style="font-size:14px;font-weight:700;">${(p.name || baseSym).replace('PRED:', '')}</span>`
+        : isStock && companyName
+        ? `${assetIcon}<span style="font-size:15px;font-weight:800;color:var(--accent);letter-spacing:0.3px;">${baseSym}</span> <span style="font-size:14px;color:var(--text-secondary);font-weight:500;">${companyName}</span>`
+        : `${assetIcon}<span style="font-size:16px;font-weight:700;">${p.name || baseSym}</span>`;
 
     return `<div class="bet-card ${isNew ? 'new-card' : ''} ${flashClass}" data-pid="${p.id}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
@@ -927,19 +978,19 @@ function renderBetCard(p, isNew) {
         <!-- P/L View -->
         <div class="bet-pl-row">
             <div class="bet-pl-item">
-                <span class="bet-pl-label">Max Loss</span>
+                <span class="bet-pl-label" title="Maximum possible loss if stop-loss triggers. Calculated as (entry price - stop-loss price) x quantity.">Max Loss &#9432;</span>
                 <span class="bet-pl-value" style="color:var(--red);">-$${p.max_loss.toFixed(2)}</span>
             </div>
             <div class="bet-pl-item">
-                <span class="bet-pl-label">Fee</span>
+                <span class="bet-pl-label" title="Estimated exchange trading fee (~0.1% of position size for maker/taker).">Fee &#9432;</span>
                 <span class="bet-pl-value" style="color:var(--text-muted);">~$${(p.est_fee || 0).toFixed(2)}</span>
             </div>
             <div class="bet-pl-item">
-                <span class="bet-pl-label">Max Win</span>
+                <span class="bet-pl-label" title="Maximum profit if take-profit triggers. Calculated as (take-profit price - entry price) x quantity. Unlimited with trailing stops.">Max Win &#9432;</span>
                 <span class="bet-pl-value" style="color:var(--green);">${maxWinHtml}</span>
             </div>
             <div class="bet-pl-item">
-                <span class="bet-pl-label">R:R</span>
+                <span class="bet-pl-label" title="Risk-to-Reward ratio. Compares max loss to max win. A ratio of 1:2+ means you win twice what you risk — higher is better.">R:R &#9432;</span>
                 <span class="bet-pl-value bet-rr ${rrCls}">${hasTrailing ? '&#8734;' : '1:' + rr.toFixed(1)}</span>
             </div>
         </div>
@@ -956,9 +1007,9 @@ function renderBetCard(p, isNew) {
         ${p.strategy_reason ? `<div style="margin-top:10px;padding:10px 12px;background:rgba(0,232,94,0.03);border:1px solid rgba(0,232,94,0.08);border-radius:10px;font-size:12px;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
                 <span style="font-weight:600;color:var(--accent);font-size:11px;text-transform:uppercase;letter-spacing:0.3px;">AI Reasoning</span>
-                <button style="background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer;font-weight:600;font-family:inherit;padding:2px 6px;" onclick="openLearnMore('${p.id}','${p.name || p.symbol}')">Learn More</button>
+                <button style="background:none;border:none;color:var(--accent);font-size:11px;cursor:pointer;font-weight:600;font-family:inherit;padding:2px 6px;" onclick="openLearnMore('${p.id}','${p.name || p.symbol}')">Learn More &rarr;</button>
             </div>
-            <div style="color:var(--text-secondary);line-height:1.5;">${p.strategy_reason.substring(0, 200)}${p.strategy_reason.length > 200 ? '...' : ''}</div>
+            <div style="color:var(--text-secondary);line-height:1.5;">${formatAiReasoning(p)}</div>
         </div>` : ''}
         <button class="btn btn-outline btn-sm" style="width:100%;margin-top:12px;"
                 onclick="closeTrade('${p.id}','${p.symbol}',${p.pnl_usd},${p.pnl_pct})">Close Position</button>
@@ -1818,64 +1869,76 @@ function setRisk(segment, level) {
 }
 
 // ═══════════════════════════════════════
-// Edit Fund (while autopilot is running)
+// Edit Segment (unified: fund + max bet + risk + reinvest)
 // ═══════════════════════════════════════
-let editFundSegment = null;
-function editFund(segment) {
-    editFundSegment = segment;
+let editingSegment = null;
+function editSegment(segment) {
+    editingSegment = segment;
+    const cfg = SEGMENTS[segment];
     const label = segment.charAt(0).toUpperCase() + segment.slice(1);
-    document.getElementById('editFundTitle').textContent = `Edit ${label} Fund`;
-    document.getElementById('editFundInput').value = '';
-    document.getElementById('editFundModal').classList.add('active');
-    setTimeout(() => document.getElementById('editFundInput').focus(), 100);
+    document.getElementById('editSegmentTitle').textContent = `Edit ${label} Settings`;
+
+    // Pre-fill current values
+    const fundEl = document.getElementById(cfg.fundEl);
+    const fundVal = fundEl ? parseFloat(fundEl.textContent.replace(/[$,]/g, '')) : 0;
+    document.getElementById('editSegFund').value = fundVal > 0 ? Math.round(fundVal) : '';
+
+    const maxBetEl = document.getElementById(cfg.maxBetEl);
+    document.getElementById('editSegMaxBet').value = maxBetEl && maxBetEl.value ? maxBetEl.value : '';
+
+    // Sync risk level
+    const currentRisk = getSelectedRisk(segment);
+    document.querySelectorAll('#editSegRisk .risk-btn').forEach(b => {
+        b.classList.toggle('active', b.getAttribute('data-risk') === currentRisk);
+    });
+
+    // Sync reinvest pct
+    const reinvestPct = getReinvestPct(segment);
+    document.getElementById('editSegReinvest').value = reinvestPct;
+    document.getElementById('editSegReinvestLabel').textContent = reinvestPct + '%';
+
+    document.getElementById('editSegmentModal').classList.add('active');
+    setTimeout(() => document.getElementById('editSegFund').focus(), 100);
 }
-function closeEditFund() {
-    document.getElementById('editFundModal').classList.remove('active');
-    editFundSegment = null;
+function closeEditSegment() {
+    document.getElementById('editSegmentModal').classList.remove('active');
+    editingSegment = null;
 }
-document.getElementById('editFundModal').addEventListener('click', function(e) {
-    if (e.target === this) closeEditFund();
+document.getElementById('editSegmentModal').addEventListener('click', function(e) {
+    if (e.target === this) closeEditSegment();
 });
-async function submitEditFund() {
-    if (!editFundSegment) return;
-    const cfg = SEGMENTS[editFundSegment];
-    const val = parseFloat(document.getElementById('editFundInput').value);
-    if (!val || val < 10) {
-        document.getElementById('editFundInput').style.borderColor = 'var(--red)';
-        return;
-    }
+async function submitEditSegment() {
+    if (!editingSegment) return;
+    const cfg = SEGMENTS[editingSegment];
+    const fundVal = parseFloat(document.getElementById('editSegFund').value);
+    const maxBetVal = parseFloat(document.getElementById('editSegMaxBet').value);
+    const riskBtn = document.querySelector('#editSegRisk .risk-btn.active');
+    const riskLevel = riskBtn ? riskBtn.getAttribute('data-risk') : 'aggressive';
+    const reinvestPct = parseInt(document.getElementById('editSegReinvest').value);
+
+    const body = { action: 'update' };
+    if (fundVal && fundVal >= 10) body.amount_usd = fundVal;
+    if (maxBetVal && maxBetVal >= 5) body.max_bet_usd = maxBetVal;
+    body.risk_level = riskLevel;
+    body.reinvest_pct = reinvestPct;
+
     try {
-        const body = {
-            action: 'update',
-            amount_usd: val,
-            risk_level: getSelectedRisk(editFundSegment),
-            reinvest_pct: getReinvestPct(editFundSegment),
-        };
         const resp = await fetch(cfg.api, {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body),
         });
-        if (resp.ok) fetchSegmentStatus(editFundSegment);
+        if (resp.ok) {
+            // Sync risk + reinvest on the main card too
+            setRisk(editingSegment, riskLevel);
+            const slider = document.getElementById(cfg.reinvestEl);
+            const label = document.getElementById(cfg.reinvestLabelEl);
+            if (slider) slider.value = reinvestPct;
+            if (label) label.textContent = reinvestPct + '%';
+            fetchSegmentStatus(editingSegment);
+        }
     } catch(e) {}
-    closeEditFund();
-}
-
-// ═══════════════════════════════════════
-// Max Bet Update
-// ═══════════════════════════════════════
-async function updateMaxBet(segment, value) {
-    const cfg = SEGMENTS[segment];
-    if (!cfg) return;
-    const val = parseFloat(value);
-    if (!val || val < 5) return;
-    try {
-        await fetch(cfg.api, {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ action: 'update', max_bet_usd: val }),
-        });
-    } catch(e) {}
+    closeEditSegment();
 }
 
 // ═══════════════════════════════════════
@@ -1897,21 +1960,54 @@ async function openLearnMore(pid, name) {
         const data = await resp.json();
         let html = '';
 
-        // Signal & Confidence
-        if (data.signal || data.confidence) {
-            const signalColor = data.signal === 'BUY' ? 'var(--green)' : data.signal === 'SELL' ? 'var(--red)' : 'var(--text-secondary)';
-            const confPct = data.confidence ? (data.confidence * 100).toFixed(0) : '?';
-            html += `<div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;">
-                <span style="padding:4px 14px;border-radius:8px;font-weight:800;font-size:14px;background:${data.signal === 'BUY' ? 'var(--green-dim)' : data.signal === 'SELL' ? 'var(--red-dim)' : 'rgba(255,255,255,0.05)'};color:${signalColor};">${data.signal || 'N/A'}</span>
-                <span style="font-size:13px;color:var(--text-secondary);">Confidence: <b>${confPct}%</b></span>
-            </div>`;
+        // Header: Signal badge + Confidence + Entry info
+        const signalColor = data.signal === 'BUY' ? 'var(--green)' : data.signal === 'SELL' ? 'var(--red)' : 'var(--text-secondary)';
+        const confPct = data.confidence ? (data.confidence * 100).toFixed(0) : null;
+        html += `<div style="display:flex;gap:12px;align-items:center;margin-bottom:16px;flex-wrap:wrap;">
+            <span style="padding:4px 14px;border-radius:8px;font-weight:800;font-size:14px;background:${data.signal === 'BUY' ? 'var(--green-dim)' : data.signal === 'SELL' ? 'var(--red-dim)' : 'rgba(255,255,255,0.05)'};color:${signalColor};">${data.signal || 'N/A'}</span>`;
+        if (confPct) html += `<span style="font-size:13px;color:var(--text-secondary);">Confidence: <b>${confPct}%</b></span>`;
+        if (data.trend_score) html += `<span style="font-size:13px;color:var(--text-secondary);">Trend Score: <b>${(data.trend_score * 100).toFixed(0)}/100</b></span>`;
+        if (data.entry_price) html += `<span style="font-size:12px;color:var(--text-muted);">Entry: $${formatPrice(data.entry_price)}</span>`;
+        if (data.cost_usd) html += `<span style="font-size:12px;color:var(--text-muted);">Size: $${data.cost_usd.toFixed(2)}</span>`;
+        html += `</div>`;
+
+        // Trend Factors (Altcoin Hunter specific)
+        if (data.trend_factors && typeof data.trend_factors === 'object') {
+            const tf = data.trend_factors;
+            const factorItems = [];
+            if (tf.momentum !== undefined) factorItems.push({name: 'Momentum', val: tf.momentum, desc: 'Price momentum over recent candles'});
+            if (tf.rsi !== undefined) factorItems.push({name: 'RSI Score', val: tf.rsi, desc: 'Relative Strength Index positioning'});
+            if (tf.ema_alignment !== undefined) factorItems.push({name: 'EMA Alignment', val: tf.ema_alignment, desc: 'Moving average crossover strength'});
+            if (tf.volume_surge !== undefined) factorItems.push({name: 'Volume Surge', val: tf.volume_surge, desc: 'Volume above 20-period average'});
+            if (tf.adx_strength !== undefined) factorItems.push({name: 'ADX Strength', val: tf.adx_strength, desc: 'Trend directional strength'});
+            if (tf.btc_relative !== undefined) factorItems.push({name: 'BTC Relative', val: tf.btc_relative, desc: 'Performance vs Bitcoin'});
+            if (factorItems.length) {
+                html += `<div style="margin-bottom:16px;">
+                    <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Trend Analysis Breakdown</div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">`;
+                factorItems.forEach(f => {
+                    const pct = (f.val * 100).toFixed(0);
+                    const barColor = f.val >= 0.7 ? 'var(--green)' : f.val >= 0.4 ? '#f5a623' : 'var(--red)';
+                    html += `<div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.05);">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                            <span style="font-size:11px;font-weight:600;color:var(--text-secondary);">${f.name}</span>
+                            <span style="font-size:11px;font-weight:700;color:${barColor};">${pct}%</span>
+                        </div>
+                        <div style="height:4px;border-radius:2px;background:rgba(255,255,255,0.06);overflow:hidden;">
+                            <div style="height:100%;width:${pct}%;background:${barColor};border-radius:2px;"></div>
+                        </div>
+                        <div style="font-size:9px;color:var(--text-muted);margin-top:3px;">${f.desc}</div>
+                    </div>`;
+                });
+                html += `</div></div>`;
+            }
         }
 
         // Deep Search Summary
         if (data.search_summary) {
             html += `<div style="margin-bottom:16px;">
                 <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
-                    <span style="font-size:14px;">&#x1F50D;</span> Deep Search
+                    <span style="font-size:14px;">&#x1F50D;</span> Deep Search (Perplexity + Claude)
                 </div>
                 <div style="padding:12px;border-radius:10px;background:rgba(0,232,94,0.03);border:1px solid rgba(0,232,94,0.08);font-size:12px;color:var(--text-secondary);line-height:1.6;">${escapeHtml(data.search_summary)}</div>
             </div>`;
@@ -1923,7 +2019,7 @@ async function openLearnMore(pid, name) {
                 <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
                     <span style="font-size:14px;">&#x1F9E0;</span> AI Reasoning
                 </div>
-                <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);font-size:12px;color:var(--text-secondary);line-height:1.7;">${escapeHtml(data.reasoning)}</div>
+                <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);font-size:12px;color:var(--text-secondary);line-height:1.7;white-space:pre-line;">${escapeHtml(data.reasoning)}</div>
             </div>`;
         }
 
@@ -1931,16 +2027,18 @@ async function openLearnMore(pid, name) {
         if ((data.bullish_factors && data.bullish_factors.length) || (data.bearish_factors && data.bearish_factors.length)) {
             html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">`;
             if (data.bullish_factors && data.bullish_factors.length) {
-                html += `<div><div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:6px;">Bullish Factors</div>`;
+                html += `<div style="padding:10px;border-radius:10px;background:rgba(0,232,94,0.03);border:1px solid rgba(0,232,94,0.08);">
+                    <div style="font-size:11px;font-weight:700;color:var(--green);margin-bottom:8px;">Bullish Factors</div>`;
                 data.bullish_factors.forEach(f => {
-                    html += `<div style="font-size:11px;color:var(--text-secondary);padding:3px 0 3px 12px;position:relative;"><span style="position:absolute;left:0;color:var(--green);">+</span>${escapeHtml(f)}</div>`;
+                    html += `<div style="font-size:11px;color:var(--text-secondary);padding:3px 0 3px 14px;position:relative;line-height:1.5;"><span style="position:absolute;left:0;color:var(--green);font-weight:bold;">+</span>${escapeHtml(f)}</div>`;
                 });
                 html += `</div>`;
             }
             if (data.bearish_factors && data.bearish_factors.length) {
-                html += `<div><div style="font-size:11px;font-weight:700;color:var(--red);margin-bottom:6px;">Bearish Factors</div>`;
+                html += `<div style="padding:10px;border-radius:10px;background:rgba(255,59,48,0.03);border:1px solid rgba(255,59,48,0.08);">
+                    <div style="font-size:11px;font-weight:700;color:var(--red);margin-bottom:8px;">Bearish Factors</div>`;
                 data.bearish_factors.forEach(f => {
-                    html += `<div style="font-size:11px;color:var(--text-secondary);padding:3px 0 3px 12px;position:relative;"><span style="position:absolute;left:0;color:var(--red);">-</span>${escapeHtml(f)}</div>`;
+                    html += `<div style="font-size:11px;color:var(--text-secondary);padding:3px 0 3px 14px;position:relative;line-height:1.5;"><span style="position:absolute;left:0;color:var(--red);font-weight:bold;">-</span>${escapeHtml(f)}</div>`;
                 });
                 html += `</div>`;
             }
@@ -1950,9 +2048,9 @@ async function openLearnMore(pid, name) {
         // Catalysts
         if (data.catalysts && data.catalysts.length) {
             html += `<div style="margin-bottom:16px;">
-                <div style="font-size:11px;font-weight:700;color:#f5a623;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Catalysts</div>`;
+                <div style="font-size:11px;font-weight:700;color:#f5a623;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Upcoming Catalysts</div>`;
             data.catalysts.forEach(c => {
-                html += `<div style="font-size:11px;color:var(--text-secondary);padding:2px 0;">&#x26A1; ${escapeHtml(c)}</div>`;
+                html += `<div style="font-size:11px;color:var(--text-secondary);padding:3px 0;line-height:1.5;">&#x26A1; ${escapeHtml(c)}</div>`;
             });
             html += `</div>`;
         }
@@ -1961,31 +2059,49 @@ async function openLearnMore(pid, name) {
         if (data.indicators) {
             const ind = data.indicators;
             const parts = [];
+            if (ind.price) parts.push(['Price', '$' + formatPrice(ind.price)]);
             if (ind.rsi) parts.push(['RSI', ind.rsi]);
             if (ind.ema_trend) parts.push(['EMA Trend', ind.ema_trend]);
             if (ind.adx) parts.push(['ADX', ind.adx]);
-            if (ind.atr_pct) parts.push(['ATR%', ind.atr_pct]);
-            if (ind.whale_score !== undefined) parts.push(['Whale', ind.whale_score]);
+            if (ind.atr) parts.push(['ATR', '$' + ind.atr]);
+            if (ind.bb_position !== undefined && ind.bb_position !== null) parts.push(['Bollinger Pos', typeof ind.bb_position === 'number' ? (ind.bb_position > 1 ? ind.bb_position.toFixed(0) : (ind.bb_position * 100).toFixed(0)) + '%' : ind.bb_position]);
+            if (ind.macd_hist !== undefined) parts.push(['MACD Hist', ind.macd_hist]);
+            if (ind.whale_score !== undefined) parts.push(['Whale Activity', ind.whale_score]);
             if (ind.sentiment !== undefined) parts.push(['Sentiment', ind.sentiment]);
-            if (ind.bb_position !== undefined) parts.push(['BB Pos', (ind.bb_position * 100).toFixed(0) + '%']);
+            if (ind.fear_greed !== undefined && ind.fear_greed !== null) parts.push(['Fear & Greed', ind.fear_greed]);
+            if (ind.tf_alignment) parts.push(['TF Alignment', ind.tf_alignment]);
             if (parts.length > 0) {
                 html += `<div style="margin-bottom:16px;">
-                    <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Technical Indicators</div>
+                    <div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Technical Indicators at Entry</div>
                     <div style="display:flex;flex-wrap:wrap;gap:6px;">`;
                 parts.forEach(([label, val]) => {
-                    html += `<span style="padding:4px 10px;border-radius:8px;font-size:11px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);"><b>${label}</b> ${val}</span>`;
+                    html += `<span style="padding:5px 12px;border-radius:8px;font-size:11px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);"><b style="color:var(--text-secondary);">${label}</b> <span style="color:var(--text);">${val}</span></span>`;
                 });
                 html += `</div></div>`;
             }
         }
 
-        // Sources
-        if (data.sources && data.sources.length) {
-            html += `<div><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Sources</div>`;
-            html += `<div style="font-size:11px;color:var(--text-muted);line-height:1.6;">${data.sources.map(s => escapeHtml(s)).join(' &middot; ')}</div></div>`;
+        // Risk Level
+        if (data.risk_level) {
+            const riskColor = data.risk_level === 'conservative' ? 'var(--green)' : data.risk_level === 'moderate' ? '#f5a623' : 'var(--red)';
+            html += `<div style="margin-bottom:16px;font-size:12px;color:var(--text-muted);">Risk profile: <span style="color:${riskColor};font-weight:600;text-transform:capitalize;">${data.risk_level}</span></div>`;
         }
 
-        body.innerHTML = html || '<div style="color:var(--text-muted);text-align:center;">No detailed data available.</div>';
+        // Sources
+        if (data.sources && data.sources.length) {
+            html += `<div><div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">Research Sources</div>`;
+            html += `<div style="font-size:11px;color:var(--text-muted);line-height:1.8;">`;
+            data.sources.forEach(s => {
+                if (s.startsWith('http')) {
+                    html += `<div><a href="${escapeHtml(s)}" target="_blank" style="color:var(--accent);text-decoration:none;">${escapeHtml(s)}</a></div>`;
+                } else {
+                    html += `<div>${escapeHtml(s)}</div>`;
+                }
+            });
+            html += `</div></div>`;
+        }
+
+        body.innerHTML = html || '<div style="color:var(--text-muted);text-align:center;padding:20px;">No detailed analysis data stored for this position. Analysis data is saved for new positions opened after this update.</div>';
     } catch(e) {
         body.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px;">Failed to load analysis.</div>';
     }

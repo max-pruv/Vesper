@@ -708,8 +708,10 @@ def _fetch_signal_sync(symbol: str, strategy_id: str = "smart_auto") -> dict:
 
 
 def _get_public_exchange():
-    """Public (no auth) exchange for price data. Uses Binance for reliable USDT pairs."""
-    return ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
+    """Public (no auth) exchange for price data. Uses the auto-selected exchange."""
+    from vesper.main import _resolve_exchange
+    ex, _ = _resolve_exchange()
+    return ex
 
 
 def _calc_change_pct(t: dict) -> float:
@@ -728,9 +730,11 @@ def _fetch_tickers_sync() -> list[dict]:
     """Fetch ticker data for all symbols (sync, run in executor)."""
     ex = _get_public_exchange()
     result = []
+    # Filter to symbols available on the selected exchange
+    available_syms = [s for s in TICKER_SYMBOLS if s in ex.markets]
     try:
-        tickers = ex.fetch_tickers(TICKER_SYMBOLS)
-        for sym in TICKER_SYMBOLS:
+        tickers = ex.fetch_tickers(available_syms)
+        for sym in available_syms:
             t = tickers.get(sym)
             if t:
                 result.append({
@@ -741,7 +745,7 @@ def _fetch_tickers_sync() -> list[dict]:
                 })
     except Exception:
         # Fallback: fetch individually
-        for sym in TICKER_SYMBOLS:
+        for sym in available_syms:
             try:
                 t = ex.fetch_ticker(sym)
                 result.append({
@@ -2342,44 +2346,71 @@ async def api_position_analysis(pid: str, request: Request):
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     portfolio = _load_portfolio(user.id)
+    pos = portfolio.get("positions", {}).get(pid, {})
     analyses = portfolio.get("position_analyses", {})
     analysis = analyses.get(pid, {})
-    if not analysis:
-        # Build analysis from position metadata as fallback
-        pos = portfolio.get("positions", {}).get(pid, {})
-        if not pos:
-            return {"found": False, "strategy_reason": "Position not found."}
-        limits = pos.get("limits", {})
-        fallback = {
+
+    if analysis:
+        # Flatten deep_research into top-level fields for the frontend
+        deep = analysis.get("deep_research", {})
+        result = {
             "found": True,
-            "signal": "BUY" if pos.get("side", "buy") == "buy" else "SELL",
-            "confidence": pos.get("confidence", 0),
-            "reasoning": pos.get("strategy_reason", ""),
-            "indicators": pos.get("indicators", {}),
+            "signal": deep.get("signal", "BUY" if pos.get("side", "buy") == "buy" else "SELL"),
+            "confidence": deep.get("confidence", pos.get("confidence", 0)),
+            "reasoning": deep.get("reasoning", ""),
+            "search_summary": deep.get("search_summary", ""),
+            "bullish_factors": deep.get("bullish_factors", []),
+            "bearish_factors": deep.get("bearish_factors", []),
+            "catalysts": deep.get("catalysts", []),
+            "sources": deep.get("sources", []),
+            "indicators": analysis.get("indicators", {}),
+            "trend_score": analysis.get("trend_score"),
+            "trend_factors": analysis.get("trend_factors"),
+            "risk_level": analysis.get("risk_level", ""),
         }
-        # Include search summary if available
-        if pos.get("search_summary"):
-            fallback["search_summary"] = pos["search_summary"]
-        # Build factors from strategy reason text
-        reason = pos.get("strategy_reason", "")
-        if reason:
-            bullish = []
-            bearish = []
-            for line in reason.replace(";", ".").split("."):
-                line = line.strip()
-                if not line:
-                    continue
-                lower = line.lower()
-                if any(w in lower for w in ["bullish", "uptrend", "above", "support", "momentum", "surge", "accumulation", "buy", "positive"]):
-                    bullish.append(line)
-                elif any(w in lower for w in ["bearish", "downtrend", "below", "resistance", "overbought", "sell", "negative", "weak"]):
-                    bearish.append(line)
-            if bullish:
-                fallback["bullish_factors"] = bullish[:5]
-            if bearish:
-                fallback["bearish_factors"] = bearish[:5]
-        return fallback
-    return {"found": True, **analysis}
+        # Include position context
+        if pos:
+            result["entry_price"] = pos.get("entry_price", 0)
+            result["cost_usd"] = pos.get("cost_usd", 0)
+            result["strategy_id"] = pos.get("strategy_id", "")
+            result["symbol"] = pos.get("symbol", "")
+        return result
+
+    # Fallback: build analysis from position metadata
+    if not pos:
+        return {"found": False, "reasoning": "Position not found."}
+    fallback = {
+        "found": True,
+        "signal": "BUY" if pos.get("side", "buy") == "buy" else "SELL",
+        "confidence": pos.get("confidence", 0),
+        "reasoning": pos.get("strategy_reason", ""),
+        "indicators": pos.get("indicators", {}),
+        "entry_price": pos.get("entry_price", 0),
+        "cost_usd": pos.get("cost_usd", 0),
+        "strategy_id": pos.get("strategy_id", ""),
+        "symbol": pos.get("symbol", ""),
+    }
+    if pos.get("search_summary"):
+        fallback["search_summary"] = pos["search_summary"]
+    # Build factors from strategy reason text
+    reason = pos.get("strategy_reason", "")
+    if reason:
+        bullish = []
+        bearish = []
+        for part in reason.replace(";", ".").replace("|", ".").split("."):
+            line = part.strip()
+            if not line:
+                continue
+            lower = line.lower()
+            if any(w in lower for w in ["bullish", "uptrend", "above", "support", "momentum", "surge", "accumulation", "buy", "positive", "strong"]):
+                bullish.append(line)
+            elif any(w in lower for w in ["bearish", "downtrend", "below", "resistance", "overbought", "sell", "negative", "weak"]):
+                bearish.append(line)
+        if bullish:
+            fallback["bullish_factors"] = bullish[:5]
+        if bearish:
+            fallback["bearish_factors"] = bearish[:5]
+    return fallback
 
 
 # ═══════════════════════════════════════
