@@ -1324,27 +1324,68 @@ async def api_autopilot_toggle(request: Request):
 # Polymarket API
 # ═══════════════════════════════════════
 
-_polymarket_cache: dict = {"data": None, "ts": 0}
+_polymarket_cache: dict = {}  # keyed by max_days
 
 
 @app.get("/api/polymarket/markets")
-async def api_polymarket_markets(request: Request, limit: int = 20):
-    """Fetch trending Polymarket prediction markets."""
+async def api_polymarket_markets(request: Request, limit: int = 20, max_days: int = 14):
+    """Fetch trending Polymarket prediction markets with AI edge estimation.
+
+    Args:
+        limit: Max markets to return (default 20).
+        max_days: Only markets expiring within N days (default 14, 0=all).
+    """
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-    # Cache for 2 minutes (Gamma API is rate-limited)
+    # Cache key includes max_days since different filters = different results
+    cache_key = f"{max_days}"
     now = time.time()
-    if _polymarket_cache["data"] and now - _polymarket_cache["ts"] < 120:
-        markets = _polymarket_cache["data"]
+    cached = _polymarket_cache.get(cache_key)
+    if cached and now - cached["ts"] < 120:
+        markets = cached["data"]
     else:
         try:
             from vesper.polymarket import get_trending_markets
-            markets = get_trending_markets(limit=50)
-            _polymarket_cache["data"] = markets
-            _polymarket_cache["ts"] = now
+            markets = get_trending_markets(limit=50, max_days=max_days)
+            _polymarket_cache[cache_key] = {"data": markets, "ts": now}
         except Exception as e:
             return JSONResponse({"error": f"Polymarket API error: {str(e)}"}, status_code=502)
+
+    return {"markets": markets[:limit]}
+
+
+# ═══════════════════════════════════════
+# Kalshi API (Coinbase Predictions source)
+# ═══════════════════════════════════════
+
+_kalshi_cache: dict = {}  # keyed by max_days
+
+
+@app.get("/api/kalshi/markets")
+async def api_kalshi_markets(request: Request, limit: int = 20, max_days: int = 0):
+    """Fetch Kalshi prediction markets (powers Coinbase predictions).
+
+    Args:
+        limit: Max markets to return (default 20).
+        max_days: Only markets expiring within N days (default 0=all).
+    """
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    cache_key = f"{max_days}"
+    now = time.time()
+    cached = _kalshi_cache.get(cache_key)
+    if cached and now - cached["ts"] < 120:
+        markets = cached["data"]
+    else:
+        try:
+            from vesper.kalshi import get_kalshi_markets
+            markets = get_kalshi_markets(limit=50, max_days=max_days)
+            _kalshi_cache[cache_key] = {"data": markets, "ts": now}
+        except Exception as e:
+            return JSONResponse({"error": f"Kalshi API error: {str(e)}"}, status_code=502)
 
     return {"markets": markets[:limit]}

@@ -46,6 +46,7 @@
         border-radius: 14px; padding: 18px; transition: all 0.2s;
     }
     .pm-card:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+    .pm-card.has-edge { border-left: 3px solid var(--green); }
     .pm-prob-bar {
         height: 6px; border-radius: 3px; overflow: hidden;
         background: var(--red-dim); margin-top: 10px;
@@ -68,6 +69,54 @@
     }
     .pm-outcome-name { font-size: 13px; color: var(--text-secondary); }
     .pm-outcome-price { font-size: 14px; font-weight: 700; }
+    .pm-edge-badge {
+        display: inline-flex; align-items: center; gap: 4px;
+        padding: 3px 10px; border-radius: 8px; font-size: 11px; font-weight: 700;
+    }
+    .pm-edge-badge.positive { background: var(--green-dim); color: var(--green); }
+    .pm-edge-badge.neutral { background: rgba(255,255,255,0.05); color: var(--text-muted); }
+    .pm-ai-row {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 10px 12px; margin-top: 12px; border-radius: 10px;
+        background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+    }
+    .pm-gain-chip {
+        display: inline-block; padding: 2px 8px; border-radius: 6px;
+        font-size: 11px; font-weight: 700; background: var(--green-dim); color: var(--green);
+    }
+    .pm-signals-toggle {
+        font-size: 11px; color: var(--accent); cursor: pointer; border: none;
+        background: none; padding: 2px 0; font-family: inherit;
+    }
+    .pm-signals-toggle:hover { text-decoration: underline; }
+    .pm-signals-list {
+        margin-top: 8px; padding: 10px 12px; border-radius: 8px;
+        background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05);
+        display: none;
+    }
+    .pm-signals-list.open { display: block; }
+    .pm-signal-item {
+        font-size: 11px; color: var(--text-muted); padding: 3px 0;
+        line-height: 1.4;
+    }
+    .pm-confidence {
+        display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px;
+    }
+    .pm-confidence.high { background: var(--green); }
+    .pm-confidence.medium { background: #f5a623; }
+    .pm-confidence.low { background: var(--text-muted); }
+    .pm-timeframe-pills {
+        display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border);
+        border-radius: 8px; padding: 3px;
+    }
+    .pm-tf-pill {
+        padding: 5px 12px; border: none; border-radius: 6px;
+        font-size: 11px; font-weight: 600; cursor: pointer;
+        background: transparent; color: var(--text-muted);
+        font-family: inherit; transition: all 0.2s;
+    }
+    .pm-tf-pill:hover { color: var(--text); }
+    .pm-tf-pill.active { background: var(--card); color: var(--text); }
 </style>
 
 <div class="container">
@@ -249,13 +298,26 @@
 <div class="tab-content" id="contentPredictions">
 
     <!-- Predictions Header -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px;flex-wrap:wrap;gap:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap;gap:16px;">
         <div>
             <div style="font-size:14px;color:var(--text-muted);margin-bottom:4px;">Prediction Markets</div>
-            <div style="font-size:28px;font-weight:700;letter-spacing:-1px;">Polymarket</div>
-            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">Active prediction markets sorted by volume. Prices = implied probability.</div>
+            <div style="font-size:28px;font-weight:700;letter-spacing:-1px;" id="pmSourceTitle">Polymarket</div>
+            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">Short-term markets with AI edge estimation. Sorted by expected value.</div>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <!-- Source selector -->
+            <div class="pm-timeframe-pills">
+                <button class="pm-tf-pill active" onclick="setPmSource('polymarket')" id="pmSrcPoly">Polymarket</button>
+                <button class="pm-tf-pill" onclick="setPmSource('kalshi')" id="pmSrcKalshi">Kalshi</button>
+            </div>
+            <!-- Timeframe -->
+            <div class="pm-timeframe-pills">
+                <button class="pm-tf-pill" onclick="setPmTimeframe(3)" id="pmTf3">3d</button>
+                <button class="pm-tf-pill" onclick="setPmTimeframe(7)" id="pmTf7">7d</button>
+                <button class="pm-tf-pill active" onclick="setPmTimeframe(14)" id="pmTf14">14d</button>
+                <button class="pm-tf-pill" onclick="setPmTimeframe(30)" id="pmTf30">30d</button>
+                <button class="pm-tf-pill" onclick="setPmTimeframe(0)" id="pmTf0">All</button>
+            </div>
             <select id="pmCategoryFilter" onchange="filterPolymarkets()" style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:12px;">
                 <option value="all">All Categories</option>
                 <option value="Politics">Politics</option>
@@ -264,8 +326,53 @@
                 <option value="Business">Business</option>
                 <option value="Science">Science</option>
                 <option value="Pop Culture">Pop Culture</option>
+                <option value="Financials">Financials</option>
+                <option value="World">World</option>
+                <option value="Economics">Economics</option>
             </select>
             <button class="btn btn-sm" style="background:var(--card);border:1px solid var(--border);font-size:12px;" onclick="fetchPolymarkets()">Refresh</button>
+        </div>
+    </div>
+
+    <!-- AI Methodology Banner -->
+    <div id="pmMethodologyBanner" style="margin-bottom:16px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div style="display:flex;align-items:center;gap:8px;">
+                <span style="font-size:14px;">&#x1f9e0;</span>
+                <span style="font-size:13px;font-weight:600;">AI Edge Estimation</span>
+                <span style="font-size:11px;color:var(--text-muted);">Market microstructure analysis</span>
+            </div>
+            <button class="pm-signals-toggle" onclick="toggleMethodology()">How it works</button>
+        </div>
+        <div id="pmMethodologyDetail" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);">
+            <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+                The AI estimates true probability using <b>5 market microstructure signals</b> — no news, no social media, no insider info. It detects potential mispricings purely from trading patterns:
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
+                <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
+                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">1. Volume Momentum</div>
+                    <div style="font-size:10px;color:var(--text-muted);">High 24h volume vs total = active repricing. Trends with the money flow direction.</div>
+                </div>
+                <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
+                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">2. Liquidity Depth</div>
+                    <div style="font-size:10px;color:var(--text-muted);">Thin order books = wider mispricings. Deep liquidity confirms current price.</div>
+                </div>
+                <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
+                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">3. Spread Analysis</div>
+                    <div style="font-size:10px;color:var(--text-muted);">Wide bid-ask spread = market maker uncertainty = opportunity for edge.</div>
+                </div>
+                <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
+                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">4. Contrarian Reversion</div>
+                    <div style="font-size:10px;color:var(--text-muted);">Extreme prices (>92% or <8%) tend to overshoot. Statistical mean reversion.</div>
+                </div>
+                <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);grid-column:span 2;">
+                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">5. Freshness Premium</div>
+                    <div style="font-size:10px;color:var(--text-muted);">Low-volume markets have less price discovery = wider potential mispricings. New markets offer better edges.</div>
+                </div>
+            </div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:10px;padding:8px;border-radius:6px;background:rgba(255,165,0,0.05);border:1px solid rgba(255,165,0,0.1);">
+                The AI nudge is typically 2-8% from market price. It's a statistical edge, not a prediction. Think: "the market might be slightly off by this much based on trading patterns." Always do your own research.
+            </div>
         </div>
     </div>
 
@@ -273,10 +380,6 @@
         <div style="text-align:center;padding:40px;color:var(--text-muted);">
             <div style="font-size:20px;margin-bottom:8px;">Loading markets...</div>
         </div>
-    </div>
-
-    <div id="pmLoadMore" style="text-align:center;padding:16px;display:none;">
-        <button class="btn btn-sm" style="background:var(--card);border:1px solid var(--border);font-size:12px;" onclick="loadMoreMarkets()">Load More</button>
     </div>
 
 </div><!-- /contentPredictions -->
@@ -1242,9 +1345,10 @@ function escapeHtml(text) {
 // Tab Navigation
 // ═══════════════════════════════════════
 let pmLoaded = false;
+let pmTimeframe = 14;
+let pmSource = 'polymarket';
 
 function switchTab(tab) {
-    // Toggle tab pills
     document.querySelectorAll('.tab-pill').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
 
@@ -1266,17 +1370,56 @@ function switchTab(tab) {
 // ═══════════════════════════════════════
 let pmAllMarkets = [];
 
+function setPmSource(src) {
+    pmSource = src;
+    document.getElementById('pmSrcPoly').classList.toggle('active', src === 'polymarket');
+    document.getElementById('pmSrcKalshi').classList.toggle('active', src === 'kalshi');
+    document.getElementById('pmSourceTitle').textContent = src === 'kalshi' ? 'Kalshi' : 'Polymarket';
+    // Kalshi has mostly long-term markets, default to All timeframe
+    if (src === 'kalshi' && pmTimeframe < 30) {
+        setPmTimeframe(0);
+        return;
+    }
+    pmLoaded = false;
+    fetchPolymarkets();
+}
+
+function setPmTimeframe(days) {
+    pmTimeframe = days;
+    // Update active state for timeframe pills only
+    ['pmTf3','pmTf7','pmTf14','pmTf30','pmTf0'].forEach(id => {
+        document.getElementById(id).classList.remove('active');
+    });
+    document.getElementById('pmTf' + days).classList.add('active');
+    pmLoaded = false;
+    fetchPolymarkets();
+}
+
+function toggleMethodology() {
+    const el = document.getElementById('pmMethodologyDetail');
+    el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleSignals(id) {
+    const el = document.getElementById('signals-' + id);
+    if (el) el.classList.toggle('open');
+}
+
 async function fetchPolymarkets() {
     const container = document.getElementById('pmMarketsContainer');
     container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">Loading markets...</div>';
     try {
-        const resp = await fetch('/api/polymarket/markets?limit=30');
+        const apiUrl = pmSource === 'kalshi'
+            ? `/api/kalshi/markets?limit=30&max_days=${pmTimeframe}`
+            : `/api/polymarket/markets?limit=30&max_days=${pmTimeframe}`;
+        const resp = await fetch(apiUrl);
         const data = await resp.json();
         if (data.error) {
             container.innerHTML = `<div style="text-align:center;padding:40px;color:var(--red);">${escapeHtml(data.error)}</div>`;
             return;
         }
         pmAllMarkets = data.markets || [];
+        pmLoaded = true;
         renderPolymarkets(pmAllMarkets);
     } catch(e) {
         container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--red);">Failed to load markets</div>';
@@ -1293,25 +1436,39 @@ function filterPolymarkets() {
     }
 }
 
+function fmtVol(v) {
+    if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
+    if (v >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
+    return `$${v.toFixed(0)}`;
+}
+
 function renderPolymarkets(markets) {
     const container = document.getElementById('pmMarketsContainer');
     if (!markets.length) {
-        container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">No markets found for this category.</div>';
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">No markets found for this timeframe/category. Try a longer timeframe.</div>';
         return;
     }
 
     let html = '<div style="display:grid;gap:12px;">';
     for (const m of markets) {
         const question = escapeHtml(m.question || '');
-        const eventTitle = escapeHtml(m.event_title || '');
-        const vol = m.volume >= 1e6 ? `$${(m.volume / 1e6).toFixed(1)}M` : `$${(m.volume / 1e3).toFixed(0)}K`;
-        const vol24 = m.volume_24h >= 1e6 ? `$${(m.volume_24h / 1e6).toFixed(1)}M` : m.volume_24h >= 1e3 ? `$${(m.volume_24h / 1e3).toFixed(0)}K` : `$${m.volume_24h.toFixed(0)}`;
-        const liq = m.liquidity >= 1e6 ? `$${(m.liquidity / 1e6).toFixed(1)}M` : `$${(m.liquidity / 1e3).toFixed(0)}K`;
+        const vol = fmtVol(m.volume);
+        const vol24 = fmtVol(m.volume_24h);
+        const liq = fmtVol(m.liquidity);
+
+        const edge = m.ai_edge || {};
+        const hasEdge = edge.ev_per_dollar > 0;
+        const edgeSide = edge.side || '';
+        const edgePct = (edge.edge_pct || 0).toFixed(1);
+        const gain100 = m.potential_gain_100 || 0;
+        const aiProb = m.ai_probability || 0;
+        const mktProb = m.market_probability || 0;
+        const confidence = m.ai_confidence || 'low';
 
         // Tags
         let tagsHtml = (m.tags || []).map(t => `<span class="pm-tag">${escapeHtml(t)}</span>`).join(' ');
 
-        // Outcomes
+        // Outcomes — market price vs AI
         let outcomesHtml = '';
         const outcomes = m.outcomes || [];
         const yesOutcome = outcomes.find(o => o.name === 'Yes') || outcomes[0];
@@ -1320,16 +1477,14 @@ function renderPolymarkets(markets) {
         if (yesOutcome && noOutcome) {
             const yesPct = yesOutcome.probability;
             const noPct = noOutcome.probability;
-            const yesColor = yesPct >= 70 ? 'var(--green)' : yesPct >= 40 ? 'var(--text)' : 'var(--red)';
-            const noColor = noPct >= 70 ? 'var(--green)' : noPct >= 40 ? 'var(--text)' : 'var(--red)';
             outcomesHtml = `
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
                     <div style="display:flex;align-items:center;gap:8px;">
                         <span style="font-size:13px;color:var(--text-secondary);">Yes</span>
-                        <span style="font-size:20px;font-weight:700;color:${yesColor};">${yesPct.toFixed(0)}%</span>
+                        <span style="font-size:20px;font-weight:700;color:var(--text);">${yesPct.toFixed(0)}%</span>
                     </div>
                     <div style="display:flex;align-items:center;gap:8px;">
-                        <span style="font-size:20px;font-weight:700;color:${noColor};">${noPct.toFixed(0)}%</span>
+                        <span style="font-size:20px;font-weight:700;color:var(--text);">${noPct.toFixed(0)}%</span>
                         <span style="font-size:13px;color:var(--text-secondary);">No</span>
                     </div>
                 </div>
@@ -1338,7 +1493,6 @@ function renderPolymarkets(markets) {
                 </div>
             `;
         } else {
-            // Multi-outcome market
             for (const o of outcomes) {
                 const pct = o.probability;
                 const color = pct >= 50 ? 'var(--green)' : pct >= 20 ? 'var(--text)' : 'var(--text-muted)';
@@ -1351,19 +1505,56 @@ function renderPolymarkets(markets) {
             }
         }
 
+        // AI Edge row
+        let aiRowHtml = '';
+        if (hasEdge) {
+            const confDot = `<span class="pm-confidence ${confidence}"></span>`;
+            const signalsList = (m.ai_signals || []).map(s => `<div class="pm-signal-item">${escapeHtml(s)}</div>`).join('');
+            aiRowHtml = `
+                <div class="pm-ai-row">
+                    <div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;">AI says</div>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span style="font-size:16px;font-weight:700;">${aiProb.toFixed(0)}%</span>
+                            <span style="font-size:11px;color:var(--text-muted);">vs market ${mktProb.toFixed(0)}%</span>
+                            <span class="pm-edge-badge ${hasEdge ? 'positive' : 'neutral'}">
+                                ${confDot}${edgeSide} +${edgePct}%
+                            </span>
+                        </div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:11px;color:var(--text-muted);margin-bottom:2px;">$100 potential</div>
+                        <span class="pm-gain-chip">+$${gain100.toFixed(2)}</span>
+                    </div>
+                </div>
+                ${signalsList ? `
+                    <button class="pm-signals-toggle" onclick="toggleSignals('${m.id}')" style="margin-top:6px;">View AI signals</button>
+                    <div class="pm-signals-list" id="signals-${m.id}">${signalsList}</div>
+                ` : ''}
+            `;
+        } else {
+            aiRowHtml = `
+                <div class="pm-ai-row" style="opacity:0.5;">
+                    <div>
+                        <div style="font-size:11px;color:var(--text-muted);">No significant edge detected</div>
+                    </div>
+                </div>
+            `;
+        }
+
         // End date
         let endHtml = '';
+        const daysLeft = m.days_left || 0;
         if (m.end_date) {
             const end = new Date(m.end_date);
-            const now = new Date();
-            const daysLeft = Math.max(0, Math.ceil((end - now) / (1000 * 60 * 60 * 24)));
-            const endStr = end.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'});
-            const urgency = daysLeft <= 7 ? 'color:var(--red);' : daysLeft <= 30 ? 'color:#f5a623;' : 'color:var(--text-muted);';
-            endHtml = `<span style="font-size:11px;${urgency}">${daysLeft}d left &middot; ${endStr}</span>`;
+            const endStr = end.toLocaleDateString('en-US', {month: 'short', day: 'numeric'});
+            const urgency = daysLeft <= 3 ? 'color:var(--red);font-weight:600;' : daysLeft <= 7 ? 'color:#f5a623;' : 'color:var(--text-muted);';
+            const daysLabel = daysLeft < 1 ? '<1d' : `${Math.ceil(daysLeft)}d`;
+            endHtml = `<span style="font-size:11px;${urgency}">${daysLabel} left &middot; ${endStr}</span>`;
         }
 
         html += `
-        <div class="pm-card">
+        <div class="pm-card${hasEdge ? ' has-edge' : ''}">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
                 <div style="flex:1;">
                     <div style="font-size:15px;font-weight:600;line-height:1.3;margin-bottom:6px;">${question}</div>
@@ -1377,6 +1568,7 @@ function renderPolymarkets(markets) {
                 </div>
             </div>
             ${outcomesHtml}
+            ${aiRowHtml}
         </div>
         `;
     }
