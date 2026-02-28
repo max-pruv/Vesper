@@ -1005,8 +1005,8 @@ function drawPnlChart(canvas, history, entryPrice, amount, side, timeEl) {
         timeEl.textContent = smartTimeLabel(elapsed) + ' ago';
     }
 }
+// Initial fetch, then WebSocket takes over (with polling fallback)
 updatePositions();
-setInterval(updatePositions, 3000);
 
 // ═══════════════════════════════════════
 // Close Position (manual emergency close)
@@ -1200,9 +1200,122 @@ if (initialPnlData.length > 1) {
     initPnlChart([]);
 }
 
-// Fetch live stats immediately and every 5s
+// Fetch live stats immediately
 updatePortfolioStats();
-setInterval(updatePortfolioStats, 5000);
+
+// ═══════════════════════════════════════
+// WebSocket: real-time updates (replaces polling)
+// Falls back to polling if WS unavailable
+// ═══════════════════════════════════════
+let _ws = null;
+let _wsRetries = 0;
+let _wsFallbackTimer = null;
+
+function getSessionCookie() {
+    const match = document.cookie.match(/(?:^|; )session=([^;]*)/);
+    return match ? match[1] : '';
+}
+
+function applyWsPositions(positions) {
+    // Same rendering logic as updatePositions but from WS data
+    const filtered = positions.filter(p => (p.trade_mode || 'paper') === currentTradeMode);
+    const container = document.getElementById('activeBets');
+    const countLabel = document.getElementById('positionCountLabel');
+    if (countLabel) countLabel.textContent = filtered.length + ' open' + (positions.length !== filtered.length ? ` (${positions.length} total)` : '');
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">~</div>No active positions — start an autopilot above to begin auto-trading</div>`;
+        knownPositionIds.clear();
+        prevPnlMap = {};
+        return;
+    }
+
+    const newIds = new Set(filtered.map(p => p.id));
+    let html = '<div class="bet-grid">';
+    filtered.forEach(p => {
+        const isNew = !knownPositionIds.has(p.id);
+        html += renderBetCard(p, isNew);
+    });
+    html += '</div>';
+    container.innerHTML = html;
+
+    filtered.forEach(p => { prevPnlMap[p.id] = p.pnl_usd; });
+    Object.keys(prevPnlMap).forEach(id => { if (!newIds.has(id)) delete prevPnlMap[id]; });
+    knownPositionIds = newIds;
+
+    // P/L charts
+    filtered.forEach(p => {
+        const safeId = p.id.replace(/[^a-zA-Z0-9]/g, '_');
+        const canvas = document.getElementById('spark-' + safeId);
+        const timeEl = document.getElementById('sparktime-' + safeId);
+        if (canvas && p.price_history && p.price_history.length > 1) {
+            drawPnlChart(canvas, p.price_history, p.entry_price, p.amount, p.side || 'buy', timeEl);
+        }
+    });
+}
+
+function applyWsStats(s) {
+    document.getElementById('portfolioValue').textContent = '$' + s.portfolio_value.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    const pnlEl = document.getElementById('totalPnl');
+    const sign = s.total_pnl >= 0 ? '+' : '';
+    pnlEl.textContent = '$' + sign + s.total_pnl.toFixed(2) + ' (' + sign + s.total_pnl_pct.toFixed(2) + '%)';
+    pnlEl.className = s.total_pnl >= 0 ? 'positive' : 'negative';
+    document.getElementById('statWinRate').textContent = Math.round(s.win_rate) + '%';
+    document.getElementById('statTrades').textContent = s.total_trades;
+    document.getElementById('statOpen').textContent = s.open_count;
+    document.getElementById('statInvested').textContent = '$' + s.total_invested.toFixed(2);
+    const rSign = s.realized_pnl >= 0 ? '+' : '';
+    const realizedEl = document.getElementById('statRealized');
+    realizedEl.textContent = '$' + rSign + s.realized_pnl.toFixed(2);
+    realizedEl.style.color = s.realized_pnl >= 0 ? 'var(--green)' : s.realized_pnl < 0 ? 'var(--red)' : '';
+    const uSign = s.unrealized_pnl >= 0 ? '+' : '';
+    const unrealizedEl = document.getElementById('statUnrealized');
+    unrealizedEl.textContent = '$' + uSign + s.unrealized_pnl.toFixed(2);
+    unrealizedEl.style.color = s.unrealized_pnl >= 0 ? 'var(--green)' : s.unrealized_pnl < 0 ? 'var(--red)' : '';
+    const pnlRealizedChart = document.getElementById('pnlRealized');
+    if (pnlRealizedChart) { pnlRealizedChart.textContent = '$' + rSign + s.realized_pnl.toFixed(2); pnlRealizedChart.style.color = s.realized_pnl >= 0 ? 'var(--green)' : 'var(--red)'; }
+    const pnlUnrealizedChart = document.getElementById('pnlUnrealized');
+    if (pnlUnrealizedChart) { pnlUnrealizedChart.textContent = '$' + uSign + s.unrealized_pnl.toFixed(2); pnlUnrealizedChart.style.color = s.unrealized_pnl >= 0 ? 'var(--green)' : 'var(--red)'; }
+}
+
+function startWs() {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    _ws = new WebSocket(proto + '//' + location.host + '/ws/live');
+
+    _ws.onopen = () => {
+        _wsRetries = 0;
+        _ws.send(JSON.stringify({ type: 'auth', session: getSessionCookie() }));
+        // Stop polling fallback
+        if (_wsFallbackTimer) { clearInterval(_wsFallbackTimer); _wsFallbackTimer = null; }
+    };
+
+    _ws.onmessage = (e) => {
+        try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'update') {
+                applyWsPositions(msg.positions || []);
+                if (msg.stats) applyWsStats(msg.stats);
+            }
+        } catch(err) {}
+    };
+
+    _ws.onclose = () => {
+        _ws = null;
+        _wsRetries++;
+        // Exponential backoff: 2s, 4s, 8s, max 30s
+        const delay = Math.min(2000 * Math.pow(2, _wsRetries - 1), 30000);
+        setTimeout(startWs, delay);
+        // Start polling fallback while WS is down
+        if (!_wsFallbackTimer) {
+            _wsFallbackTimer = setInterval(() => { updatePositions(); updatePortfolioStats(); }, 5000);
+        }
+    };
+
+    _ws.onerror = () => { _ws.close(); };
+}
+
+// Launch WebSocket
+startWs();
 
 // ═══════════════════════════════════════
 // Unified Autopilot Segments (Crypto / Stocks / Predictions)

@@ -559,24 +559,35 @@ class UserBot:
         scored = []
         scanned = 0
 
-        for sym in scan_universe:
+        # Parallel scan: fetch & score coins concurrently (5 threads)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        def _scan_coin(sym):
             if sym == "BTC/USDT":
-                continue  # Skip BTC itself (we compare against it)
+                return None
             try:
                 snap = self._get_snapshot(sym, "altcoin_hunter")
-                prices[sym] = snap["price"]
                 score_data = compute_trend_score(snap, btc_snapshot)
-                scanned += 1
-                scored.append({
+                return {
                     "symbol": sym,
                     "score": score_data["score"],
                     "signal": score_data["signal"],
                     "confidence": score_data["confidence"],
                     "factors": score_data["factors"],
                     "snapshot": snap,
-                })
+                    "price": snap["price"],
+                }
             except Exception:
-                continue
+                return None
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = {executor.submit(_scan_coin, sym): sym for sym in scan_universe}
+            for future in as_completed(futures):
+                result = future.result()
+                if result:
+                    scanned += 1
+                    prices[result["symbol"]] = result["price"]
+                    scored.append(result)
 
         # Sort by score descending
         scored.sort(key=lambda x: x["score"], reverse=True)
@@ -1226,52 +1237,66 @@ class UserBot:
         scanned = 0
         scan_details = []
 
-        # Scan crypto symbols
-        for sym in TICKER_SYMBOLS:
-            try:
-                if any(pos.symbol == sym for pos in autopilot_positions):
-                    continue
-                snap = self._get_snapshot(sym, "autopilot")
-                prices[sym] = snap["price"]
-                result = strategy.analyze(snap)
-                scanned += 1
-                scan_details.append({
-                    "symbol": sym,
-                    "price": round(snap["price"], 2),
-                    "signal": result.signal.name,
-                    "confidence": round(result.confidence, 3),
-                    "whale": round(snap.get("whale_score", 0), 2),
-                    "sentiment": round(snap.get("sentiment_score", 0), 2),
-                    "reason": result.reason[:100],
-                })
-                if result.signal == Signal.BUY and result.confidence >= min_entry_conf:
-                    candidates.append((result.confidence, sym, snap, result))
-            except Exception:
-                continue
+        # Parallel scan: crypto + stock symbols concurrently
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        held = {pos.symbol for pos in autopilot_positions}
 
-        # Scan stock symbols (if Alpaca is connected)
-        if self.alpaca:
-            for sym in STOCK_SYMBOLS:
-                try:
-                    if any(pos.symbol == sym for pos in autopilot_positions):
-                        continue
-                    snap = get_stock_snapshot(self.alpaca, sym)
-                    prices[sym] = snap["price"]
-                    result = strategy.analyze(snap)
-                    scanned += 1
-                    scan_details.append({
-                        "symbol": sym,
-                        "price": round(snap["price"], 2),
-                        "signal": result.signal.name,
-                        "confidence": round(result.confidence, 3),
-                        "whale": 0.0,
-                        "sentiment": 0.0,
-                        "reason": result.reason[:100],
-                    })
-                    if result.signal == Signal.BUY and result.confidence >= min_entry_conf:
-                        candidates.append((result.confidence, sym, snap, result))
-                except Exception:
+        def _ap_scan_crypto(sym):
+            if sym in held:
+                return None
+            try:
+                snap = self._get_snapshot(sym, "autopilot")
+                result = strategy.analyze(snap)
+                return {
+                    "symbol": sym, "price": snap["price"], "snap": snap,
+                    "result": result, "signal": result.signal.name,
+                    "confidence": result.confidence,
+                    "whale": snap.get("whale_score", 0),
+                    "sentiment": snap.get("sentiment_score", 0),
+                    "reason": result.reason[:100],
+                }
+            except Exception:
+                return None
+
+        def _ap_scan_stock(sym):
+            if sym in held:
+                return None
+            try:
+                snap = get_stock_snapshot(self.alpaca, sym)
+                result = strategy.analyze(snap)
+                return {
+                    "symbol": sym, "price": snap["price"], "snap": snap,
+                    "result": result, "signal": result.signal.name,
+                    "confidence": result.confidence,
+                    "whale": 0.0, "sentiment": 0.0,
+                    "reason": result.reason[:100],
+                }
+            except Exception:
+                return None
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            # Submit crypto
+            futures = [executor.submit(_ap_scan_crypto, sym) for sym in TICKER_SYMBOLS]
+            # Submit stocks if connected
+            if self.alpaca:
+                futures += [executor.submit(_ap_scan_stock, sym) for sym in STOCK_SYMBOLS]
+
+            for future in as_completed(futures):
+                r = future.result()
+                if not r:
                     continue
+                scanned += 1
+                prices[r["symbol"]] = r["price"]
+                scan_details.append({
+                    "symbol": r["symbol"], "price": round(r["price"], 2),
+                    "signal": r["signal"],
+                    "confidence": round(r["confidence"], 3),
+                    "whale": round(r["whale"], 2),
+                    "sentiment": round(r["sentiment"], 2),
+                    "reason": r["reason"],
+                })
+                if r["result"].signal == Signal.BUY and r["confidence"] >= min_entry_conf:
+                    candidates.append((r["confidence"], r["symbol"], r["snap"], r["result"]))
 
         # Save per-symbol decision reasoning for the autopilot scan
         for detail in scan_details:

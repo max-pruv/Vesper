@@ -16,7 +16,7 @@ import ccxt
 import httpx
 import pyotp
 import qrcode
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request, Form, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 
@@ -792,6 +792,169 @@ async def _get_price_map_for_positions(position_symbols: set[str]) -> dict[str, 
 @app.get("/api/health")
 async def health():
     return {"status": "running", "time": datetime.now().isoformat()}
+
+
+# ── WebSocket: real-time position & portfolio updates ──
+
+_ws_connections: set[WebSocket] = set()
+
+
+@app.websocket("/ws/live")
+async def ws_live(ws: WebSocket):
+    """WebSocket for real-time position and portfolio updates.
+
+    Client sends: {"type": "auth", "session": "<cookie_value>"}
+    Server pushes: positions + portfolio stats every 2 seconds.
+    """
+    await ws.accept()
+    _ws_connections.add(ws)
+    user = None
+
+    try:
+        # Wait for auth message
+        auth_msg = await asyncio.wait_for(ws.receive_json(), timeout=5)
+        session_id = auth_msg.get("session", "")
+        user_id = _sessions.get(session_id)
+        if not user_id:
+            await ws.send_json({"type": "error", "msg": "unauthorized"})
+            return
+        user = get_user_by_id(user_id)
+        if not user:
+            await ws.send_json({"type": "error", "msg": "unauthorized"})
+            return
+
+        await ws.send_json({"type": "auth_ok"})
+
+        # Push loop: send fresh data every 2 seconds
+        while True:
+            try:
+                portfolio = _load_portfolio(user.id)
+                all_positions = portfolio.get("positions", {})
+                mode_match = {"live": "real", "paper": "paper"}
+                current_mode = mode_match.get(user.trading_mode, "paper")
+
+                # --- Positions ---
+                positions = {
+                    pid: p for pid, p in all_positions.items()
+                    if p.get("trade_mode", "paper") == current_mode
+                }
+                pos_list = []
+                if positions:
+                    pos_symbols = {
+                        p.get("symbol", "") for p in positions.values()
+                        if not p.get("symbol", "").startswith("PRED:")
+                    }
+                    price_map = await _get_price_map_for_positions(pos_symbols)
+
+                    for pid, p in positions.items():
+                        sym = p.get("symbol", "")
+                        entry = p.get("entry_price", 0)
+                        if sym.startswith("PRED:"):
+                            current = p.get("current_probability", entry)
+                        else:
+                            current = price_map.get(sym, entry)
+                        amount = p.get("amount", 0)
+                        side = p.get("side", "buy")
+                        pnl_usd = (current - entry) * amount if side == "buy" else (entry - current) * amount
+                        pnl_pct = ((current - entry) / entry * 100) if entry > 0 and side == "buy" else (
+                            ((entry - current) / entry * 100) if entry > 0 else 0)
+
+                        limits = p.get("limits", {})
+                        sl = limits.get("stop_loss_price", 0)
+                        tp_max = limits.get("take_profit_max_price", 0)
+                        price_range = tp_max - sl if tp_max > sl else 1
+                        progress = max(0, min(100, ((current - sl) / price_range) * 100))
+
+                        cost_usd = p.get("cost_usd", 0)
+                        tp_min = limits.get("take_profit_min_price", 0)
+                        if side == "buy":
+                            max_loss = abs((entry - sl) * amount) if sl > 0 else cost_usd
+                            max_win = abs((tp_max - entry) * amount) if tp_max > 0 else 0
+                        else:
+                            max_loss = abs((sl - entry) * amount) if sl > 0 else cost_usd
+                            max_win = abs((entry - tp_max) * amount) if tp_max > 0 else 0
+
+                        trailing_pct = p.get("trailing_stop_pct", 0)
+                        highest_seen = p.get("highest_price_seen", 0)
+                        trailing_sl = highest_seen * (1 - trailing_pct / 100) if trailing_pct > 0 and highest_seen > 0 else 0
+
+                        price_snapshots = p.get("price_history", [])
+                        now_ts = time.time()
+                        if len(price_snapshots) == 0 or (now_ts - (price_snapshots[-1].get("t", 0))) > 30:
+                            effective_sl = max(sl, trailing_sl) if trailing_sl > 0 else sl
+                            range_total = tp_max - effective_sl if tp_max > effective_sl else 1
+                            win_prob = max(0, min(100, ((current - effective_sl) / range_total) * 100))
+                            price_snapshots.append({"t": now_ts, "p": current, "w": round(win_prob, 1)})
+                            if len(price_snapshots) > 60:
+                                price_snapshots = price_snapshots[-60:]
+                            p["price_history"] = price_snapshots
+                            _save_portfolio(user.id, portfolio)
+
+                        pos_list.append({
+                            "id": pid, "symbol": sym,
+                            "name": sym.split("/")[0] if sym else "",
+                            "side": side, "entry_price": entry,
+                            "current_price": current, "cost_usd": cost_usd,
+                            "amount": amount,
+                            "pnl_usd": round(pnl_usd, 2),
+                            "pnl_pct": round(pnl_pct, 2),
+                            "progress": round(progress, 1),
+                            "stop_loss": sl, "tp_min": tp_min, "tp_max": tp_max,
+                            "max_loss": round(max_loss, 2),
+                            "max_win": round(max_win, 2),
+                            "price_history": [{"t": s.get("t", 0), "p": s.get("p", 0), "w": s.get("w", 50)} for s in price_snapshots[-30:]],
+                            "strategy_id": p.get("strategy_id", "ensemble"),
+                            "bet_mode": p.get("bet_mode", "one_off"),
+                            "trade_mode": p.get("trade_mode", "paper"),
+                            "est_fee": p.get("est_fee", round(cost_usd * 0.006, 2)),
+                            "entry_time": p.get("entry_time", 0),
+                            "trailing_stop_pct": trailing_pct,
+                            "highest_price_seen": highest_seen,
+                            "trailing_sl_price": round(trailing_sl, 2) if trailing_pct > 0 else 0,
+                            "strategy_reason": p.get("strategy_reason", ""),
+                        })
+
+                # --- Portfolio stats ---
+                trades = [t for t in portfolio.get("trade_history", [])
+                          if t.get("trade_mode", "paper") == current_mode]
+                cash = portfolio.get("cash", 0)
+                initial = portfolio.get("initial_balance", 0)
+                realized_pnl = sum(t.get("pnl_usd", 0) for t in trades)
+                unrealized = sum(p.get("pnl_usd", 0) for p in pos_list)
+                total_pnl = realized_pnl + unrealized
+                total_invested = sum(p.get("cost_usd", 0) for p in pos_list)
+                total_trades = len(trades)
+                wins = sum(1 for t in trades if t.get("pnl_usd", 0) > 0)
+                win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+
+                await ws.send_json({
+                    "type": "update",
+                    "positions": pos_list,
+                    "stats": {
+                        "portfolio_value": round(cash + total_invested + unrealized, 2),
+                        "cash": round(cash, 2),
+                        "total_invested": round(total_invested, 2),
+                        "total_pnl": round(total_pnl, 2),
+                        "realized_pnl": round(realized_pnl, 2),
+                        "unrealized_pnl": round(unrealized, 2),
+                        "total_pnl_pct": round((total_pnl / initial * 100) if initial > 0 else 0, 2),
+                        "win_rate": round(win_rate, 1),
+                        "total_trades": total_trades,
+                        "open_count": len(pos_list),
+                    },
+                })
+
+                await asyncio.sleep(2)
+
+            except WebSocketDisconnect:
+                break
+            except Exception:
+                await asyncio.sleep(2)
+
+    except (WebSocketDisconnect, asyncio.TimeoutError, Exception):
+        pass
+    finally:
+        _ws_connections.discard(ws)
 
 
 @app.get("/api/ticker")
