@@ -108,6 +108,8 @@ def get_market_snapshot(
 ) -> dict:
     """Get a complete market snapshot with indicators for a single timeframe."""
     df = fetch_ohlcv(exchange, symbol, timeframe=timeframe, limit=100)
+    if df.empty:
+        raise ValueError(f"No OHLCV data returned for {symbol} ({timeframe})")
     df = add_indicators(df)
     return _extract_snapshot(df, symbol)
 

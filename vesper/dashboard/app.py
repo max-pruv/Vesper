@@ -1222,36 +1222,16 @@ async def api_close_trade(request: Request):
     return {"ok": True, "pnl_usd": round(pnl_usd, 2), "pnl_pct": round(pnl_pct, 2)}
 
 
-@app.get("/api/logs")
-async def api_logs(request: Request, lines: int = 100):
-    """Return the latest log lines from the trading bot."""
+@app.get("/api/decisions")
+async def api_decisions(request: Request, limit: int = 50):
+    """Return the bot's structured decision log — why it entered, exited, or skipped trades."""
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-
-    # Find today's log file (or most recent)
-    from datetime import date
-    log_dir = os.environ.get("VESPER_DATA_DIR", "data")
-    today = date.today().strftime("%Y%m%d")
-    log_path = os.path.join(log_dir, f"vesper_{today}.log")
-
-    if not os.path.exists(log_path):
-        # Try to find any log file
-        import glob
-        log_files = sorted(glob.glob(os.path.join(log_dir, "vesper_*.log")))
-        if log_files:
-            log_path = log_files[-1]
-        else:
-            return {"lines": ["No log files found."], "file": ""}
-
-    try:
-        with open(log_path) as f:
-            all_lines = f.readlines()
-        # Return last N lines
-        tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
-        return {"lines": [l.rstrip() for l in tail], "file": os.path.basename(log_path)}
-    except Exception as e:
-        return {"lines": [f"Error reading logs: {e}"], "file": ""}
+    portfolio = _load_portfolio(user.id)
+    decisions = portfolio.get("decision_log", [])
+    # Return most recent first
+    return {"decisions": list(reversed(decisions[-limit:]))}
 
 
 # ═══════════════════════════════════════

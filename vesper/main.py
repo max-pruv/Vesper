@@ -139,6 +139,25 @@ class UserBot:
 
         return snapshot
 
+    def _snapshot_indicators(self, snapshot: dict) -> dict:
+        """Extract key indicators from a snapshot for the decision log."""
+        return {
+            "price": round(snapshot.get("price", 0), 2),
+            "rsi": round(snapshot.get("rsi", 0), 1),
+            "macd_hist": round(snapshot.get("macd_hist", 0), 4),
+            "ema_trend": "bullish" if snapshot.get("ema_12", 0) > snapshot.get("ema_26", 0) else "bearish",
+            "adx": round(snapshot.get("adx", 0), 1),
+            "atr": round(snapshot.get("atr", 0), 2),
+            "bb_position": round(
+                ((snapshot.get("price", 0) - snapshot.get("bb_lower", 0))
+                 / max(snapshot.get("bb_upper", 1) - snapshot.get("bb_lower", 1), 0.01)) * 100, 1
+            ),
+            "whale_score": round(snapshot.get("whale_score", 0), 2),
+            "sentiment": round(snapshot.get("sentiment_score", 0), 2),
+            "fear_greed": snapshot.get("fear_greed", None),
+            "tf_alignment": snapshot.get("tf_alignment", None),
+        }
+
     def _process_symbol(self, symbol: str, prices: dict):
         # Find existing position for this symbol (if any)
         existing_pos = self.portfolio.get_position_for_symbol(symbol)
@@ -157,6 +176,12 @@ class UserBot:
                 side=existing_pos.side,
             )
             if should_close:
+                self._save_decision({
+                    "action": "EXIT", "symbol": symbol, "strategy_id": strategy_id,
+                    "source": "cycle", "trade_mode": self.mode,
+                    "reason": reason,
+                    "indicators": self._snapshot_indicators(snapshot),
+                })
                 self._close_position(existing_pos, snapshot["price"], reason)
             elif new_highest > existing_pos.highest_price_seen:
                 existing_pos.highest_price_seen = new_highest
@@ -177,6 +202,15 @@ class UserBot:
                 side=existing_pos.side,
             )
             if should_close:
+                pnl_pct = ((snapshot["price"] - existing_pos.entry_price)
+                           / existing_pos.entry_price) * 100
+                self._save_decision({
+                    "action": "EXIT", "symbol": symbol, "strategy_id": strategy_id,
+                    "source": "cycle", "trade_mode": self.mode,
+                    "reason": reason,
+                    "pnl_pct": round(pnl_pct, 2),
+                    "indicators": self._snapshot_indicators(snapshot),
+                })
                 if existing_pos.bet_mode == "continuous":
                     closed_continuous = existing_pos
                 self._close_position(existing_pos, snapshot["price"], reason)
@@ -184,8 +218,6 @@ class UserBot:
                     return  # One-off: done
             else:
                 # ── AI-driven exit: check if AI recommends closing ──
-                # The AI can detect whale dumping / bearish sentiment shift
-                # before the stop-loss is hit, protecting profits
                 strategy = self._get_strategy(strategy_id)
                 if strategy:
                     result = strategy.analyze(snapshot)
@@ -199,6 +231,14 @@ class UserBot:
                             f"[User:{self.email}] AI recommends exit for "
                             f"{symbol} (P&L: {pnl_pct:+.1f}%) — {ai_reason[:80]}"
                         )
+                        self._save_decision({
+                            "action": "EXIT", "symbol": symbol, "strategy_id": strategy_id,
+                            "source": "ai_exit", "trade_mode": self.mode,
+                            "signal": "SELL", "confidence": round(result.confidence, 3),
+                            "reason": result.reason,
+                            "pnl_pct": round(pnl_pct, 2),
+                            "indicators": self._snapshot_indicators(snapshot),
+                        })
                         if existing_pos.bet_mode == "continuous":
                             closed_continuous = existing_pos
                         self._close_position(existing_pos, snapshot["price"], ai_reason)
@@ -226,16 +266,45 @@ class UserBot:
         result = strategy.analyze(snapshot)
 
         if result.signal == Signal.HOLD:
+            self._save_decision({
+                "action": "SKIP", "symbol": symbol, "strategy_id": strategy_id,
+                "source": "cycle", "trade_mode": self.mode,
+                "signal": "HOLD", "confidence": round(result.confidence, 3),
+                "reason": result.reason,
+                "indicators": self._snapshot_indicators(snapshot),
+            })
             return
 
         if not self.risk_manager.can_open_position(len(self.portfolio.positions)):
+            self._save_decision({
+                "action": "SKIP", "symbol": symbol, "strategy_id": strategy_id,
+                "source": "cycle", "trade_mode": self.mode,
+                "signal": result.signal.name, "confidence": round(result.confidence, 3),
+                "reason": f"Max positions reached. Signal was: {result.reason}",
+                "indicators": self._snapshot_indicators(snapshot),
+            })
             return
 
         if result.signal == Signal.BUY:
+            self._save_decision({
+                "action": "ENTER_LONG", "symbol": symbol, "strategy_id": strategy_id,
+                "source": "cycle", "trade_mode": self.mode,
+                "signal": "BUY", "confidence": round(result.confidence, 3),
+                "reason": result.reason,
+                "indicators": self._snapshot_indicators(snapshot),
+            })
             if closed_continuous:
                 self._reopen_continuous(closed_continuous, snapshot)
             else:
                 self._open_position(symbol, snapshot, result)
+        elif result.signal == Signal.SELL:
+            self._save_decision({
+                "action": "SIGNAL_SELL", "symbol": symbol, "strategy_id": strategy_id,
+                "source": "cycle", "trade_mode": self.mode,
+                "signal": "SELL", "confidence": round(result.confidence, 3),
+                "reason": result.reason,
+                "indicators": self._snapshot_indicators(snapshot),
+            })
 
     def _open_position(self, symbol, snapshot, result):
         portfolio_value = self.portfolio.total_value({symbol: snapshot["price"]})
@@ -461,6 +530,29 @@ class UserBot:
         with open(path, "w") as f:
             _json.dump(pdata, f, indent=2)
 
+    def _save_decision(self, decision: dict):
+        """Save a structured decision to the decision log (keep last 100).
+
+        Each decision captures WHY the bot acted (or didn't):
+        - action: ENTER_LONG, ENTER_SHORT, EXIT, SKIP, ERROR
+        - symbol, strategy_id, trade_mode
+        - signal, confidence, reason (from strategy)
+        - indicators: key technicals that drove the decision
+        """
+        import time as _time
+        import json as _json
+        decision["time"] = int(_time.time())
+        decision.setdefault("source", "cycle")
+
+        pdata = self.portfolio._load_raw()
+        decisions = pdata.get("decision_log", [])
+        decisions.append(decision)
+        decisions = decisions[-100:]
+        pdata["decision_log"] = decisions
+        path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+        with open(path, "w") as f:
+            _json.dump(pdata, f, indent=2)
+
     def _run_autopilot(self, prices: dict):
         """AI Autopilot — fully autonomous portfolio management.
 
@@ -559,6 +651,28 @@ class UserBot:
                 except Exception:
                     continue
 
+        # Save per-symbol decision reasoning for the autopilot scan
+        for detail in scan_details:
+            if detail["signal"] == "BUY" and detail["confidence"] >= 0.55:
+                action = "CANDIDATE"
+            else:
+                action = "SKIP"
+            self._save_decision({
+                "action": action,
+                "symbol": detail["symbol"],
+                "strategy_id": "autopilot",
+                "source": "autopilot",
+                "trade_mode": self.mode,
+                "signal": detail["signal"],
+                "confidence": detail["confidence"],
+                "reason": detail["reason"],
+                "indicators": {
+                    "price": detail["price"],
+                    "whale_score": detail.get("whale", 0),
+                    "sentiment": detail.get("sentiment", 0),
+                },
+            })
+
         if not candidates:
             self._save_autopilot_log({
                 "type": "scan",
@@ -655,6 +769,18 @@ class UserBot:
                     "whale": round(snap.get("whale_score", 0), 2),
                     "sentiment": round(snap.get("sentiment_score", 0), 2),
                     "reason": result.reason[:120],
+                })
+                self._save_decision({
+                    "action": "ENTER_LONG",
+                    "symbol": sym,
+                    "strategy_id": "autopilot",
+                    "source": "autopilot",
+                    "trade_mode": self.mode if self.mode == "live" else "paper",
+                    "signal": "BUY",
+                    "confidence": round(confidence, 3),
+                    "reason": result.reason,
+                    "amount_usd": round(amount_usd, 2),
+                    "indicators": self._snapshot_indicators(snap),
                 })
                 self.logger.info(
                     f"[User:{self.email}] AUTOPILOT: {sym} "

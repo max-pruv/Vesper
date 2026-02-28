@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Vesper{% endblock %}
 {% block head %}
-<script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 {% endblock %}
 {% block body %}
@@ -17,7 +16,7 @@
     <span class="nav-logo">vesper</span>
     <div class="nav-links">
         <a class="nav-link active" href="/dashboard">Dashboard</a>
-        <a class="nav-link" href="#" onclick="toggleLogsDrawer();return false;">Logs</a>
+        <a class="nav-link" href="#decisionsContainer" onclick="document.getElementById('decisionsContainer').scrollIntoView({behavior:'smooth'});return false;">Decisions</a>
         <a class="nav-link" href="/settings">Settings</a>
         <a class="nav-link" href="/logout">Log out</a>
     </div>
@@ -104,36 +103,11 @@
                     <div style="font-size:11px;color:var(--text-muted);">Positions</div>
                 </div>
             </div>
-            <div id="apActivity" style="margin-top:12px;max-height:200px;overflow-y:auto;font-size:12px;border-top:1px solid var(--border);padding-top:10px;">
-                <div style="color:var(--text-muted);font-style:italic;">Waiting for first scan...</div>
-            </div>
+            <div id="apLastScan" style="font-size:12px;color:var(--text-muted);margin-top:4px;"></div>
             <div style="display:flex;gap:8px;margin-top:12px;">
                 <button class="btn" style="background:var(--border);font-size:12px;padding:6px 16px;" onclick="stopAutopilot()">Stop Autopilot</button>
             </div>
         </div>
-    </div>
-
-    <!-- Real-Time Price Chart -->
-    <div class="card" style="padding:0;overflow:hidden;">
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px 0;flex-wrap:wrap;gap:8px;">
-            <div class="chart-tabs" style="padding:0;">
-                {% set symbols = user.symbols.split(',') %}
-                {% for sym in symbols %}
-                <button class="chart-tab {{ 'active' if loop.first }}"
-                        data-symbol="{{ sym.strip() }}"
-                        onclick="switchChart(this, '{{ sym.strip() }}')">
-                    {{ sym.strip().split('/')[0] }}
-                </button>
-                {% endfor %}
-            </div>
-            <div class="chart-tabs" style="padding:0;">
-                <button class="chart-tab" data-tf="15m" onclick="switchTimeframe(this, '15m')">15m</button>
-                <button class="chart-tab active" data-tf="1h" onclick="switchTimeframe(this, '1h')">1H</button>
-                <button class="chart-tab" data-tf="4h" onclick="switchTimeframe(this, '4h')">4H</button>
-                <button class="chart-tab" data-tf="1d" onclick="switchTimeframe(this, '1d')">1D</button>
-            </div>
-        </div>
-        <div id="priceChart" style="height:400px;"></div>
     </div>
 
     <!-- Active Bets -->
@@ -145,49 +119,26 @@
         <div id="activeBets">
             <div class="empty-state">
                 <div class="empty-state-icon">~</div>
-                No active bets — pick a strategy below to start
+                No active bets — use the autopilot or place a new bet
             </div>
         </div>
     </div>
 
-    <!-- Strategy Catalog -->
+    <!-- AI Decisions Feed -->
     <div class="card">
-        <div class="card-title">Strategies</div>
-        <div class="strategy-grid">
-            {% for s in strategies %}
-            <div class="strategy-card" onclick="openTradeModal('{{ s.id }}')">
-                <div class="strategy-header">
-                    <div>
-                        <span class="strategy-icon">{{ s.icon }}</span>
-                        <span class="strategy-name">{{ s.name }}</span>
-                    </div>
-                    <span class="risk-badge risk-{{ s.risk_level }}">{{ s.risk_level }}</span>
-                </div>
-                <div class="strategy-desc">{{ s.description }}</div>
-                <div class="strategy-meta">
-                    <div>
-                        <div class="strategy-meta-label">Timeframe</div>
-                        <div class="strategy-meta-value">{{ s.timeframe }}</div>
-                    </div>
-                    {% if s.min_return_pct > 0 or s.max_return_pct > 0 %}
-                    <div>
-                        <div class="strategy-meta-label">Expected</div>
-                        <div class="strategy-meta-value positive">+{{ s.min_return_pct }}% to +{{ s.max_return_pct }}%</div>
-                    </div>
-                    {% endif %}
-                    {% if s.default_stop_loss_pct > 0 %}
-                    <div>
-                        <div class="strategy-meta-label">Stop-Loss</div>
-                        <div class="strategy-meta-value negative">-{{ s.default_stop_loss_pct }}%</div>
-                    </div>
-                    {% endif %}
-                    <div>
-                        <div class="strategy-meta-label">Mode</div>
-                        <div class="strategy-meta-value">{{ s.default_mode | replace('_', ' ') | title }}</div>
-                    </div>
-                </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div class="card-title" style="margin-bottom:0;">AI Decisions</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+                <select id="decisionFilter" onchange="fetchDecisions()" style="padding:4px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:12px;">
+                    <option value="all">All</option>
+                    <option value="actions">Entries & Exits only</option>
+                    <option value="skips">Skips only</option>
+                </select>
+                <span style="font-size:11px;color:var(--text-muted);" id="decisionCount"></span>
             </div>
-            {% endfor %}
+        </div>
+        <div id="decisionsContainer" style="max-height:500px;overflow-y:auto;">
+            <div style="color:var(--text-muted);font-style:italic;padding:20px 0;text-align:center;">Loading decisions...</div>
         </div>
     </div>
 
@@ -375,11 +326,8 @@
 // ═══════════════════════════════════════
 // State
 // ═══════════════════════════════════════
-let currentSymbol = '{{ user.symbols.split(",")[0].strip() }}';
-let currentTimeframe = '1h';
 let currentBetMode = 'one_off';
 let currentTradeMode = 'paper';
-let chart, candleSeries;
 // Track previous P&L values for flash animations
 let prevPnlMap = {};
 // Track known position IDs for detecting new cards
@@ -413,61 +361,112 @@ updateTicker();
 setInterval(updateTicker, 5000);
 
 // ═══════════════════════════════════════
-// Price Chart (TradingView Lightweight, refresh every 10s)
+// AI Decisions Feed
 // ═══════════════════════════════════════
-function initChart() {
-    const container = document.getElementById('priceChart');
-    chart = LightweightCharts.createChart(container, {
-        layout: { background: { color: '#111111' }, textColor: '#9ca3af' },
-        grid: { vertLines: { color: '#1a1a1a' }, horzLines: { color: '#1a1a1a' } },
-        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-        rightPriceScale: { borderColor: '#1a1a1a' },
-        timeScale: { borderColor: '#1a1a1a', timeVisible: true },
-        width: container.clientWidth,
-        height: 400,
-    });
-    candleSeries = chart.addCandlestickSeries({
-        upColor: '#00dc5a', downColor: '#ff3b30',
-        borderUpColor: '#00dc5a', borderDownColor: '#ff3b30',
-        wickUpColor: '#00dc5a', wickDownColor: '#ff3b30',
-    });
-    // Responsive
-    new ResizeObserver(() => {
-        chart.applyOptions({ width: container.clientWidth });
-    }).observe(container);
+function renderDecision(d) {
+    const t = d.time ? new Date(d.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '';
+    const date = d.time ? new Date(d.time * 1000).toLocaleDateString('en', {month:'short', day:'numeric'}) : '';
+
+    // Action styling
+    const actionStyles = {
+        'ENTER_LONG':  {icon: '\u25B2', color: 'var(--green)', label: 'ENTERED LONG'},
+        'ENTER_SHORT': {icon: '\u25BC', color: 'var(--red)', label: 'ENTERED SHORT'},
+        'EXIT':        {icon: '\u25CF', color: '#f80', label: 'EXITED'},
+        'SIGNAL_SELL': {icon: '\u25BC', color: '#f80', label: 'SELL SIGNAL'},
+        'SKIP':        {icon: '\u2014', color: 'var(--text-muted)', label: 'SKIPPED'},
+        'CANDIDATE':   {icon: '\u2605', color: 'var(--accent)', label: 'CANDIDATE'},
+        'ERROR':       {icon: '!', color: 'var(--red)', label: 'ERROR'},
+    };
+    const style = actionStyles[d.action] || actionStyles['SKIP'];
+    const conf = d.confidence ? `${(d.confidence * 100).toFixed(0)}%` : '';
+
+    // Source badge
+    const sourceBadge = d.source === 'autopilot'
+        ? '<span style="background:rgba(99,102,241,0.15);color:#818cf8;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px;">autopilot</span>'
+        : d.source === 'ai_exit'
+        ? '<span style="background:rgba(255,128,0,0.15);color:#f80;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px;">ai exit</span>'
+        : '';
+
+    // Trade mode badge
+    const modeBadge = d.trade_mode === 'paper'
+        ? '<span style="background:rgba(255,255,255,0.06);color:var(--text-muted);padding:1px 6px;border-radius:4px;font-size:10px;">paper</span>'
+        : d.trade_mode === 'live' || d.trade_mode === 'real'
+        ? '<span style="background:rgba(0,220,90,0.12);color:var(--green);padding:1px 6px;border-radius:4px;font-size:10px;">real</span>'
+        : '';
+
+    // Indicators mini-display
+    let indicatorsHtml = '';
+    if (d.indicators) {
+        const ind = d.indicators;
+        const parts = [];
+        if (ind.rsi) parts.push(`RSI ${ind.rsi}`);
+        if (ind.ema_trend) parts.push(`EMA ${ind.ema_trend}`);
+        if (ind.adx) parts.push(`ADX ${ind.adx}`);
+        if (ind.whale_score && ind.whale_score !== 0) parts.push(`whale ${ind.whale_score > 0 ? '+' : ''}${ind.whale_score}`);
+        if (ind.sentiment && ind.sentiment !== 0) parts.push(`sent. ${ind.sentiment > 0 ? '+' : ''}${ind.sentiment}`);
+        if (ind.tf_alignment !== null && ind.tf_alignment !== undefined) parts.push(`TF align ${ind.tf_alignment}`);
+        if (parts.length > 0) {
+            indicatorsHtml = `<div style="margin-top:4px;font-size:10px;color:var(--text-muted);display:flex;gap:8px;flex-wrap:wrap;">${parts.map(p => `<span style="background:rgba(255,255,255,0.03);padding:1px 5px;border-radius:3px;">${p}</span>`).join('')}</div>`;
+        }
+    }
+
+    // P&L display for exits
+    let pnlHtml = '';
+    if (d.pnl_pct !== undefined) {
+        const pnlCls = d.pnl_pct >= 0 ? 'positive' : 'negative';
+        pnlHtml = `<span class="${pnlCls}" style="font-weight:600;margin-left:8px;">${d.pnl_pct >= 0 ? '+' : ''}${d.pnl_pct.toFixed(2)}%</span>`;
+    }
+
+    // Amount for entries
+    let amountHtml = '';
+    if (d.amount_usd) {
+        amountHtml = `<span style="color:var(--text-secondary);margin-left:8px;">$${d.amount_usd}</span>`;
+    }
+
+    return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);${d.action === 'SKIP' ? 'opacity:0.7;' : ''}">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <span style="color:${style.color};font-weight:700;font-size:13px;min-width:110px;">${style.icon} ${style.label}</span>
+            <span style="font-weight:600;font-size:13px;">${d.symbol || ''}</span>
+            ${conf ? `<span style="color:var(--text-secondary);font-size:12px;">${conf} conf</span>` : ''}
+            ${pnlHtml}${amountHtml}
+            ${sourceBadge}${modeBadge}
+            <span style="color:var(--text-muted);font-size:11px;margin-left:auto;">${date} ${t}</span>
+        </div>
+        <div style="margin-top:3px;font-size:12px;color:var(--text-secondary);padding-left:2px;">${escapeHtml(d.reason || '')}</div>
+        ${indicatorsHtml}
+    </div>`;
 }
 
-async function loadChart(symbol, timeframe) {
+async function fetchDecisions() {
     try {
-        const safeSym = symbol.replace('/', '-');
-        const resp = await fetch(`/api/chart/${safeSym}?timeframe=${timeframe}`);
+        const resp = await fetch('/api/decisions?limit=50');
         if (!resp.ok) return;
         const data = await resp.json();
-        if (data.length > 0) {
-            candleSeries.setData(data);
-            chart.timeScale().fitContent();
+        const container = document.getElementById('decisionsContainer');
+        const filter = document.getElementById('decisionFilter').value;
+
+        let decisions = data.decisions || [];
+        if (filter === 'actions') {
+            decisions = decisions.filter(d => ['ENTER_LONG', 'ENTER_SHORT', 'EXIT', 'SIGNAL_SELL'].includes(d.action));
+        } else if (filter === 'skips') {
+            decisions = decisions.filter(d => d.action === 'SKIP');
         }
-    } catch(e) {}
+
+        document.getElementById('decisionCount').textContent = `${decisions.length} decisions`;
+
+        if (decisions.length === 0) {
+            container.innerHTML = '<div style="color:var(--text-muted);font-style:italic;padding:20px 0;text-align:center;">No decisions yet — waiting for next trading cycle...</div>';
+            return;
+        }
+
+        container.innerHTML = decisions.map(d => renderDecision(d)).join('');
+    } catch(e) {
+        console.error('Failed to fetch decisions:', e);
+    }
 }
 
-function switchChart(btn, symbol) {
-    document.querySelectorAll('.chart-tab[data-symbol]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentSymbol = symbol;
-    loadChart(symbol, currentTimeframe);
-}
-
-function switchTimeframe(btn, tf) {
-    document.querySelectorAll('.chart-tab[data-tf]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentTimeframe = tf;
-    loadChart(currentSymbol, tf);
-}
-
-initChart();
-loadChart(currentSymbol, currentTimeframe);
-// Refresh chart every 10s
-setInterval(() => loadChart(currentSymbol, currentTimeframe), 10000);
+fetchDecisions();
+setInterval(fetchDecisions, 15000);
 
 // ═══════════════════════════════════════
 // Active Bets — Full Dynamic Rendering (every 3s)
@@ -593,7 +592,7 @@ async function updatePositions() {
         if (positions.length === 0) {
             container.innerHTML = `<div class="empty-state">
                 <div class="empty-state-icon">~</div>
-                No active bets — pick a strategy below to start
+                No active bets — use the autopilot or place a new bet
             </div>`;
             knownPositionIds.clear();
             prevPnlMap = {};
@@ -1066,60 +1065,16 @@ setInterval(updatePortfolioStats, 5000);
 // Autopilot
 // ═══════════════════════════════════════
 
-function renderApLog(log) {
-    if (!log || log.length === 0) return '<div style="color:var(--text-muted);font-style:italic;">Waiting for first scan...</div>';
-    // Show most recent first
-    const entries = [...log].reverse();
-    return entries.map(e => {
-        const t = e.time ? new Date(e.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '';
-        const scanned = e.symbols_scanned || 0;
+function renderLastScan(log) {
+    if (!log || log.length === 0) return 'Waiting for first scan...';
+    const e = log[log.length - 1];
+    const t = e.time ? new Date(e.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '';
+    const scanned = e.symbols_scanned || 0;
 
-        if (e.status === 'fully_deployed') {
-            return `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
-                <span style="color:var(--text-muted);">${t}</span>
-                <span style="color:var(--accent);font-weight:600;"> All slots filled</span>
-                <span style="color:var(--text-muted);"> — ${e.positions}/${e.max_positions} positions, $${e.deployed_usd} deployed</span>
-            </div>`;
-        }
-        if (e.status === 'low_funds') {
-            return `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
-                <span style="color:var(--text-muted);">${t}</span>
-                <span style="color:var(--yellow,#f59e0b);font-weight:600;"> Low funds</span>
-                <span style="color:var(--text-muted);"> — $${e.available_usd} available</span>
-            </div>`;
-        }
-
-        // Actions taken
-        let actionsHtml = '';
-        if (e.actions && e.actions.length > 0) {
-            actionsHtml = e.actions.map(a =>
-                `<div style="padding:2px 0 2px 12px;color:var(--green);font-weight:600;">
-                    BUY ${a.symbol} — $${a.amount_usd} @ $${a.price.toLocaleString()} (${(a.confidence*100).toFixed(0)}% conf, whale: ${a.whale > 0 ? '+' : ''}${a.whale}, sentiment: ${a.sentiment > 0 ? '+' : ''}${a.sentiment})
-                </div>
-                <div style="padding:0 0 2px 12px;color:var(--text-muted);font-size:11px;">${a.reason}</div>`
-            ).join('');
-        }
-
-        // Top signals
-        let topHtml = '';
-        if (e.top_signals && e.top_signals.length > 0 && !e.actions?.length) {
-            topHtml = '<div style="padding:2px 0 2px 12px;color:var(--text-muted);">Top signals: ' +
-                e.top_signals.slice(0, 3).map(s =>
-                    `${s.symbol} ${s.signal} ${(s.confidence*100).toFixed(0)}%`
-                ).join(', ') + '</div>';
-        }
-
-        const statusIcon = e.actions?.length > 0 ? '🟢' : '⏳';
-        const statusText = e.actions?.length > 0
-            ? `Opened ${e.actions.length} position${e.actions.length > 1 ? 's' : ''}`
-            : `Scanned ${scanned} symbols — no opportunity`;
-
-        return `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
-            <span style="color:var(--text-muted);">${t}</span>
-            <span style="font-weight:600;${e.actions?.length > 0 ? 'color:var(--green);' : ''}"> ${statusText}</span>
-            ${actionsHtml}${topHtml}
-        </div>`;
-    }).join('');
+    if (e.status === 'fully_deployed') return `Last scan at ${t} — all slots filled`;
+    if (e.status === 'low_funds') return `Last scan at ${t} — low funds ($${e.available_usd} available)`;
+    if (e.actions?.length > 0) return `Last scan at ${t} — opened ${e.actions.length} position(s)`;
+    return `Last scan at ${t} — ${scanned} symbols scanned, no opportunity. See AI Decisions below for details.`;
 }
 
 async function fetchAutopilotStatus() {
@@ -1142,10 +1097,10 @@ async function fetchAutopilotStatus() {
             document.getElementById('apAvailable').textContent = '$' + ap.available_usd.toFixed(0);
             document.getElementById('apPositions').textContent =
                 ap.positions.length + '/' + ap.max_positions;
-            // Render activity log
-            const activityEl = document.getElementById('apActivity');
-            if (activityEl && ap.log) {
-                activityEl.innerHTML = renderApLog(ap.log);
+            // Show last scan summary
+            const lastScanEl = document.getElementById('apLastScan');
+            if (lastScanEl && ap.log) {
+                lastScanEl.textContent = renderLastScan(ap.log);
             }
         } else {
             statusEl.textContent = 'OFF';
@@ -1188,82 +1143,6 @@ async function stopAutopilot() {
 
 fetchAutopilotStatus();
 setInterval(fetchAutopilotStatus, 10000);
-
-// ═══════════════════════════════════════
-// Logs Drawer
-// ═══════════════════════════════════════
-let logsAutoRefresh = null;
-
-function toggleLogsDrawer() {
-    let drawer = document.getElementById('logsDrawer');
-    if (!drawer) {
-        // Create drawer on first click
-        drawer = document.createElement('div');
-        drawer.id = 'logsDrawer';
-        drawer.innerHTML = `
-            <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);background:var(--surface);">
-                <span style="font-weight:700;font-size:14px;">Bot Logs</span>
-                <div style="display:flex;gap:10px;align-items:center;">
-                    <span id="logsFile" style="font-size:11px;color:var(--text-muted);"></span>
-                    <button onclick="fetchLogs()" style="background:var(--accent);color:#fff;border:none;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:12px;">Refresh</button>
-                    <button onclick="toggleLogsDrawer()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px;">&#10005;</button>
-                </div>
-            </div>
-            <pre id="logsContent" style="margin:0;padding:12px 16px;font-size:11px;line-height:1.6;color:var(--text-secondary);overflow-y:auto;flex:1;font-family:monospace;white-space:pre-wrap;word-break:break-all;"></pre>
-        `;
-        Object.assign(drawer.style, {
-            position: 'fixed', bottom: '0', left: '0', right: '0',
-            height: '40vh', background: 'var(--bg)', borderTop: '2px solid var(--accent)',
-            display: 'flex', flexDirection: 'column', zIndex: '1000',
-            transition: 'transform 0.3s ease', boxShadow: '0 -4px 20px rgba(0,0,0,0.4)',
-        });
-        document.body.appendChild(drawer);
-        fetchLogs();
-        logsAutoRefresh = setInterval(fetchLogs, 10000);
-        return;
-    }
-
-    if (drawer.style.display === 'none') {
-        drawer.style.display = 'flex';
-        fetchLogs();
-        logsAutoRefresh = setInterval(fetchLogs, 10000);
-    } else {
-        drawer.style.display = 'none';
-        if (logsAutoRefresh) { clearInterval(logsAutoRefresh); logsAutoRefresh = null; }
-    }
-}
-
-async function fetchLogs() {
-    try {
-        const resp = await fetch('/api/logs?lines=200');
-        if (!resp.ok) return;
-        const data = await resp.json();
-        const el = document.getElementById('logsContent');
-        if (!el) return;
-
-        // Color-code log lines
-        el.innerHTML = data.lines.map(line => {
-            if (line.includes('[ERROR]') || line.includes('Error') || line.includes('failed'))
-                return `<span style="color:var(--red);">${escapeHtml(line)}</span>`;
-            if (line.includes('CLOSED') || line.includes('STOP-LOSS') || line.includes('TRAILING'))
-                return `<span style="color:#f80;">${escapeHtml(line)}</span>`;
-            if (line.includes('BUY') || line.includes('RE-ENTRY') || line.includes('TREND SCANNER'))
-                return `<span style="color:var(--green);">${escapeHtml(line)}</span>`;
-            if (line.includes('====') || line.includes('Trading cycle'))
-                return `<span style="color:var(--accent);">${escapeHtml(line)}</span>`;
-            return escapeHtml(line);
-        }).join('\n');
-
-        // Auto-scroll to bottom
-        el.scrollTop = el.scrollHeight;
-
-        const fileEl = document.getElementById('logsFile');
-        if (fileEl && data.file) fileEl.textContent = data.file;
-    } catch(e) {
-        const el = document.getElementById('logsContent');
-        if (el) el.textContent = 'Failed to load logs.';
-    }
-}
 
 function escapeHtml(text) {
     const div = document.createElement('div');

@@ -108,27 +108,14 @@
     <div class="card">
         <div class="card-title">Trading</div>
         <form method="POST" action="/settings/trading">
+            <input type="hidden" name="symbols" value="{{ user.symbols }}">
+            <input type="hidden" name="interval_minutes" value="{{ user.interval_minutes }}">
+            <input type="hidden" name="trading_mode" value="{{ user.trading_mode }}">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
                 <div class="input-group">
-                    <label class="input-label" for="symbols">Assets</label>
-                    <input class="input" type="text" name="symbols" id="symbols" value="{{ user.symbols }}">
-                </div>
-                <div class="input-group">
-                    <label class="input-label" for="interval_minutes">Interval</label>
-                    <select class="input" name="interval_minutes" id="interval_minutes">
-                        <option value="15" {{ 'selected' if user.interval_minutes == 15 }}>Every 15 min</option>
-                        <option value="30" {{ 'selected' if user.interval_minutes == 30 }}>Every 30 min</option>
-                        <option value="60" {{ 'selected' if user.interval_minutes == 60 }}>Every hour</option>
-                        <option value="240" {{ 'selected' if user.interval_minutes == 240 }}>Every 4 hours</option>
-                    </select>
-                </div>
-                <div class="input-group">
-                    <label class="input-label" for="paper_balance">Paper Balance</label>
+                    <label class="input-label" for="paper_balance">Paper Balance ($)</label>
                     <input class="input" type="number" name="paper_balance" id="paper_balance"
                            value="{{ user.paper_balance }}" step="1" min="10">
-                </div>
-                <div class="input-group" style="display:none;">
-                    <input type="hidden" name="trading_mode" value="{{ user.trading_mode }}">
                 </div>
             </div>
 
