@@ -26,6 +26,7 @@ from vesper.dashboard.database import (
     update_perplexity_key, update_trading_config,
     set_bot_active, update_trading_mode, create_oauth_user, User,
     add_trusted_device, is_device_trusted, remove_trusted_device,
+    get_all_users, get_api_usage_summary, set_admin,
 )
 from vesper.strategies.catalog import get_strategy_catalog, get_strategy_by_id, STRATEGY_MAP as _SIGNAL_STRATEGY_MAP
 from vesper.market_data import (
@@ -558,6 +559,77 @@ async def toggle_mode(request: Request):
     new_mode = "live" if user.trading_mode == "paper" else "paper"
     update_trading_mode(user.id, new_mode)
     return RedirectResponse(url="/dashboard", status_code=303)
+
+
+# --- Admin ---
+
+ADMIN_TOKEN = os.environ.get("VESPER_ADMIN_TOKEN", "")
+
+
+@app.get("/admin", response_class=HTMLResponse)
+async def admin_page(request: Request, days: int = 30):
+    """Admin dashboard — LLM costs, users, API usage. Admin-only."""
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    # Bootstrap: first registered user auto-becomes admin if none exist
+    all_users = get_all_users()
+    has_any_admin = any(u.is_admin for u in all_users)
+    if not has_any_admin and all_users and user.id == all_users[-1].id:
+        set_admin(user.id, True)
+        user = get_user_by_id(user.id)
+
+    if not user.is_admin:
+        return RedirectResponse(url="/dashboard", status_code=303)
+
+    days = max(1, min(365, days))
+    usage = get_api_usage_summary(days=days)
+
+    # Format recent calls timestamps
+    for r in usage["recent"]:
+        r["time_fmt"] = datetime.fromtimestamp(r["created_at"]).strftime("%m/%d %H:%M")
+
+    # Format user join dates
+    user_list = []
+    for u in all_users:
+        user_list.append({
+            "id": u.id,
+            "email": u.email,
+            "trading_mode": u.trading_mode,
+            "bot_active": u.bot_active,
+            "is_admin": u.is_admin,
+            "has_coinbase": u.has_coinbase,
+            "has_alpaca": u.has_alpaca,
+            "has_kalshi": u.has_kalshi,
+            "joined": datetime.fromtimestamp(u.created_at).strftime("%Y-%m-%d"),
+        })
+
+    active_bots = sum(1 for u in all_users if u.bot_active)
+
+    return templates.TemplateResponse("admin.html", {
+        "request": request,
+        "user": user,
+        "users": user_list,
+        "usage": usage,
+        "days": days,
+        "active_bots": active_bots,
+    })
+
+
+@app.post("/admin/promote")
+async def admin_promote(request: Request):
+    """Promote a user to admin by email (admin-only)."""
+    user = _get_user(request)
+    if not user or not user.is_admin:
+        return JSONResponse({"error": "forbidden"}, status_code=403)
+    body = await request.json()
+    target_email = body.get("email", "").strip()
+    target = get_user_by_email(target_email)
+    if not target:
+        return JSONResponse({"error": "User not found"}, status_code=404)
+    set_admin(target.id, True)
+    return {"ok": True}
 
 
 # --- Price Cache ---

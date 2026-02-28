@@ -17,6 +17,8 @@ from typing import Optional
 
 import httpx
 
+from vesper.dashboard.database import log_api_usage
+
 logger = logging.getLogger(__name__)
 
 PERPLEXITY_API = "https://api.perplexity.ai/chat/completions"
@@ -97,6 +99,12 @@ Provide a comprehensive research summary with all relevant findings. Include spe
     resp.raise_for_status()
     data = resp.json()
 
+    usage = data.get("usage", {})
+    in_tok = usage.get("prompt_tokens", 0)
+    out_tok = usage.get("completion_tokens", 0)
+    cost = in_tok * 1e-6 + out_tok * 1e-6  # Sonar: ~$1/M in, ~$1/M out
+    log_api_usage("perplexity", "sonar", in_tok, out_tok, cost, "market_search")
+
     content = data["choices"][0]["message"]["content"].strip()
     citations = data.get("citations", [])
 
@@ -157,6 +165,12 @@ Rules:
     )
     resp.raise_for_status()
     data = resp.json()
+
+    usage = data.get("usage", {})
+    in_tok = usage.get("input_tokens", 0)
+    out_tok = usage.get("output_tokens", 0)
+    cost = in_tok * 1e-6 + out_tok * 5e-6  # Haiku 4.5: $1/M in, $5/M out
+    log_api_usage("anthropic", "claude-haiku-4-5", in_tok, out_tok, cost, "market_analyze")
 
     content = data["content"][0]["text"].strip()
 
@@ -278,6 +292,12 @@ Research thoroughly, then respond in this exact JSON format (no markdown):
     )
     resp.raise_for_status()
     data = resp.json()
+
+    usage = data.get("usage", {})
+    in_tok = usage.get("prompt_tokens", 0)
+    out_tok = usage.get("completion_tokens", 0)
+    cost = in_tok * 1e-6 + out_tok * 1e-6
+    log_api_usage("perplexity", "sonar", in_tok, out_tok, cost, "market_analyze_fallback")
 
     content = data["choices"][0]["message"]["content"].strip()
     if content.startswith("```"):
@@ -446,6 +466,13 @@ Provide a comprehensive, fact-based summary with specific numbers and dates."""
     )
     resp.raise_for_status()
     data = resp.json()
+
+    usage = data.get("usage", {})
+    in_tok = usage.get("prompt_tokens", 0)
+    out_tok = usage.get("completion_tokens", 0)
+    cost = in_tok * 1e-6 + out_tok * 1e-6
+    log_api_usage("perplexity", "sonar", in_tok, out_tok, cost, "asset_search")
+
     return {
         "search_results": data["choices"][0]["message"]["content"].strip(),
         "citations": data.get("citations", []),
@@ -511,6 +538,13 @@ Rules:
     )
     resp.raise_for_status()
     data = resp.json()
+
+    usage = data.get("usage", {})
+    in_tok = usage.get("input_tokens", 0)
+    out_tok = usage.get("output_tokens", 0)
+    cost = in_tok * 1e-6 + out_tok * 5e-6
+    log_api_usage("anthropic", "claude-haiku-4-5", in_tok, out_tok, cost, "asset_analyze")
+
     content = data["content"][0]["text"].strip()
     if content.startswith("```"):
         content = content.split("\n", 1)[-1]

@@ -72,6 +72,7 @@ class User:
     interval_minutes: int
     bot_active: bool
     created_at: float
+    is_admin: bool = False
 
     def get_api_key(self) -> str:
         return _decrypt(self.coinbase_api_key) if self.coinbase_api_key else ""
@@ -165,6 +166,11 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN perplexity_api_key TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
+    # Migration: add is_admin column if missing
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS trusted_devices (
@@ -174,6 +180,19 @@ def init_db():
             expires_at REAL NOT NULL,
             created_at REAL NOT NULL,
             FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS api_usage (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            input_tokens INTEGER DEFAULT 0,
+            output_tokens INTEGER DEFAULT 0,
+            cost_usd REAL DEFAULT 0.0,
+            endpoint TEXT DEFAULT '',
+            created_at REAL NOT NULL
         )
     """)
     conn.commit()
@@ -205,6 +224,7 @@ def _row_to_user(row: sqlite3.Row) -> User:
         interval_minutes=row["interval_minutes"],
         bot_active=bool(row["bot_active"]),
         created_at=row["created_at"],
+        is_admin=bool(row["is_admin"]) if "is_admin" in keys else False,
     )
 
 
@@ -389,3 +409,92 @@ def get_active_users() -> list[User]:
     rows = conn.execute("SELECT * FROM users WHERE bot_active = 1").fetchall()
     conn.close()
     return [_row_to_user(row) for row in rows]
+
+
+def get_all_users() -> list[User]:
+    """Get all registered users (admin only)."""
+    conn = _get_conn()
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("SELECT * FROM users ORDER BY created_at DESC").fetchall()
+    conn.close()
+    return [_row_to_user(row) for row in rows]
+
+
+def set_admin(user_id: int, is_admin: bool):
+    """Promote/demote a user to admin."""
+    conn = _get_conn()
+    conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (int(is_admin), user_id))
+    conn.commit()
+    conn.close()
+
+
+# ── API usage tracking ──
+
+def log_api_usage(
+    provider: str, model: str,
+    input_tokens: int, output_tokens: int,
+    cost_usd: float, endpoint: str = "",
+    user_id: int | None = None,
+):
+    """Record an API call for cost tracking."""
+    conn = _get_conn()
+    conn.execute(
+        """INSERT INTO api_usage
+           (user_id, provider, model, input_tokens, output_tokens, cost_usd, endpoint, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (user_id, provider, model, input_tokens, output_tokens, cost_usd, endpoint, time.time()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_api_usage_summary(days: int = 30) -> dict:
+    """Aggregate API costs for the admin dashboard."""
+    conn = _get_conn()
+    conn.row_factory = sqlite3.Row
+    cutoff = time.time() - (days * 86400)
+
+    # Total costs by provider
+    rows = conn.execute(
+        """SELECT provider, model,
+                  SUM(input_tokens) as total_input,
+                  SUM(output_tokens) as total_output,
+                  SUM(cost_usd) as total_cost,
+                  COUNT(*) as call_count
+           FROM api_usage WHERE created_at > ?
+           GROUP BY provider, model
+           ORDER BY total_cost DESC""",
+        (cutoff,),
+    ).fetchall()
+
+    by_model = [dict(r) for r in rows]
+    total_cost = sum(r["total_cost"] for r in by_model)
+    total_calls = sum(r["call_count"] for r in by_model)
+
+    # Daily breakdown (last N days)
+    daily = conn.execute(
+        """SELECT date(created_at, 'unixepoch') as day,
+                  provider,
+                  SUM(cost_usd) as cost,
+                  COUNT(*) as calls
+           FROM api_usage WHERE created_at > ?
+           GROUP BY day, provider
+           ORDER BY day DESC""",
+        (cutoff,),
+    ).fetchall()
+
+    # Recent calls
+    recent = conn.execute(
+        """SELECT provider, model, input_tokens, output_tokens,
+                  cost_usd, endpoint, created_at
+           FROM api_usage ORDER BY created_at DESC LIMIT 50""",
+    ).fetchall()
+
+    conn.close()
+    return {
+        "total_cost": round(total_cost, 4),
+        "total_calls": total_calls,
+        "by_model": by_model,
+        "daily": [dict(r) for r in daily],
+        "recent": [dict(r) for r in recent],
+    }

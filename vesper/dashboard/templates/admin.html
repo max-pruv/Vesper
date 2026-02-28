@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+{% block title %}Admin — Vesper{% endblock %}
+{% block body %}
+<nav class="nav">
+    <a href="/dashboard" class="nav-logo">Vesper</a>
+    <div class="nav-links">
+        <a href="/dashboard" class="nav-link">Dashboard</a>
+        <a href="/admin" class="nav-link active">Admin</a>
+        <a href="/settings" class="nav-link">Settings</a>
+        <a href="/logout" class="nav-link">Logout</a>
+    </div>
+</nav>
+
+<div class="container" style="padding-top: 32px;">
+    <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 8px;">Admin Panel</h1>
+    <p style="color: var(--text-muted); font-size: 14px; margin-bottom: 32px;">LLM costs, API usage, and registered users.</p>
+
+    <!-- Cost Overview Cards -->
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px;">
+        <div class="stat-glass">
+            <div style="font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Total Cost ({{ days }}d)</div>
+            <div style="font-size: 28px; font-weight: 800; margin-top: 4px;">${{ "%.4f"|format(usage.total_cost) }}</div>
+        </div>
+        <div class="stat-glass">
+            <div style="font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">API Calls</div>
+            <div style="font-size: 28px; font-weight: 800; margin-top: 4px;">{{ usage.total_calls }}</div>
+        </div>
+        <div class="stat-glass">
+            <div style="font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Users</div>
+            <div style="font-size: 28px; font-weight: 800; margin-top: 4px;">{{ users|length }}</div>
+        </div>
+        <div class="stat-glass">
+            <div style="font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Active Bots</div>
+            <div style="font-size: 28px; font-weight: 800; margin-top: 4px; color: var(--green);">{{ active_bots }}</div>
+        </div>
+    </div>
+
+    <!-- Time range selector -->
+    <div style="display: flex; gap: 8px; margin-bottom: 24px;">
+        <a href="/admin?days=7" class="tab-pill {{ 'active' if days == 7 }}">7 days</a>
+        <a href="/admin?days=30" class="tab-pill {{ 'active' if days == 30 }}">30 days</a>
+        <a href="/admin?days=90" class="tab-pill {{ 'active' if days == 90 }}">90 days</a>
+    </div>
+
+    <!-- Cost by Model -->
+    <div class="card slide-up">
+        <div class="card-title">Cost by Model</div>
+        {% if usage.by_model %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Provider</th>
+                    <th>Model</th>
+                    <th>Calls</th>
+                    <th>Input Tokens</th>
+                    <th>Output Tokens</th>
+                    <th style="text-align: right;">Cost</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in usage.by_model %}
+                <tr>
+                    <td>
+                        <span style="display: inline-block; padding: 2px 10px; border-radius: 8px; font-size: 11px; font-weight: 600;
+                            {% if m.provider == 'anthropic' %}background: rgba(204,133,0,0.1); color: #cc8500;
+                            {% else %}background: rgba(100,100,255,0.08); color: #8888ff;{% endif %}">
+                            {{ m.provider }}
+                        </span>
+                    </td>
+                    <td style="font-family: monospace; font-size: 13px;">{{ m.model }}</td>
+                    <td>{{ "{:,}".format(m.call_count) }}</td>
+                    <td>{{ "{:,}".format(m.total_input) }}</td>
+                    <td>{{ "{:,}".format(m.total_output) }}</td>
+                    <td style="text-align: right; font-weight: 700;">${{ "%.4f"|format(m.total_cost) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">~</div>
+            <p>No API calls recorded yet. Costs will appear here once the AI research pipeline runs.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Daily Breakdown -->
+    {% if usage.daily %}
+    <div class="card slide-up" style="animation-delay: 0.1s;">
+        <div class="card-title">Daily Costs</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Provider</th>
+                    <th>Calls</th>
+                    <th style="text-align: right;">Cost</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in usage.daily[:30] %}
+                <tr>
+                    <td style="font-family: monospace; font-size: 13px;">{{ d.day }}</td>
+                    <td>
+                        <span style="display: inline-block; padding: 2px 10px; border-radius: 8px; font-size: 11px; font-weight: 600;
+                            {% if d.provider == 'anthropic' %}background: rgba(204,133,0,0.1); color: #cc8500;
+                            {% else %}background: rgba(100,100,255,0.08); color: #8888ff;{% endif %}">
+                            {{ d.provider }}
+                        </span>
+                    </td>
+                    <td>{{ d.calls }}</td>
+                    <td style="text-align: right; font-weight: 600;">${{ "%.4f"|format(d.cost) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
+    <!-- Registered Users -->
+    <div class="card slide-up" style="animation-delay: 0.2s;">
+        <div class="card-title">Registered Users</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Email</th>
+                    <th>Mode</th>
+                    <th>Bot</th>
+                    <th>Exchanges</th>
+                    <th>Joined</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr>
+                    <td style="font-family: monospace; color: var(--text-muted);">#{{ u.id }}</td>
+                    <td>
+                        {{ u.email }}
+                        {% if u.is_admin %}
+                        <span style="display: inline-block; padding: 1px 6px; border-radius: 6px; font-size: 9px; font-weight: 700; background: rgba(168,85,247,0.12); color: #a855f7; margin-left: 6px;">ADMIN</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="mode-badge trade-mode-{{ u.trading_mode }}">{{ u.trading_mode }}</span>
+                    </td>
+                    <td>
+                        {% if u.bot_active %}
+                        <span style="display: inline-flex; align-items: center; gap: 4px; color: var(--green); font-weight: 600; font-size: 12px;">
+                            <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse-dot 1.5s ease-in-out infinite;"></span>
+                            Active
+                        </span>
+                        {% else %}
+                        <span style="color: var(--text-muted); font-size: 12px;">Off</span>
+                        {% endif %}
+                    </td>
+                    <td style="font-size: 12px;">
+                        {% if u.has_coinbase %}<span style="color: var(--text-secondary);">CB</span>{% endif %}
+                        {% if u.has_alpaca %}<span style="color: var(--text-secondary);">ALP</span>{% endif %}
+                        {% if u.has_kalshi %}<span style="color: var(--text-secondary);">KAL</span>{% endif %}
+                        {% if not u.has_coinbase and not u.has_alpaca and not u.has_kalshi %}
+                        <span style="color: var(--text-muted);">None</span>
+                        {% endif %}
+                    </td>
+                    <td style="font-size: 12px; color: var(--text-muted); font-family: monospace;">{{ u.joined }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Recent API Calls -->
+    {% if usage.recent %}
+    <div class="card slide-up" style="animation-delay: 0.3s;">
+        <div class="card-title">Recent API Calls</div>
+        <div style="max-height: 400px; overflow-y: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Provider</th>
+                    <th>Model</th>
+                    <th>Endpoint</th>
+                    <th>Tokens</th>
+                    <th style="text-align: right;">Cost</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in usage.recent %}
+                <tr>
+                    <td style="font-size: 12px; font-family: monospace; color: var(--text-muted);">{{ r.time_fmt }}</td>
+                    <td style="font-size: 12px;">{{ r.provider }}</td>
+                    <td style="font-size: 12px; font-family: monospace;">{{ r.model }}</td>
+                    <td style="font-size: 12px; color: var(--text-secondary);">{{ r.endpoint }}</td>
+                    <td style="font-size: 12px;">{{ r.input_tokens }}+{{ r.output_tokens }}</td>
+                    <td style="text-align: right; font-size: 12px; font-weight: 600;">${{ "%.5f"|format(r.cost_usd) }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<style>
+    @media (max-width: 768px) {
+        div[style*="grid-template-columns: repeat(4"] {
+            grid-template-columns: repeat(2, 1fr) !important;
+        }
+    }
+</style>
+{% endblock %}
