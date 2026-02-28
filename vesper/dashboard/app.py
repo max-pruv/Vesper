@@ -818,6 +818,50 @@ async def _get_price_map_for_positions(position_symbols: set[str], user=None) ->
     return price_map
 
 
+def _build_segment_statuses(portfolio: dict, pos_list: list) -> dict:
+    """Build bot segment statuses for WS payload."""
+    segments = {}
+    strategy_map = {
+        "crypto": ("altcoin_hunter", "altcoin_hunter"),
+        "stocks": ("autopilot", "autopilot"),
+        "predictions": ("predictions_autopilot", "predictions"),
+    }
+    all_logs = portfolio.get("autopilot_log", [])
+    all_trades = portfolio.get("trade_history", [])
+
+    for seg_name, (cfg_key, strategy_id) in strategy_map.items():
+        cfg = portfolio.get(cfg_key, {})
+        seg_positions = [p for p in pos_list if p.get("strategy_id") == strategy_id]
+        deployed = sum(p.get("cost_usd", 0) for p in seg_positions)
+        unrealized = sum(p.get("pnl_usd", 0) for p in seg_positions)
+        realized = sum(
+            t.get("pnl_usd", 0) for t in all_trades
+            if t.get("strategy_id") == strategy_id
+        )
+        fund = cfg.get("fund_usd", 0)
+
+        # Last scan info
+        log_type = "altcoin_hunter_scan" if seg_name == "crypto" else (
+            "predictions_scan" if seg_name == "predictions" else "autopilot_scan"
+        )
+        seg_logs = [l for l in all_logs if l.get("type") == log_type][-5:]
+
+        segments[seg_name] = {
+            "enabled": cfg.get("enabled", False),
+            "fund_usd": fund,
+            "available_usd": round(fund - deployed, 2),
+            "deployed_usd": round(deployed, 2),
+            "unrealized_pnl": round(unrealized, 2),
+            "realized_pnl": round(realized, 2),
+            "positions_count": len(seg_positions),
+            "max_bet_usd": cfg.get("max_bet_usd", 0),
+            "risk_level": cfg.get("risk_level", "aggressive"),
+            "reinvest_pct": cfg.get("reinvest_pct", 100),
+            "log": seg_logs,
+        }
+    return segments
+
+
 # --- API Endpoints ---
 
 @app.get("/api/health")
@@ -940,33 +984,40 @@ async def ws_live(ws: WebSocket):
                             "strategy_reason": p.get("strategy_reason", ""),
                         })
 
-                # --- Portfolio stats (send all, client filters) ---
-                trades = portfolio.get("trade_history", [])
+                # --- Portfolio stats per mode (paper + real) ---
+                all_trades = portfolio.get("trade_history", [])
                 cash = portfolio.get("cash", 0)
                 initial = portfolio.get("initial_balance", 0)
-                realized_pnl = sum(t.get("pnl_usd", 0) for t in trades)
-                unrealized = sum(p.get("pnl_usd", 0) for p in pos_list)
-                total_pnl = realized_pnl + unrealized
-                total_invested = sum(p.get("cost_usd", 0) for p in pos_list)
-                total_trades = len(trades)
-                wins = sum(1 for t in trades if t.get("pnl_usd", 0) > 0)
-                win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+
+                stats_by_mode = {}
+                for mode in ("paper", "real"):
+                    m_pos = [p for p in pos_list if p.get("trade_mode", "paper") == mode]
+                    m_trades = [t for t in all_trades if t.get("trade_mode", "paper") == mode]
+                    m_realized = sum(t.get("pnl_usd", 0) for t in m_trades)
+                    m_unrealized = sum(p.get("pnl_usd", 0) for p in m_pos)
+                    m_total_pnl = m_realized + m_unrealized
+                    m_invested = sum(p.get("cost_usd", 0) for p in m_pos)
+                    m_total_trades = len(m_trades)
+                    m_wins = sum(1 for t in m_trades if t.get("pnl_usd", 0) > 0)
+                    m_win_rate = (m_wins / m_total_trades * 100) if m_total_trades > 0 else 0
+                    stats_by_mode[mode] = {
+                        "portfolio_value": round(cash + m_invested + m_unrealized, 2),
+                        "cash": round(cash, 2),
+                        "total_invested": round(m_invested, 2),
+                        "total_pnl": round(m_total_pnl, 2),
+                        "realized_pnl": round(m_realized, 2),
+                        "unrealized_pnl": round(m_unrealized, 2),
+                        "total_pnl_pct": round((m_total_pnl / initial * 100) if initial > 0 else 0, 2),
+                        "win_rate": round(m_win_rate, 1),
+                        "total_trades": m_total_trades,
+                        "open_count": len(m_pos),
+                    }
 
                 await ws.send_json({
                     "type": "update",
                     "positions": pos_list,
-                    "stats": {
-                        "portfolio_value": round(cash + total_invested + unrealized, 2),
-                        "cash": round(cash, 2),
-                        "total_invested": round(total_invested, 2),
-                        "total_pnl": round(total_pnl, 2),
-                        "realized_pnl": round(realized_pnl, 2),
-                        "unrealized_pnl": round(unrealized, 2),
-                        "total_pnl_pct": round((total_pnl / initial * 100) if initial > 0 else 0, 2),
-                        "win_rate": round(win_rate, 1),
-                        "total_trades": total_trades,
-                        "open_count": len(pos_list),
-                    },
+                    "stats": stats_by_mode,
+                    "segments": _build_segment_statuses(portfolio, pos_list),
                 })
 
                 await asyncio.sleep(2)
@@ -1226,7 +1277,7 @@ async def api_reasoning(request: Request, pid: str = ""):
 
 
 @app.get("/api/portfolio-stats")
-async def api_portfolio_stats(request: Request):
+async def api_portfolio_stats(request: Request, mode: str = ""):
     """Live portfolio stats: value, P&L (realized + unrealized), win rate."""
     user = _get_user(request)
     if not user:
@@ -1238,9 +1289,12 @@ async def api_portfolio_stats(request: Request):
     all_positions = portfolio.get("positions", {})
     all_trades = portfolio.get("trade_history", [])
 
-    # Filter by current trading mode
-    mode_match = {"live": "real", "paper": "paper"}
-    current_mode = mode_match.get(user.trading_mode, "paper")
+    # Filter by mode (from query param, or fallback to user's server-side setting)
+    if mode in ("paper", "real"):
+        current_mode = mode
+    else:
+        mode_match = {"live": "real", "paper": "paper"}
+        current_mode = mode_match.get(user.trading_mode, "paper")
     positions = {
         pid: p for pid, p in all_positions.items()
         if p.get("trade_mode", "paper") == current_mode
@@ -1656,24 +1710,48 @@ async def api_autopilot_status(request: Request):
     # Autopilot positions
     ap_positions = []
     deployed = 0.0
+    pos_symbols = set()
     for pid, p in positions.items():
         if p.get("strategy_id") == "autopilot":
             deployed += p.get("cost_usd", 0)
+            sym = p.get("symbol", "")
+            pos_symbols.add(sym)
             ap_positions.append({
                 "id": pid,
-                "symbol": p.get("symbol", ""),
+                "symbol": sym,
                 "entry_price": p.get("entry_price", 0),
                 "cost_usd": p.get("cost_usd", 0),
                 "entry_time": p.get("entry_time", 0),
             })
 
     fund_total = autopilot.get("fund_usd", 0)
+
+    # Compute unrealized P&L
+    unrealized_pnl = 0.0
+    if ap_positions:
+        price_map = await _get_price_map_for_positions(pos_symbols, user)
+        for ap in ap_positions:
+            current = price_map.get(ap["symbol"], ap["entry_price"])
+            if ap["entry_price"] > 0 and ap["cost_usd"] > 0:
+                amount = ap["cost_usd"] / ap["entry_price"]
+                unrealized_pnl += (current - ap["entry_price"]) * amount
+
+    # Compute realized P&L
+    all_trades = portfolio.get("trade_history", [])
+    realized_pnl = sum(
+        t.get("pnl_usd", 0) for t in all_trades
+        if t.get("strategy_id") == "autopilot"
+    )
+
     return {
         "enabled": autopilot.get("enabled", False),
         "fund_usd": fund_total,
         "deployed_usd": round(deployed, 2),
         "available_usd": round(fund_total - deployed, 2),
+        "unrealized_pnl": round(unrealized_pnl, 2),
+        "realized_pnl": round(realized_pnl, 2),
         "max_positions": autopilot.get("max_positions", 20),
+        "max_bet_usd": autopilot.get("max_bet_usd", 0),
         "risk_level": autopilot.get("risk_level", "aggressive"),
         "reinvest_pct": autopilot.get("reinvest_pct", 100),
         "positions": ap_positions,
@@ -1729,6 +1807,9 @@ async def api_autopilot_toggle(request: Request):
         rp = body.get("reinvest_pct")
         if rp is not None:
             pdata["autopilot"]["reinvest_pct"] = float(rp)
+        mb = body.get("max_bet_usd")
+        if mb is not None:
+            pdata["autopilot"]["max_bet_usd"] = float(mb)
 
     with open(portfolio_path, "w") as f:
         json.dump(pdata, f, indent=2)
@@ -1752,12 +1833,15 @@ async def api_altcoin_hunter_status(request: Request):
 
     hunter_positions = []
     deployed = 0.0
+    pos_symbols = set()
     for pid, p in positions.items():
         if p.get("strategy_id") == "altcoin_hunter":
             deployed += p.get("cost_usd", 0)
+            sym = p.get("symbol", "")
+            pos_symbols.add(sym)
             hunter_positions.append({
                 "id": pid,
-                "symbol": p.get("symbol", ""),
+                "symbol": sym,
                 "entry_price": p.get("entry_price", 0),
                 "cost_usd": p.get("cost_usd", 0),
                 "entry_time": p.get("entry_time", 0),
@@ -1765,6 +1849,23 @@ async def api_altcoin_hunter_status(request: Request):
             })
 
     fund_total = hunter.get("fund_usd", 0)
+
+    # Compute unrealized P&L from open positions
+    unrealized_pnl = 0.0
+    if hunter_positions:
+        price_map = await _get_price_map_for_positions(pos_symbols, user)
+        for hp in hunter_positions:
+            current = price_map.get(hp["symbol"], hp["entry_price"])
+            if hp["entry_price"] > 0 and hp["cost_usd"] > 0:
+                amount = hp["cost_usd"] / hp["entry_price"]
+                unrealized_pnl += (current - hp["entry_price"]) * amount
+
+    # Compute realized P&L from closed trades
+    all_trades = portfolio.get("trade_history", [])
+    realized_pnl = sum(
+        t.get("pnl_usd", 0) for t in all_trades
+        if t.get("strategy_id") == "altcoin_hunter" or "Altcoin Hunter" in t.get("reason", "")
+    )
 
     # Get recent altcoin_hunter scan logs
     all_logs = portfolio.get("autopilot_log", [])
@@ -1775,7 +1876,10 @@ async def api_altcoin_hunter_status(request: Request):
         "fund_usd": fund_total,
         "deployed_usd": round(deployed, 2),
         "available_usd": round(fund_total - deployed, 2),
-        "max_positions": hunter.get("max_positions", 5),
+        "unrealized_pnl": round(unrealized_pnl, 2),
+        "realized_pnl": round(realized_pnl, 2),
+        "max_positions": hunter.get("max_positions", 20),
+        "max_bet_usd": hunter.get("max_bet_usd", 0),
         "trailing_stop_pct": hunter.get("trailing_stop_pct", 2.0),
         "risk_level": hunter.get("risk_level", "aggressive"),
         "reinvest_pct": hunter.get("reinvest_pct", 100),
@@ -1830,6 +1934,9 @@ async def api_altcoin_hunter_toggle(request: Request):
         rp = body.get("reinvest_pct")
         if rp is not None:
             pdata["altcoin_hunter"]["reinvest_pct"] = float(rp)
+        mb = body.get("max_bet_usd")
+        if mb is not None:
+            pdata["altcoin_hunter"]["max_bet_usd"] = float(mb)
 
     with open(portfolio_path, "w") as f:
         json.dump(pdata, f, indent=2)
@@ -1869,6 +1976,13 @@ async def api_predictions_autopilot_status(request: Request):
 
     fund_total = pred_cfg.get("fund_usd", 0)
 
+    # Compute realized P&L from closed predictions
+    all_trades = portfolio.get("trade_history", [])
+    realized_pnl = sum(
+        t.get("pnl_usd", 0) for t in all_trades
+        if t.get("strategy_id") == "predictions"
+    )
+
     # Get recent prediction scan logs
     all_logs = portfolio.get("autopilot_log", [])
     pred_logs = [l for l in all_logs if l.get("type") == "predictions_scan"][-10:]
@@ -1878,7 +1992,10 @@ async def api_predictions_autopilot_status(request: Request):
         "fund_usd": fund_total,
         "deployed_usd": round(deployed, 2),
         "available_usd": round(fund_total - deployed, 2),
+        "unrealized_pnl": 0,
+        "realized_pnl": round(realized_pnl, 2),
         "max_positions": pred_cfg.get("max_positions", 20),
+        "max_bet_usd": pred_cfg.get("max_bet_usd", 0),
         "risk_level": pred_cfg.get("risk_level", "aggressive"),
         "reinvest_pct": pred_cfg.get("reinvest_pct", 100),
         "positions": pred_positions,
@@ -1934,6 +2051,9 @@ async def api_predictions_autopilot_toggle(request: Request):
         rp = body.get("reinvest_pct")
         if rp is not None:
             pdata["predictions_autopilot"]["reinvest_pct"] = float(rp)
+        mb = body.get("max_bet_usd")
+        if mb is not None:
+            pdata["predictions_autopilot"]["max_bet_usd"] = float(mb)
 
     with open(portfolio_path, "w") as f:
         json.dump(pdata, f, indent=2)

@@ -49,6 +49,7 @@ class UserBot:
         self.exchange = create_exchange(exchange_cfg)
         # Public exchange for market data (Binance — reliable USDT pairs, no auth needed)
         self.public_exchange = ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
+        self.public_exchange.load_markets()  # CRITICAL: must load before fetch_ohlcv
         self.alpaca = alpaca_client  # None if user hasn't connected Alpaca
 
     def run_cycle(self):
@@ -591,7 +592,7 @@ class UserBot:
                     "price": snap["price"],
                 }
             except Exception as e:
-                self.logger.debug(f"[scan] {sym} failed: {e}")
+                self.logger.warning(f"[scan] {sym} failed: {e}")
                 return None
 
         with ThreadPoolExecutor(max_workers=5) as executor:

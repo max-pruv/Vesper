@@ -269,10 +269,27 @@
                 </div>
             </div>
             <div id="cryptoOn" style="display:none;">
-                <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap;">
-                    <div><div style="font-size:20px;font-weight:700;" id="cryptoFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Fund</div></div>
-                    <div><div style="font-size:20px;font-weight:700;color:var(--green);" id="cryptoDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
-                    <div><div style="font-size:20px;font-weight:700;" id="cryptoPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;">
+                    <div><div style="font-size:17px;font-weight:700;" id="cryptoFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Available</div></div>
+                    <div><div style="font-size:17px;font-weight:700;color:var(--accent);" id="cryptoDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
+                    <div><div style="font-size:17px;font-weight:700;" id="cryptoPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+                    <div style="padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);">
+                        <div style="font-size:14px;font-weight:700;" id="cryptoUnrealized">$0</div><div style="font-size:10px;color:var(--text-muted);">Unrealized P&L</div>
+                    </div>
+                    <div style="padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);">
+                        <div style="font-size:14px;font-weight:700;" id="cryptoRealized">$0</div><div style="font-size:10px;color:var(--text-muted);">Realized P&L</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Max/Bet</span>
+                    <div style="position:relative;flex:1;max-width:100px;">
+                        <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:11px;">$</span>
+                        <input type="number" id="cryptoMaxBet" min="5" step="5" placeholder="auto"
+                               onchange="updateMaxBet('crypto', this.value)"
+                               style="padding:4px 4px 4px 18px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.03);color:var(--text);width:100%;font-size:12px;box-sizing:border-box;">
+                    </div>
                 </div>
                 <div id="cryptoTopScores" style="margin-bottom:6px;"></div>
                 <div id="cryptoLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;"></div>
@@ -319,10 +336,27 @@
                 </div>
             </div>
             <div id="stocksOn" style="display:none;">
-                <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap;">
-                    <div><div style="font-size:20px;font-weight:700;" id="stocksFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Fund</div></div>
-                    <div><div style="font-size:20px;font-weight:700;color:var(--green);" id="stocksDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
-                    <div><div style="font-size:20px;font-weight:700;" id="stocksPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;">
+                    <div><div style="font-size:17px;font-weight:700;" id="stocksFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Available</div></div>
+                    <div><div style="font-size:17px;font-weight:700;color:#818cf8;" id="stocksDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
+                    <div><div style="font-size:17px;font-weight:700;" id="stocksPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+                    <div style="padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);">
+                        <div style="font-size:14px;font-weight:700;" id="stocksUnrealized">$0</div><div style="font-size:10px;color:var(--text-muted);">Unrealized P&L</div>
+                    </div>
+                    <div style="padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);">
+                        <div style="font-size:14px;font-weight:700;" id="stocksRealized">$0</div><div style="font-size:10px;color:var(--text-muted);">Realized P&L</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Max/Bet</span>
+                    <div style="position:relative;flex:1;max-width:100px;">
+                        <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:11px;">$</span>
+                        <input type="number" id="stocksMaxBet" min="5" step="5" placeholder="auto"
+                               onchange="updateMaxBet('stocks', this.value)"
+                               style="padding:4px 4px 4px 18px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.03);color:var(--text);width:100%;font-size:12px;box-sizing:border-box;">
+                    </div>
                 </div>
                 <div id="stocksLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;"></div>
                 <div style="display:flex;gap:8px;align-items:center;">
@@ -368,10 +402,27 @@
                 </div>
             </div>
             <div id="predOn" style="display:none;">
-                <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap;">
-                    <div><div style="font-size:20px;font-weight:700;" id="predFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Fund</div></div>
-                    <div><div style="font-size:20px;font-weight:700;color:var(--green);" id="predDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
-                    <div><div style="font-size:20px;font-weight:700;" id="predPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;">
+                    <div><div style="font-size:17px;font-weight:700;" id="predFund">$0</div><div style="font-size:10px;color:var(--text-muted);">Available</div></div>
+                    <div><div style="font-size:17px;font-weight:700;color:#f5a623;" id="predDeployed">$0</div><div style="font-size:10px;color:var(--text-muted);">Deployed</div></div>
+                    <div><div style="font-size:17px;font-weight:700;" id="predPositions">0</div><div style="font-size:10px;color:var(--text-muted);">Positions</div></div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+                    <div style="padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);">
+                        <div style="font-size:14px;font-weight:700;" id="predUnrealized">$0</div><div style="font-size:10px;color:var(--text-muted);">Unrealized P&L</div>
+                    </div>
+                    <div style="padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);">
+                        <div style="font-size:14px;font-weight:700;" id="predRealized">$0</div><div style="font-size:10px;color:var(--text-muted);">Realized P&L</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+                    <span style="font-size:10px;color:var(--text-muted);font-weight:600;text-transform:uppercase;">Max/Bet</span>
+                    <div style="position:relative;flex:1;max-width:100px;">
+                        <span style="position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:11px;">$</span>
+                        <input type="number" id="predMaxBet" min="5" step="5" placeholder="auto"
+                               onchange="updateMaxBet('predictions', this.value)"
+                               style="padding:4px 4px 4px 18px;border:1px solid var(--glass-border);border-radius:8px;background:rgba(255,255,255,0.03);color:var(--text);width:100%;font-size:12px;box-sizing:border-box;">
+                    </div>
                 </div>
                 <div id="predLastScan" style="font-size:11px;color:var(--text-muted);margin-bottom:10px;"></div>
                 <div style="display:flex;gap:8px;align-items:center;">
@@ -1270,7 +1321,7 @@ function updatePnlChart(history) {
 
 async function updatePortfolioStats() {
     try {
-        const resp = await fetch('/api/portfolio-stats');
+        const resp = await fetch('/api/portfolio-stats?mode=' + currentTradeMode);
         if (!resp.ok) return;
         const s = await resp.json();
 
@@ -1391,7 +1442,14 @@ function applyWsPositions(positions) {
     });
 }
 
-function applyWsStats(s) {
+let _lastWsStats = null;
+
+function applyWsStats(allStats) {
+    _lastWsStats = allStats;
+    // Pick stats for current trade mode (WS sends { paper: {...}, real: {...} })
+    const s = allStats[currentTradeMode] || allStats['paper'] || allStats;
+    if (!s || !s.portfolio_value) return;
+
     document.getElementById('portfolioValue').textContent = '$' + s.portfolio_value.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
     const pnlEl = document.getElementById('totalPnl');
     const sign = s.total_pnl >= 0 ? '+' : '';
@@ -1413,6 +1471,14 @@ function applyWsStats(s) {
     if (pnlRealizedChart) { pnlRealizedChart.textContent = '$' + rSign + s.realized_pnl.toFixed(2); pnlRealizedChart.style.color = s.realized_pnl >= 0 ? 'var(--green)' : 'var(--red)'; }
     const pnlUnrealizedChart = document.getElementById('pnlUnrealized');
     if (pnlUnrealizedChart) { pnlUnrealizedChart.textContent = '$' + uSign + s.unrealized_pnl.toFixed(2); pnlUnrealizedChart.style.color = s.unrealized_pnl >= 0 ? 'var(--green)' : 'var(--red)'; }
+
+    // Live portfolio chart: append current value
+    const now = Math.floor(Date.now() / 1000);
+    const lastPt = portfolioHistory[portfolioHistory.length - 1];
+    if (!lastPt || Math.abs(s.portfolio_value - lastPt.value) > 0.01 || now - lastPt.time > 60) {
+        portfolioHistory.push({ time: now, value: s.portfolio_value });
+        renderPortfolioChart();
+    }
 }
 
 function startWs() {
@@ -1432,6 +1498,7 @@ function startWs() {
             if (msg.type === 'update') {
                 applyWsPositions(msg.positions || []);
                 if (msg.stats) applyWsStats(msg.stats);
+                if (msg.segments) applyWsSegments(msg.segments);
             }
         } catch(err) {}
     };
@@ -1466,6 +1533,7 @@ const SEGMENTS = {
         api: '/api/altcoin-hunter',
         statusEl: 'cryptoStatus', offEl: 'cryptoOff', onEl: 'cryptoOn',
         fundEl: 'cryptoFund', deployedEl: 'cryptoDeployed', posEl: 'cryptoPositions',
+        unrealizedEl: 'cryptoUnrealized', realizedEl: 'cryptoRealized', maxBetEl: 'cryptoMaxBet',
         scanEl: 'cryptoLastScan', topEl: 'cryptoTopScores', amountEl: 'cryptoAmount',
         riskEl: 'cryptoRisk', reinvestEl: 'cryptoReinvest', reinvestLabelEl: 'cryptoReinvestLabel',
         activeLabel: 'ACTIVE', activeColor: 'var(--green)',
@@ -1475,6 +1543,7 @@ const SEGMENTS = {
         api: '/api/autopilot',
         statusEl: 'stocksStatus', offEl: 'stocksOff', onEl: 'stocksOn',
         fundEl: 'stocksFund', deployedEl: 'stocksDeployed', posEl: 'stocksPositions',
+        unrealizedEl: 'stocksUnrealized', realizedEl: 'stocksRealized', maxBetEl: 'stocksMaxBet',
         scanEl: 'stocksLastScan', topEl: null, amountEl: 'stocksAmount',
         riskEl: 'stocksRisk', reinvestEl: 'stocksReinvest', reinvestLabelEl: 'stocksReinvestLabel',
         activeLabel: 'ACTIVE', activeColor: '#818cf8',
@@ -1484,6 +1553,7 @@ const SEGMENTS = {
         api: '/api/predictions-autopilot',
         statusEl: 'predStatus', offEl: 'predOff', onEl: 'predOn',
         fundEl: 'predFund', deployedEl: 'predDeployed', posEl: 'predPositions',
+        unrealizedEl: 'predUnrealized', realizedEl: 'predRealized', maxBetEl: 'predMaxBet',
         scanEl: 'predLastScan', topEl: null, amountEl: 'predAmount',
         riskEl: 'predRisk', reinvestEl: 'predReinvest', reinvestLabelEl: 'predReinvestLabel',
         activeLabel: 'SCANNING', activeColor: '#f5a623',
@@ -1525,10 +1595,31 @@ async function fetchSegmentStatus(segment) {
             statusEl.style.color = '#000';
             onEl.style.display = 'block';
             offEl.style.display = 'none';
-            document.getElementById(cfg.fundEl).textContent = '$' + (data.fund_usd || 0).toFixed(0);
+            document.getElementById(cfg.fundEl).textContent = '$' + (data.available_usd || 0).toFixed(0);
             document.getElementById(cfg.deployedEl).textContent = '$' + (data.deployed_usd || 0).toFixed(0);
             document.getElementById(cfg.posEl).textContent =
                 (data.positions || []).length;
+
+            // Unrealized + Realized P&L
+            if (cfg.unrealizedEl) {
+                const ue = document.getElementById(cfg.unrealizedEl);
+                const uv = data.unrealized_pnl || 0;
+                const us = uv >= 0 ? '+' : '';
+                ue.textContent = us + '$' + uv.toFixed(2);
+                ue.style.color = uv >= 0 ? 'var(--green)' : 'var(--red)';
+            }
+            if (cfg.realizedEl) {
+                const re = document.getElementById(cfg.realizedEl);
+                const rv = data.realized_pnl || 0;
+                const rs = rv >= 0 ? '+' : '';
+                re.textContent = rs + '$' + rv.toFixed(2);
+                re.style.color = rv >= 0 ? 'var(--green)' : 'var(--red)';
+            }
+
+            // Max bet
+            if (cfg.maxBetEl && data.max_bet_usd) {
+                document.getElementById(cfg.maxBetEl).value = data.max_bet_usd;
+            }
 
             // Sync risk level from server
             if (data.risk_level && cfg.riskEl) {
@@ -1571,6 +1662,84 @@ async function fetchSegmentStatus(segment) {
             offEl.style.display = 'block';
         }
     } catch(e) {}
+}
+
+function applyWsSegments(segments) {
+    for (const [segment, data] of Object.entries(segments)) {
+        const cfg = SEGMENTS[segment];
+        if (!cfg || !data) continue;
+        try {
+            const statusEl = document.getElementById(cfg.statusEl);
+            const onEl = document.getElementById(cfg.onEl);
+            const offEl = document.getElementById(cfg.offEl);
+            if (!statusEl || !onEl || !offEl) continue;
+
+            if (data.enabled) {
+                statusEl.textContent = cfg.activeLabel;
+                statusEl.style.background = cfg.activeColor;
+                statusEl.style.color = '#000';
+                onEl.style.display = 'block';
+                offEl.style.display = 'none';
+
+                document.getElementById(cfg.fundEl).textContent = '$' + (data.available_usd || 0).toFixed(0);
+                document.getElementById(cfg.deployedEl).textContent = '$' + (data.deployed_usd || 0).toFixed(0);
+                document.getElementById(cfg.posEl).textContent = data.positions_count || 0;
+
+                if (cfg.unrealizedEl) {
+                    const ue = document.getElementById(cfg.unrealizedEl);
+                    const uv = data.unrealized_pnl || 0;
+                    ue.textContent = (uv >= 0 ? '+' : '') + '$' + uv.toFixed(2);
+                    ue.style.color = uv >= 0 ? 'var(--green)' : 'var(--red)';
+                }
+                if (cfg.realizedEl) {
+                    const re = document.getElementById(cfg.realizedEl);
+                    const rv = data.realized_pnl || 0;
+                    re.textContent = (rv >= 0 ? '+' : '') + '$' + rv.toFixed(2);
+                    re.style.color = rv >= 0 ? 'var(--green)' : 'var(--red)';
+                }
+
+                if (cfg.maxBetEl && data.max_bet_usd) {
+                    document.getElementById(cfg.maxBetEl).value = data.max_bet_usd;
+                }
+
+                if (data.risk_level && cfg.riskEl) {
+                    setRisk(segment, data.risk_level);
+                }
+
+                if (data.reinvest_pct !== undefined && cfg.reinvestEl) {
+                    const slider = document.getElementById(cfg.reinvestEl);
+                    const label = document.getElementById(cfg.reinvestLabelEl);
+                    if (slider) slider.value = data.reinvest_pct;
+                    if (label) label.textContent = data.reinvest_pct + '%';
+                }
+
+                const scanEl = document.getElementById(cfg.scanEl);
+                if (scanEl && data.log) {
+                    scanEl.textContent = renderScanInfo(data.log, segment);
+                }
+
+                if (cfg.topEl && data.log && data.log.length > 0) {
+                    const topEl = document.getElementById(cfg.topEl);
+                    const lastLog = data.log[data.log.length - 1];
+                    const scores = lastLog.top_scores || [];
+                    if (topEl && scores.length > 0) {
+                        topEl.innerHTML = scores.slice(0, 5).map(s =>
+                            `<span style="display:inline-block;padding:2px 6px;margin:1px;border-radius:5px;font-size:10px;font-weight:600;` +
+                            `background:${s.score >= 0.65 ? 'var(--green-dim)' : 'rgba(255,255,255,0.05)'};` +
+                            `color:${s.score >= 0.65 ? 'var(--green)' : 'var(--text-muted)'};">` +
+                            `${s.symbol.replace('/USDT','')} ${(s.score*100).toFixed(0)}%</span>`
+                        ).join('');
+                    }
+                }
+            } else {
+                statusEl.textContent = 'OFF';
+                statusEl.style.background = 'var(--border)';
+                statusEl.style.color = 'var(--text-muted)';
+                onEl.style.display = 'none';
+                offEl.style.display = 'block';
+            }
+        } catch(e) {}
+    }
 }
 
 function getSelectedRisk(segment) {
@@ -1690,6 +1859,23 @@ async function submitEditFund() {
         if (resp.ok) fetchSegmentStatus(editFundSegment);
     } catch(e) {}
     closeEditFund();
+}
+
+// ═══════════════════════════════════════
+// Max Bet Update
+// ═══════════════════════════════════════
+async function updateMaxBet(segment, value) {
+    const cfg = SEGMENTS[segment];
+    if (!cfg) return;
+    const val = parseFloat(value);
+    if (!val || val < 5) return;
+    try {
+        await fetch(cfg.api, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ action: 'update', max_bet_usd: val }),
+        });
+    } catch(e) {}
 }
 
 // ═══════════════════════════════════════
@@ -1846,7 +2032,8 @@ function setTradeMode(mode) {
     document.getElementById('modePaper').classList.toggle('active', mode === 'paper');
     document.getElementById('modeReal').classList.toggle('active', mode === 'real');
     document.body.setAttribute('data-trade-mode', mode);
-    // Refresh positions to filter by mode
+    // Re-apply cached WS data with new filter
+    if (_lastWsStats) applyWsStats(_lastWsStats);
     updatePositions();
     updatePortfolioStats();
 }
@@ -1856,6 +2043,7 @@ function confirmRealMode() {
     document.getElementById('modePaper').classList.remove('active');
     document.getElementById('modeReal').classList.add('active');
     document.body.setAttribute('data-trade-mode', 'real');
+    if (_lastWsStats) applyWsStats(_lastWsStats);
     updatePositions();
     updatePortfolioStats();
 }
