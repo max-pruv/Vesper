@@ -4,6 +4,8 @@ import os
 import signal
 import threading
 
+import ccxt
+
 from apscheduler.schedulers.blocking import BlockingScheduler
 import uvicorn
 
@@ -45,6 +47,8 @@ class UserBot:
         )
 
         self.exchange = create_exchange(exchange_cfg)
+        # Public exchange for market data (Binance — reliable USDT pairs, no auth needed)
+        self.public_exchange = ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
         self.alpaca = alpaca_client  # None if user hasn't connected Alpaca
 
     def run_cycle(self):
@@ -92,20 +96,27 @@ class UserBot:
         return instance
 
     def _get_snapshot(self, symbol: str, strategy_id: str) -> dict:
-        """Fetch the right market snapshot for a strategy's timeframe."""
+        """Fetch the right market snapshot for a strategy's timeframe.
+
+        Uses public_exchange (Binance) for market data — reliable USDT pairs.
+        Falls back to self.exchange (Coinbase) if public fails.
+        """
         # Stock symbols use Alpaca data
         if is_stock_symbol(symbol) and self.alpaca:
             return get_stock_snapshot(self.alpaca, symbol)
+
+        # Use public Binance for crypto data (reliable USDT pairs)
+        data_exchange = self.public_exchange
 
         config = STRATEGY_MAP.get(strategy_id, {})
         timeframe = config.get("timeframe", "1h")
 
         if timeframe == "multi":
             # Multi-timeframe: 1h + 4h with alignment
-            snapshot = get_multi_tf_snapshot(self.exchange, symbol)
+            snapshot = get_multi_tf_snapshot(data_exchange, symbol)
             # Enrich with order book + sentiment for enhanced strategies
             try:
-                ob = get_order_book_pressure(self.exchange, symbol)
+                ob = get_order_book_pressure(data_exchange, symbol)
                 snapshot["buy_pressure"] = ob["buy_pressure"]
                 snapshot["spread_pct"] = ob["spread_pct"]
             except Exception:
@@ -116,13 +127,13 @@ class UserBot:
                 snapshot["fear_greed"] = 50
             # Enrich with whale tracking + composite sentiment (AI intelligence layer)
             try:
-                enrich_with_intelligence(self.exchange, symbol, snapshot)
+                enrich_with_intelligence(data_exchange, symbol, snapshot)
             except Exception:
                 pass
         elif timeframe:
-            snapshot = get_market_snapshot(self.exchange, symbol, timeframe=timeframe)
+            snapshot = get_market_snapshot(data_exchange, symbol, timeframe=timeframe)
         else:
-            snapshot = get_market_snapshot(self.exchange, symbol)
+            snapshot = get_market_snapshot(data_exchange, symbol)
 
         return snapshot
 
@@ -551,7 +562,7 @@ class UserBot:
 
         # Merge static universe with dynamically discovered trending coins
         try:
-            trending = discover_trending_coins(self.exchange)
+            trending = discover_trending_coins(self.public_exchange)
         except Exception:
             trending = []
         scan_universe = list(dict.fromkeys(ALTCOIN_UNIVERSE + trending))  # dedupe, preserve order

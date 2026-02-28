@@ -605,7 +605,16 @@ async def admin_page(request: Request, days: int = 30):
             "joined": datetime.fromtimestamp(u.created_at).strftime("%Y-%m-%d"),
         })
 
-    active_bots = sum(1 for u in all_users if u.bot_active)
+    # Count actual active autopilots across all users
+    active_bots = 0
+    for u in all_users:
+        p = _load_portfolio(u.id)
+        if p.get("altcoin_hunter", {}).get("enabled"):
+            active_bots += 1
+        if p.get("autopilot", {}).get("enabled"):
+            active_bots += 1
+        if p.get("predictions_autopilot", {}).get("enabled"):
+            active_bots += 1
 
     return templates.TemplateResponse("admin.html", {
         "request": request,
@@ -687,9 +696,9 @@ def _fetch_signal_sync(symbol: str, strategy_id: str = "smart_auto") -> dict:
                 "strategy": strategy_id}
 
 
-def _get_public_exchange() -> ccxt.coinbase:
-    """Public (no auth) exchange for price data."""
-    return ccxt.coinbase({"enableRateLimit": True, "options": {"defaultType": "spot"}})
+def _get_public_exchange():
+    """Public (no auth) exchange for price data. Uses Binance for reliable USDT pairs."""
+    return ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
 
 
 def _calc_change_pct(t: dict) -> float:
