@@ -813,14 +813,14 @@ function renderBetCard(p, isNew) {
             <span class="bet-current-price"><span class="live-dot"></span> Now $${formatPrice(p.current_price)}</span>
             <span style="font-size:12px;color:var(--text-muted);">${p.current_price >= p.entry_price ? '\u25B2' : '\u25BC'} ${Math.abs(p.pnl_pct).toFixed(2)}% from entry</span>
         </div>
-        <!-- Chance to Win + Mini Sparkline -->
-        <div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);display:flex;align-items:center;gap:12px;">
-            <div style="flex-shrink:0;">
-                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;margin-bottom:2px;">Chance to Win</div>
-                <div style="font-size:22px;font-weight:800;color:${p.win_probability >= 60 ? 'var(--green)' : p.win_probability >= 40 ? '#f5a623' : 'var(--red)'};">${(p.win_probability || 0).toFixed(0)}%</div>
+        <!-- P/L Evolution Chart -->
+        <div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">P&L Evolution</div>
+                <div style="font-size:10px;color:var(--text-muted);" id="sparktime-${p.id.replace(/[^a-zA-Z0-9]/g,'_')}"></div>
             </div>
-            <div style="flex:1;height:36px;position:relative;">
-                <canvas id="spark-${p.id.replace(/[^a-zA-Z0-9]/g,'_')}" style="width:100%;height:36px;"></canvas>
+            <div style="height:52px;position:relative;">
+                <canvas id="spark-${p.id.replace(/[^a-zA-Z0-9]/g,'_')}" style="width:100%;height:52px;"></canvas>
             </div>
         </div>
         <!-- P/L View -->
@@ -907,18 +907,26 @@ async function updatePositions() {
         });
         knownPositionIds = newIds;
 
-        // Render sparklines for each position
+        // Render P/L charts for each position
         positions.forEach(p => {
-            const canvasId = 'spark-' + p.id.replace(/[^a-zA-Z0-9]/g, '_');
-            const canvas = document.getElementById(canvasId);
+            const safeId = p.id.replace(/[^a-zA-Z0-9]/g, '_');
+            const canvas = document.getElementById('spark-' + safeId);
+            const timeEl = document.getElementById('sparktime-' + safeId);
             if (canvas && p.price_history && p.price_history.length > 1) {
-                drawSparkline(canvas, p.price_history.map(s => s.w));
+                drawPnlChart(canvas, p.price_history, p.entry_price, p.amount, p.side || 'buy', timeEl);
             }
         });
     } catch(e) {}
 }
 
-function drawSparkline(canvas, values) {
+function smartTimeLabel(seconds) {
+    if (seconds < 60) return Math.floor(seconds) + 's';
+    if (seconds < 3600) return Math.floor(seconds / 60) + 'm';
+    if (seconds < 86400) return Math.floor(seconds / 3600) + 'h';
+    return Math.floor(seconds / 86400) + 'd';
+}
+
+function drawPnlChart(canvas, history, entryPrice, amount, side, timeEl) {
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
@@ -929,48 +937,73 @@ function drawSparkline(canvas, values) {
     const h = rect.height;
     ctx.clearRect(0, 0, w, h);
 
-    if (values.length < 2) return;
+    if (!history || history.length < 2) return;
 
-    const min = Math.max(0, Math.min(...values) - 5);
-    const max = Math.min(100, Math.max(...values) + 5);
-    const range = max - min || 1;
+    // Calculate P/L values from price history
+    const pnlData = history.map(s => {
+        const price = s.p || 0;
+        const pnl = side === 'buy' ? (price - entryPrice) * amount : (entryPrice - price) * amount;
+        return { t: s.t, pnl: pnl };
+    });
 
-    // Draw line
+    const pnlValues = pnlData.map(d => d.pnl);
+    const minPnl = Math.min(0, ...pnlValues);
+    const maxPnl = Math.max(0, ...pnlValues);
+    const pnlRange = (maxPnl - minPnl) || 1;
+    const padding = pnlRange * 0.15;
+    const rangeMin = minPnl - padding;
+    const rangeMax = maxPnl + padding;
+    const totalRange = rangeMax - rangeMin;
+
+    // Draw zero line
+    const zeroY = h - ((0 - rangeMin) / totalRange) * h;
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
     ctx.beginPath();
-    const stepX = w / (values.length - 1);
-    values.forEach((v, i) => {
+    ctx.moveTo(0, zeroY);
+    ctx.lineTo(w, zeroY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw P/L line
+    const lastPnl = pnlValues[pnlValues.length - 1];
+    const lineColor = lastPnl >= 0 ? '#00e85e' : '#ff4444';
+    const fillColor = lastPnl >= 0 ? 'rgba(0,232,94,0.1)' : 'rgba(255,68,68,0.1)';
+
+    ctx.beginPath();
+    const stepX = w / (pnlValues.length - 1);
+    pnlValues.forEach((v, i) => {
         const x = i * stepX;
-        const y = h - ((v - min) / range) * h;
+        const y = h - ((v - rangeMin) / totalRange) * h;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
     });
-
-    const lastVal = values[values.length - 1];
-    const lineColor = lastVal >= 60 ? '#00e85e' : lastVal >= 40 ? '#f5a623' : '#ff4444';
     ctx.strokeStyle = lineColor;
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
     ctx.stroke();
 
-    // Fill gradient under the line
-    const lastY = h - ((lastVal - min) / range) * h;
-    ctx.lineTo(w, h);
-    ctx.lineTo(0, h);
+    // Fill under line to zero
+    ctx.lineTo(w, zeroY);
+    ctx.lineTo(0, zeroY);
     ctx.closePath();
-    const grad = ctx.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, lineColor.replace(')', ',0.15)').replace('rgb', 'rgba').replace('#', ''));
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    // Simple approach: use rgba version
-    ctx.fillStyle = lastVal >= 60 ? 'rgba(0,232,94,0.08)' : lastVal >= 40 ? 'rgba(245,166,35,0.08)' : 'rgba(255,68,68,0.08)';
+    ctx.fillStyle = fillColor;
     ctx.fill();
 
     // End dot
-    const endX = (values.length - 1) * stepX;
-    const endY = h - ((lastVal - min) / range) * h;
+    const endX = (pnlValues.length - 1) * stepX;
+    const endY = h - ((lastPnl - rangeMin) / totalRange) * h;
     ctx.beginPath();
-    ctx.arc(endX, endY, 2.5, 0, Math.PI * 2);
+    ctx.arc(endX, endY, 3, 0, Math.PI * 2);
     ctx.fillStyle = lineColor;
     ctx.fill();
+
+    // Smart timeline label
+    if (timeEl && pnlData.length >= 2) {
+        const elapsed = pnlData[pnlData.length - 1].t - pnlData[0].t;
+        timeEl.textContent = smartTimeLabel(elapsed) + ' ago';
+    }
 }
 updatePositions();
 setInterval(updatePositions, 3000);
@@ -1533,11 +1566,31 @@ document.getElementById('learnMoreModal').addEventListener('click', function(e) 
 // ═══════════════════════════════════════
 // Paper / Real Trade Mode
 // ═══════════════════════════════════════
+function showModeBanner(msg) {
+    // Show a non-blocking banner that auto-dismisses
+    let banner = document.getElementById('modeBanner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'modeBanner';
+        banner.style.cssText = 'position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:200;padding:10px 24px;border-radius:12px;font-size:13px;font-weight:600;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);transition:opacity 0.3s;pointer-events:none;';
+        document.body.appendChild(banner);
+    }
+    banner.textContent = msg;
+    banner.style.background = 'rgba(245,166,35,0.15)';
+    banner.style.color = '#f5a623';
+    banner.style.border = '1px solid rgba(245,166,35,0.25)';
+    banner.style.opacity = '1';
+    clearTimeout(banner._timer);
+    banner._timer = setTimeout(() => { banner.style.opacity = '0'; }, 2500);
+}
 function setTradeMode(mode) {
     if (mode === 'real' && currentTradeMode !== 'real') {
-        // Show confirmation modal
+        // Show confirmation modal for switching to real
         document.getElementById('realModeModal').classList.add('active');
         return;
+    }
+    if (mode === 'paper' && currentTradeMode === 'real') {
+        showModeBanner('Switched to Paper mode — real positions are still managed');
     }
     currentTradeMode = mode;
     document.getElementById('modePaper').classList.toggle('active', mode === 'paper');
@@ -1545,6 +1598,7 @@ function setTradeMode(mode) {
     document.body.setAttribute('data-trade-mode', mode);
     // Refresh positions to filter by mode
     updatePositions();
+    updatePortfolioStats();
 }
 function confirmRealMode() {
     document.getElementById('realModeModal').classList.remove('active');
@@ -1553,6 +1607,7 @@ function confirmRealMode() {
     document.getElementById('modeReal').classList.add('active');
     document.body.setAttribute('data-trade-mode', 'real');
     updatePositions();
+    updatePortfolioStats();
 }
 function closeRealMode() {
     document.getElementById('realModeModal').classList.remove('active');

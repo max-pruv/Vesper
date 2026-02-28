@@ -309,6 +309,7 @@ class UserBot:
             cost_usd=limits.position_size_usd,
             limits=limits,
             strategy_reason=result.reason,
+            trade_mode="real" if self.mode == "live" else "paper",
         )
 
         if self.mode == "paper":
@@ -518,7 +519,7 @@ class UserBot:
         if fund_total <= 0:
             return
 
-        max_positions = hunter_cfg.get("max_positions", 5)
+        max_positions = hunter_cfg.get("max_positions", 20)
         trailing_pct = hunter_cfg.get("trailing_stop_pct", 2.0)
 
         # Risk tolerance controls thresholds
@@ -859,7 +860,7 @@ class UserBot:
         if _time.time() - last_scan < 3600:
             return
 
-        max_positions = pred_cfg.get("max_positions", 3)
+        max_positions = pred_cfg.get("max_positions", 20)
         min_edge = pred_cfg.get("min_edge_pct", 5.0)
 
         # Collect existing prediction positions
@@ -1176,7 +1177,7 @@ class UserBot:
         if fund_total <= 0:
             return
 
-        max_positions = autopilot.get("max_positions", 3)
+        max_positions = autopilot.get("max_positions", 20)
 
         # Risk tolerance
         risk_level = autopilot.get("risk_level", "aggressive")

@@ -89,6 +89,41 @@
         .nav-link:hover { color: var(--text); background: var(--glass); border-color: var(--glass-border); text-decoration: none; }
         .nav-link.active { color: var(--text); background: var(--glass); border-color: var(--glass-border); }
 
+        /* Hamburger Menu */
+        .nav-hamburger {
+            display: none; background: none; border: none; cursor: pointer;
+            padding: 8px; color: var(--text); z-index: 110;
+        }
+        .nav-hamburger svg { width: 22px; height: 22px; }
+        .nav-overlay {
+            display: none; position: fixed; inset: 0; z-index: 99;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        .nav-overlay.open { display: block; }
+
+        @media (max-width: 768px) {
+            .nav-hamburger { display: block; }
+            .nav-links {
+                display: none; position: fixed; top: 0; right: 0;
+                width: 260px; height: 100vh; z-index: 105;
+                flex-direction: column; gap: 0; align-items: stretch;
+                background: rgba(8,8,14,0.97); backdrop-filter: blur(24px);
+                -webkit-backdrop-filter: blur(24px);
+                border-left: 1px solid var(--glass-border);
+                padding: 72px 16px 24px;
+                box-shadow: -8px 0 32px rgba(0,0,0,0.4);
+            }
+            .nav-links.open { display: flex; }
+            .nav-links .nav-link {
+                padding: 14px 16px; border-radius: 12px; font-size: 15px;
+                border: none;
+            }
+            .nav-links .nav-link:hover, .nav-links .nav-link.active {
+                background: rgba(255,255,255,0.06);
+            }
+        }
+
         .container { max-width: 1080px; margin: 0 auto; padding: 32px 24px; }
         .page-wrapper { padding-top: 56px; max-width: 1080px; margin: 0 auto; padding-left: 24px; padding-right: 24px; }
 
@@ -428,5 +463,36 @@
 </head>
 <body>
     {% block body %}{% endblock %}
+    <script>
+    // Hamburger menu — inject button into any .nav element
+    (function() {
+        const nav = document.querySelector('.nav');
+        if (!nav) return;
+        const links = nav.querySelector('.nav-links');
+        if (!links) return;
+
+        // Create hamburger button
+        const btn = document.createElement('button');
+        btn.className = 'nav-hamburger';
+        btn.setAttribute('aria-label', 'Menu');
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>';
+        nav.appendChild(btn);
+
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'nav-overlay';
+        document.body.appendChild(overlay);
+
+        function toggleMenu() {
+            const open = links.classList.toggle('open');
+            overlay.classList.toggle('open', open);
+            btn.innerHTML = open
+                ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>'
+                : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>';
+        }
+        btn.addEventListener('click', toggleMenu);
+        overlay.addEventListener('click', toggleMenu);
+    })();
+    </script>
 </body>
 </html>

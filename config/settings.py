@@ -25,7 +25,7 @@ class RiskConfig:
     take_profit_min_pct: float = 1.5
     take_profit_max_pct: float = 5.0
     max_position_pct: float = 30.0
-    max_concurrent_positions: int = 2
+    max_concurrent_positions: int = 50
 
     @classmethod
     def from_env(cls) -> "RiskConfig":

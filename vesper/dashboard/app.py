@@ -760,6 +760,33 @@ async def _get_cached_prices() -> list[dict]:
     return _price_cache
 
 
+def _fetch_single_price(symbol: str) -> float:
+    """Fetch a single symbol's price (for positions outside TICKER_SYMBOLS)."""
+    try:
+        ex = _get_public_exchange()
+        t = ex.fetch_ticker(symbol)
+        return t.get("last", 0) if t else 0
+    except Exception:
+        return 0
+
+
+async def _get_price_map_for_positions(position_symbols: set[str]) -> dict[str, float]:
+    """Build a complete price map covering all position symbols."""
+    prices = await _get_cached_prices()
+    price_map = {p["symbol"]: p["price"] for p in prices}
+
+    # Fetch missing symbols individually
+    missing = position_symbols - set(price_map.keys())
+    if missing:
+        loop = asyncio.get_event_loop()
+        for sym in missing:
+            price = await loop.run_in_executor(None, _fetch_single_price, sym)
+            if price > 0:
+                price_map[sym] = price
+
+    return price_map
+
+
 # --- API Endpoints ---
 
 @app.get("/api/health")
@@ -1044,11 +1071,15 @@ async def api_portfolio_stats(request: Request):
     # Unrealized P&L from open positions
     unrealized_pnl = 0
     if positions:
-        prices = await _get_cached_prices()
-        price_map = {p["symbol"]: p["price"] for p in prices}
+        pos_symbols = {p.get("symbol", "") for p in positions.values() if not p.get("symbol", "").startswith("PRED:")}
+        price_map = await _get_price_map_for_positions(pos_symbols)
         for p in positions.values():
             entry = p.get("entry_price", 0)
-            current = price_map.get(p.get("symbol", ""), entry)
+            sym = p.get("symbol", "")
+            if sym.startswith("PRED:"):
+                current = p.get("current_probability", entry)
+            else:
+                current = price_map.get(sym, entry)
             amount = p.get("amount", 0)
             side = p.get("side", "buy")
             if side == "buy":
@@ -1112,8 +1143,9 @@ async def api_positions(request: Request):
     if not positions:
         return []
 
-    prices = await _get_cached_prices()
-    price_map = {p["symbol"]: p["price"] for p in prices}
+    # Build price map that covers ALL position symbols (not just TICKER_SYMBOLS)
+    pos_symbols = {p.get("symbol", "") for p in positions.values() if not p.get("symbol", "").startswith("PRED:")}
+    price_map = await _get_price_map_for_positions(pos_symbols)
 
     result = []
     for pid, p in positions.items():
@@ -1366,9 +1398,9 @@ async def api_close_trade(request: Request):
         return JSONResponse({"error": "Position not found"}, status_code=404)
 
     # Get current price
-    prices = await _get_cached_prices()
-    price_map = {p["symbol"]: p["price"] for p in prices}
-    current_price = price_map.get(pos["symbol"], pos["entry_price"])
+    sym = pos["symbol"]
+    price_map = await _get_price_map_for_positions({sym})
+    current_price = price_map.get(sym, pos["entry_price"])
 
     # Calculate P&L
     entry = pos["entry_price"]
@@ -1452,7 +1484,7 @@ async def api_autopilot_status(request: Request):
         "fund_usd": fund_total,
         "deployed_usd": round(deployed, 2),
         "available_usd": round(fund_total - deployed, 2),
-        "max_positions": autopilot.get("max_positions", 3),
+        "max_positions": autopilot.get("max_positions", 20),
         "risk_level": autopilot.get("risk_level", "aggressive"),
         "reinvest_pct": autopilot.get("reinvest_pct", 100),
         "positions": ap_positions,
@@ -1485,7 +1517,7 @@ async def api_autopilot_toggle(request: Request):
         pdata["autopilot"] = {
             "enabled": True,
             "fund_usd": amount,
-            "max_positions": int(body.get("max_positions", 3)),
+            "max_positions": int(body.get("max_positions", 20)),
             "risk_level": body.get("risk_level", "aggressive"),
             "reinvest_pct": float(body.get("reinvest_pct", 100)),
             "trade_mode": body.get("trade_mode", "paper"),
@@ -1657,7 +1689,7 @@ async def api_predictions_autopilot_status(request: Request):
         "fund_usd": fund_total,
         "deployed_usd": round(deployed, 2),
         "available_usd": round(fund_total - deployed, 2),
-        "max_positions": pred_cfg.get("max_positions", 3),
+        "max_positions": pred_cfg.get("max_positions", 20),
         "risk_level": pred_cfg.get("risk_level", "aggressive"),
         "reinvest_pct": pred_cfg.get("reinvest_pct", 100),
         "positions": pred_positions,
@@ -1691,7 +1723,7 @@ async def api_predictions_autopilot_toggle(request: Request):
         pdata["predictions_autopilot"] = {
             "enabled": True,
             "fund_usd": amount,
-            "max_positions": int(body.get("max_positions", 3)),
+            "max_positions": int(body.get("max_positions", 20)),
             "min_edge_pct": float(body.get("min_edge_pct", 5.0)),
             "risk_level": body.get("risk_level", "aggressive"),
             "reinvest_pct": float(body.get("reinvest_pct", 100)),
