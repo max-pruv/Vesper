@@ -10,6 +10,7 @@
     <div class="nav-links">
         <a class="nav-link active" href="/dashboard">Dashboard</a>
         <a class="nav-link" href="/how-it-works">How it works</a>
+        {% if user.is_admin %}<a class="nav-link" href="/admin">Admin</a>{% endif %}
         <a class="nav-link" href="/settings">Settings</a>
         <a class="nav-link" href="/logout">Log out</a>
     </div>

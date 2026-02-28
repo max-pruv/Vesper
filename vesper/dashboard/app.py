@@ -573,10 +573,10 @@ async def admin_page(request: Request, days: int = 30):
     if not user:
         return RedirectResponse(url="/login", status_code=303)
 
-    # Bootstrap: first registered user auto-becomes admin if none exist
+    # Bootstrap: if no admin exists yet, promote the current user
     all_users = get_all_users()
     has_any_admin = any(u.is_admin for u in all_users)
-    if not has_any_admin and all_users and user.id == all_users[-1].id:
+    if not has_any_admin and all_users:
         set_admin(user.id, True)
         user = get_user_by_id(user.id)
 
