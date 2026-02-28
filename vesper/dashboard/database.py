@@ -340,6 +340,8 @@ def get_active_users() -> list[User]:
             totp_secret=row["totp_secret"],
             coinbase_api_key=row["coinbase_api_key"],
             coinbase_api_secret=row["coinbase_api_secret"],
+            alpaca_api_key=row["alpaca_api_key"] if "alpaca_api_key" in row.keys() else "",
+            alpaca_api_secret=row["alpaca_api_secret"] if "alpaca_api_secret" in row.keys() else "",
             paper_balance=row["paper_balance"],
             trading_mode=row["trading_mode"],
             symbols=row["symbols"],
