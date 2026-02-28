@@ -250,6 +250,64 @@
         </div>
     </div>
 
+    <!-- Altcoin Hunter -->
+    <div class="card" id="hunterCard" style="background:linear-gradient(135deg, rgba(34,197,94,0.08), rgba(16,185,129,0.06));border:1px solid rgba(34,197,94,0.2);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <div>
+                <div class="card-title" style="margin-bottom:2px;display:flex;align-items:center;gap:8px;">
+                    Altcoin Hunter
+                    <span id="ahStatus" style="font-size:11px;padding:2px 8px;border-radius:10px;background:var(--border);color:var(--text-muted);font-weight:600;">OFF</span>
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);">Scans 50+ altcoins, auto-invests in strongest trends, self-rebalances with trailing stops</div>
+            </div>
+        </div>
+        <div id="ahOff" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <div style="position:relative;">
+                <span style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:var(--text-muted);font-size:14px;">$</span>
+                <input type="number" id="ahAmount" placeholder="200" min="10" step="10"
+                       style="padding:8px 8px 8px 24px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:120px;font-size:14px;">
+            </div>
+            <select id="ahSlots" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px;">
+                <option value="3">3 positions</option>
+                <option value="5" selected>5 positions</option>
+                <option value="8">8 positions</option>
+                <option value="10">10 positions</option>
+            </select>
+            <select id="ahTrailing" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px;">
+                <option value="1.5">1.5% trailing</option>
+                <option value="2.0" selected>2% trailing</option>
+                <option value="3.0">3% trailing</option>
+                <option value="5.0">5% trailing</option>
+            </select>
+            <button class="btn" style="background:var(--green);color:#000;font-weight:700;" onclick="startAltcoinHunter()">Start Hunter</button>
+        </div>
+        <div id="ahOn" style="display:none;">
+            <div style="display:flex;gap:24px;margin-bottom:12px;flex-wrap:wrap;">
+                <div>
+                    <div style="font-size:24px;font-weight:700;" id="ahFund">$0</div>
+                    <div style="font-size:11px;color:var(--text-muted);">Total Fund</div>
+                </div>
+                <div>
+                    <div style="font-size:24px;font-weight:700;color:var(--green);" id="ahDeployed">$0</div>
+                    <div style="font-size:11px;color:var(--text-muted);">Deployed</div>
+                </div>
+                <div>
+                    <div style="font-size:24px;font-weight:700;color:var(--text-muted);" id="ahAvailable">$0</div>
+                    <div style="font-size:11px;color:var(--text-muted);">Available</div>
+                </div>
+                <div>
+                    <div style="font-size:24px;font-weight:700;" id="ahPositions">0/5</div>
+                    <div style="font-size:11px;color:var(--text-muted);">Positions</div>
+                </div>
+            </div>
+            <div id="ahTopScores" style="margin-bottom:8px;"></div>
+            <div id="ahLastScan" style="font-size:12px;color:var(--text-muted);margin-top:4px;"></div>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+                <button class="btn" style="background:var(--border);font-size:12px;padding:6px 16px;" onclick="stopAltcoinHunter()">Stop Hunter</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Active Bets -->
     <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
@@ -615,6 +673,8 @@ function renderDecision(d) {
     // Source badge
     const sourceBadge = d.source === 'autopilot'
         ? '<span style="background:rgba(99,102,241,0.15);color:#818cf8;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px;">autopilot</span>'
+        : d.source === 'altcoin_hunter' || d.source === 'altcoin_hunter_rebalance'
+        ? '<span style="background:rgba(34,197,94,0.15);color:#22c55e;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px;">hunter</span>'
         : d.source === 'ai_exit'
         ? '<span style="background:rgba(255,128,0,0.15);color:#f80;padding:1px 6px;border-radius:4px;font-size:10px;margin-left:4px;">ai exit</span>'
         : '';
@@ -1375,6 +1435,104 @@ async function stopAutopilot() {
 
 fetchAutopilotStatus();
 setInterval(fetchAutopilotStatus, 10000);
+
+// ═══════════════════════════════════════
+// Altcoin Hunter
+// ═══════════════════════════════════════
+
+async function fetchAltcoinHunterStatus() {
+    try {
+        const resp = await fetch('/api/altcoin-hunter');
+        if (!resp.ok) return;
+        const ah = await resp.json();
+        const statusEl = document.getElementById('ahStatus');
+        const onEl = document.getElementById('ahOn');
+        const offEl = document.getElementById('ahOff');
+
+        if (ah.enabled) {
+            statusEl.textContent = 'HUNTING';
+            statusEl.style.background = 'var(--green)';
+            statusEl.style.color = '#000';
+            onEl.style.display = 'block';
+            offEl.style.display = 'none';
+            document.getElementById('ahFund').textContent = '$' + ah.fund_usd.toFixed(0);
+            document.getElementById('ahDeployed').textContent = '$' + ah.deployed_usd.toFixed(0);
+            document.getElementById('ahAvailable').textContent = '$' + ah.available_usd.toFixed(0);
+            document.getElementById('ahPositions').textContent =
+                ah.positions.length + '/' + ah.max_positions;
+
+            // Show top scores from last scan
+            const topEl = document.getElementById('ahTopScores');
+            if (topEl && ah.log && ah.log.length > 0) {
+                const lastLog = ah.log[ah.log.length - 1];
+                const scores = lastLog.top_scores || [];
+                if (scores.length > 0) {
+                    topEl.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:4px;">Top trending:</div>' +
+                        scores.slice(0, 5).map(s =>
+                            `<span style="display:inline-block;padding:2px 8px;margin:2px;border-radius:6px;font-size:11px;font-weight:600;` +
+                            `background:${s.score >= 0.65 ? 'var(--green-dim)' : 'rgba(255,255,255,0.05)'};` +
+                            `color:${s.score >= 0.65 ? 'var(--green)' : 'var(--text-muted)'};">` +
+                            `${s.symbol.replace('/USDT','')} ${(s.score*100).toFixed(0)}%</span>`
+                        ).join('');
+                }
+            }
+
+            // Last scan info
+            const scanEl = document.getElementById('ahLastScan');
+            if (scanEl && ah.log && ah.log.length > 0) {
+                const e = ah.log[ah.log.length - 1];
+                const t = e.time ? new Date(e.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '';
+                const actions = e.actions || [];
+                const buys = actions.filter(a => a.action === 'BUY').length;
+                const sells = actions.filter(a => a.action === 'SELL').length;
+                let msg = `Last scan at ${t} — ${e.symbols_scanned || 0} coins scanned`;
+                if (buys > 0) msg += `, ${buys} bought`;
+                if (sells > 0) msg += `, ${sells} rebalanced`;
+                if (buys === 0 && sells === 0) msg += ', no action needed';
+                scanEl.textContent = msg;
+            }
+        } else {
+            statusEl.textContent = 'OFF';
+            statusEl.style.background = 'var(--border)';
+            statusEl.style.color = 'var(--text-muted)';
+            onEl.style.display = 'none';
+            offEl.style.display = 'flex';
+        }
+    } catch(e) {}
+}
+
+async function startAltcoinHunter() {
+    const amount = parseFloat(document.getElementById('ahAmount').value);
+    const slots = parseInt(document.getElementById('ahSlots').value);
+    const trailing = parseFloat(document.getElementById('ahTrailing').value);
+    if (!amount || amount < 10) {
+        alert('Minimum $10 for Altcoin Hunter');
+        return;
+    }
+    try {
+        const resp = await fetch('/api/altcoin-hunter', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action: 'start', amount_usd: amount, max_positions: slots, trailing_stop_pct: trailing}),
+        });
+        if (resp.ok) fetchAltcoinHunterStatus();
+    } catch(e) {}
+}
+
+async function stopAltcoinHunter() {
+    if (!confirm('Stop Altcoin Hunter? Existing positions will close on next rebalance cycle.')) return;
+    try {
+        const resp = await fetch('/api/altcoin-hunter', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action: 'stop'}),
+        });
+        if (resp.ok) fetchAltcoinHunterStatus();
+    } catch(e) {}
+}
+
+fetchAltcoinHunterStatus();
+setInterval(fetchAltcoinHunterStatus, 10000);
 
 function escapeHtml(text) {
     const div = document.createElement('div');

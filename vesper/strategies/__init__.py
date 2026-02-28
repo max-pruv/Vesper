@@ -3,6 +3,7 @@ from .trend_following import TrendFollowingStrategy
 from .mean_reversion import MeanReversionStrategy
 from .momentum import MomentumStrategy
 from .ensemble import EnsembleStrategy, EnhancedEnsemble
+from .altcoin_hunter import AltcoinHunterStrategy
 
 __all__ = [
     "Signal",
@@ -12,4 +13,5 @@ __all__ = [
     "MomentumStrategy",
     "EnsembleStrategy",
     "EnhancedEnsemble",
+    "AltcoinHunterStrategy",
 ]

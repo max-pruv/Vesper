@@ -1356,6 +1356,93 @@ async def api_autopilot_toggle(request: Request):
 
 
 # ═══════════════════════════════════════
+# Altcoin Hunter API
+# ═══════════════════════════════════════
+
+@app.get("/api/altcoin-hunter")
+async def api_altcoin_hunter_status(request: Request):
+    """Get altcoin hunter status and positions."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    portfolio = _load_portfolio(user.id)
+    hunter = portfolio.get("altcoin_hunter", {})
+    positions = portfolio.get("positions", {})
+
+    hunter_positions = []
+    deployed = 0.0
+    for pid, p in positions.items():
+        if p.get("strategy_id") == "altcoin_hunter":
+            deployed += p.get("cost_usd", 0)
+            hunter_positions.append({
+                "id": pid,
+                "symbol": p.get("symbol", ""),
+                "entry_price": p.get("entry_price", 0),
+                "cost_usd": p.get("cost_usd", 0),
+                "entry_time": p.get("entry_time", 0),
+                "strategy_reason": p.get("strategy_reason", ""),
+            })
+
+    fund_total = hunter.get("fund_usd", 0)
+
+    # Get recent altcoin_hunter scan logs
+    all_logs = portfolio.get("autopilot_log", [])
+    hunter_logs = [l for l in all_logs if l.get("type") == "altcoin_hunter_scan"][-10:]
+
+    return {
+        "enabled": hunter.get("enabled", False),
+        "fund_usd": fund_total,
+        "deployed_usd": round(deployed, 2),
+        "available_usd": round(fund_total - deployed, 2),
+        "max_positions": hunter.get("max_positions", 5),
+        "trailing_stop_pct": hunter.get("trailing_stop_pct", 2.0),
+        "min_trend_score": hunter.get("min_trend_score", 0.60),
+        "positions": hunter_positions,
+        "log": hunter_logs,
+    }
+
+
+@app.post("/api/altcoin-hunter")
+async def api_altcoin_hunter_toggle(request: Request):
+    """Enable/disable altcoin hunter or update config."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    body = await request.json()
+    action = body.get("action", "")
+    amount = float(body.get("amount_usd", 0))
+
+    portfolio_path = os.path.join(
+        os.environ.get("VESPER_DATA_DIR", "data"),
+        f"portfolio_{user.id}.json",
+    )
+    pdata = {}
+    if os.path.exists(portfolio_path):
+        with open(portfolio_path) as f:
+            pdata = json.load(f)
+
+    if action == "start":
+        if amount < 10:
+            return JSONResponse({"error": "Minimum $10"}, status_code=400)
+        pdata["altcoin_hunter"] = {
+            "enabled": True,
+            "fund_usd": amount,
+            "max_positions": int(body.get("max_positions", 5)),
+            "trailing_stop_pct": float(body.get("trailing_stop_pct", 2.0)),
+            "min_trend_score": float(body.get("min_trend_score", 0.60)),
+            "started_at": time.time(),
+        }
+    elif action == "stop":
+        if "altcoin_hunter" in pdata:
+            pdata["altcoin_hunter"]["enabled"] = False
+
+    with open(portfolio_path, "w") as f:
+        json.dump(pdata, f, indent=2)
+
+    return {"ok": True, "altcoin_hunter": pdata.get("altcoin_hunter", {})}
+
+
+# ═══════════════════════════════════════
 # Polymarket API
 # ═══════════════════════════════════════
 

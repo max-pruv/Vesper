@@ -12,7 +12,7 @@ import threading
 from apscheduler.schedulers.blocking import BlockingScheduler
 import uvicorn
 
-from config.settings import ExchangeConfig, RiskConfig, TICKER_SYMBOLS, STOCK_SYMBOLS, is_stock_symbol
+from config.settings import ExchangeConfig, RiskConfig, TICKER_SYMBOLS, STOCK_SYMBOLS, ALTCOIN_UNIVERSE, is_stock_symbol
 from vesper.exchange import create_exchange, AlpacaExchange
 from vesper.market_data import (
     get_market_snapshot, get_multi_tf_snapshot,
@@ -23,6 +23,7 @@ from vesper.strategies import (
     Signal, EnsembleStrategy, EnhancedEnsemble,
     TrendFollowingStrategy, MeanReversionStrategy, MomentumStrategy,
 )
+from vesper.strategies.altcoin_hunter import AltcoinHunterStrategy
 from vesper.risk import RiskManager, PositionLimits
 from vesper.portfolio import Portfolio, Position
 from vesper.logger import setup_logger, console
@@ -37,6 +38,7 @@ STRATEGY_MAP = {
     "smart_auto":     {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
     "trend_scanner":  {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
     "autopilot":      {"strategy": EnhancedEnsemble,        "timeframe": "multi"},
+    "altcoin_hunter": {"strategy": AltcoinHunterStrategy,   "timeframe": "multi"},
     "set_and_forget": {"strategy": None,                    "timeframe": None},
 }
 
@@ -86,6 +88,9 @@ class UserBot:
 
         # Autopilot: AI fully manages allocated funds
         self._run_autopilot(prices)
+
+        # Altcoin Hunter: autonomous altcoin trend detection + self-investing
+        self._run_altcoin_hunter(prices)
 
         summary = self.portfolio.summary(prices)
         self.logger.info(
@@ -515,6 +520,258 @@ class UserBot:
                     f"BUY ${amount_usd:.2f} @ ${new_price:,.2f} "
                     f"(confidence: {best_signal.confidence:.0%})"
                 )
+
+    def _run_altcoin_hunter(self, prices: dict):
+        """Altcoin Hunter — autonomous trend detection, self-investing, self-regulating.
+
+        Scans 50+ altcoins, scores each on 6 trend factors, dynamically allocates
+        capital to the strongest trends, and auto-rebalances by exiting weakening
+        positions and entering new strong ones.
+        """
+        pdata = self.portfolio._load_raw()
+        hunter_cfg = pdata.get("altcoin_hunter")
+        if not hunter_cfg or not hunter_cfg.get("enabled"):
+            return
+
+        fund_total = hunter_cfg.get("fund_usd", 0)
+        if fund_total <= 0:
+            return
+
+        max_positions = hunter_cfg.get("max_positions", 5)
+        trailing_pct = hunter_cfg.get("trailing_stop_pct", 2.0)
+        min_score = hunter_cfg.get("min_trend_score", 0.60)
+
+        # Collect existing altcoin_hunter positions
+        hunter_positions = [
+            pos for pos in self.portfolio.positions.values()
+            if pos.strategy_id == "altcoin_hunter"
+        ]
+
+        deployed = sum(pos.cost_usd for pos in hunter_positions)
+        available = fund_total - deployed
+        slots_open = max_positions - len(hunter_positions)
+
+        # ── Phase 1: Get BTC snapshot for relative strength comparison ──
+        btc_snapshot = None
+        try:
+            btc_snapshot = self._get_snapshot("BTC/USDT", "altcoin_hunter")
+            prices["BTC/USDT"] = btc_snapshot["price"]
+        except Exception:
+            pass
+
+        # ── Phase 2: Score all altcoins ──
+        from vesper.strategies.altcoin_hunter import compute_trend_score
+        scored = []
+        scanned = 0
+
+        for sym in ALTCOIN_UNIVERSE:
+            if sym == "BTC/USDT":
+                continue  # Skip BTC itself (we compare against it)
+            try:
+                snap = self._get_snapshot(sym, "altcoin_hunter")
+                prices[sym] = snap["price"]
+                score_data = compute_trend_score(snap, btc_snapshot)
+                scanned += 1
+                scored.append({
+                    "symbol": sym,
+                    "score": score_data["score"],
+                    "signal": score_data["signal"],
+                    "confidence": score_data["confidence"],
+                    "factors": score_data["factors"],
+                    "snapshot": snap,
+                })
+            except Exception:
+                continue
+
+        # Sort by score descending
+        scored.sort(key=lambda x: x["score"], reverse=True)
+
+        # ── Phase 3: Rebalance — close positions that lost momentum ──
+        actions = []
+        for pos in list(hunter_positions):
+            sym_data = next((s for s in scored if s["symbol"] == pos.symbol), None)
+            if sym_data and sym_data["score"] < 0.40:
+                # Trend has weakened significantly — exit
+                exit_price = prices.get(pos.symbol, pos.entry_price)
+                pnl_pct = ((exit_price - pos.entry_price) / pos.entry_price) * 100
+                reason = (
+                    f"Altcoin Hunter rebalance: trend weakened "
+                    f"(score {sym_data['score']:.2f} < 0.40, P&L {pnl_pct:+.1f}%)"
+                )
+                self._save_decision({
+                    "action": "EXIT", "symbol": pos.symbol,
+                    "strategy_id": "altcoin_hunter",
+                    "source": "altcoin_hunter_rebalance",
+                    "trade_mode": self.mode,
+                    "reason": reason,
+                    "pnl_pct": round(pnl_pct, 2),
+                })
+                self._close_position(pos, exit_price, reason)
+                deployed -= pos.cost_usd
+                available += pos.cost_usd
+                slots_open += 1
+                actions.append({
+                    "action": "SELL", "symbol": pos.symbol,
+                    "reason": "trend_weakened",
+                    "score": sym_data["score"],
+                    "pnl_pct": round(pnl_pct, 2),
+                })
+
+        # ── Phase 4: Open new positions on the strongest trends ──
+        if slots_open <= 0 or available < 10:
+            self._save_autopilot_log({
+                "type": "altcoin_hunter_scan",
+                "symbols_scanned": scanned,
+                "status": "fully_deployed" if slots_open <= 0 else "low_funds",
+                "positions": max_positions - slots_open,
+                "max_positions": max_positions,
+                "deployed_usd": round(deployed, 2),
+                "available_usd": round(available, 2),
+                "top_scores": [
+                    {"symbol": s["symbol"], "score": s["score"]}
+                    for s in scored[:10]
+                ],
+                "actions": actions,
+            })
+            return
+
+        # Filter candidates: strong uptrend + not already holding
+        held_symbols = {pos.symbol for pos in self.portfolio.positions.values()}
+        candidates = [
+            s for s in scored
+            if s["score"] >= min_score
+            and s["signal"] == Signal.BUY
+            and s["symbol"] not in held_symbols
+        ]
+
+        to_open = candidates[:slots_open]
+        if not to_open:
+            self._save_autopilot_log({
+                "type": "altcoin_hunter_scan",
+                "symbols_scanned": scanned,
+                "status": "no_opportunity",
+                "positions": max_positions - slots_open,
+                "max_positions": max_positions,
+                "deployed_usd": round(deployed, 2),
+                "available_usd": round(available, 2),
+                "top_scores": [
+                    {"symbol": s["symbol"], "score": s["score"]}
+                    for s in scored[:10]
+                ],
+                "actions": actions,
+            })
+            return
+
+        # Dynamic allocation: weight by score (stronger trend = more capital)
+        total_score = sum(c["score"] for c in to_open)
+        for candidate in to_open:
+            weight = candidate["score"] / total_score if total_score > 0 else 1 / len(to_open)
+            amount_usd = min(available * weight, available)
+            if amount_usd < 10:
+                continue
+
+            sym = candidate["symbol"]
+            snap = candidate["snapshot"]
+            new_price = snap["price"]
+
+            # Adaptive stop-loss: tighter in volatile markets
+            atr = snap.get("atr", 0)
+            if atr and new_price > 0:
+                sl_pct = min(max((2.5 * atr / new_price) * 100, 1.5), 5.0)
+            else:
+                sl_pct = 2.5
+
+            # Dynamic TP scaled by trend score
+            score = candidate["score"]
+            tp_min_pct = 2.0 + score * 2.0   # 2% to 4%
+            tp_max_pct = 8.0 + score * 12.0  # 8% to 20%
+
+            limits = PositionLimits(
+                stop_loss_price=new_price * (1 - sl_pct / 100),
+                take_profit_min_price=new_price * (1 + tp_min_pct / 100),
+                take_profit_max_price=new_price * (1 + tp_max_pct / 100),
+                position_size_usd=amount_usd,
+                position_size_asset=amount_usd / new_price,
+                trailing_stop_pct=trailing_pct,
+                highest_price_seen=new_price,
+            )
+
+            position = Position(
+                symbol=sym, side="buy",
+                entry_price=new_price,
+                amount=limits.position_size_asset,
+                cost_usd=amount_usd,
+                limits=limits,
+                strategy_reason=(
+                    f"Altcoin Hunter: score {score:.2f} | "
+                    f"{', '.join(f'{k}={v:.2f}' for k, v in candidate['factors'].items())}"
+                ),
+                strategy_id="altcoin_hunter",
+                bet_mode="continuous",
+                trade_mode=self.mode if self.mode == "live" else "paper",
+                stop_loss_pct=sl_pct,
+                tp_min_pct=tp_min_pct,
+                tp_max_pct=tp_max_pct,
+                trailing_stop_pct=trailing_pct,
+                highest_price_seen=new_price,
+            )
+
+            # Execute trade
+            if self.mode == "live":
+                try:
+                    from vesper.exchange import place_market_buy
+                    order = place_market_buy(self.exchange, sym, limits.position_size_asset)
+                    position.entry_price = float(order.get("average", new_price))
+                    position.amount = float(order.get("filled", limits.position_size_asset))
+                    position.cost_usd = position.entry_price * position.amount
+                except Exception as e:
+                    self.logger.error(f"[User:{self.email}] Altcoin Hunter BUY failed {sym}: {e}")
+                    continue
+
+            if self.portfolio.open_position(position):
+                available -= amount_usd
+                deployed += amount_usd
+                slots_open -= 1
+                actions.append({
+                    "action": "BUY", "symbol": sym,
+                    "amount_usd": round(amount_usd, 2),
+                    "price": round(new_price, 2),
+                    "score": score,
+                    "confidence": candidate["confidence"],
+                    "factors": candidate["factors"],
+                })
+                self._save_decision({
+                    "action": "ENTER_LONG", "symbol": sym,
+                    "strategy_id": "altcoin_hunter",
+                    "source": "altcoin_hunter",
+                    "trade_mode": self.mode if self.mode == "live" else "paper",
+                    "signal": "BUY",
+                    "confidence": round(candidate["confidence"], 3),
+                    "reason": position.strategy_reason,
+                    "amount_usd": round(amount_usd, 2),
+                    "indicators": self._snapshot_indicators(snap),
+                })
+                self.logger.info(
+                    f"[User:{self.email}] ALTCOIN HUNTER: {sym} "
+                    f"BUY ${amount_usd:.2f} @ ${new_price:,.4f} "
+                    f"(score: {score:.2f}, trailing: {trailing_pct}%)"
+                )
+
+        # Log scan results
+        self._save_autopilot_log({
+            "type": "altcoin_hunter_scan",
+            "symbols_scanned": scanned,
+            "status": "opened_positions" if any(a["action"] == "BUY" for a in actions) else "rebalanced",
+            "positions": max_positions - slots_open,
+            "max_positions": max_positions,
+            "deployed_usd": round(deployed, 2),
+            "available_usd": round(available, 2),
+            "top_scores": [
+                {"symbol": s["symbol"], "score": s["score"]}
+                for s in scored[:10]
+            ],
+            "actions": actions,
+        })
 
     def _save_autopilot_log(self, entry: dict):
         """Append an entry to autopilot_log in portfolio (keep last 50)."""

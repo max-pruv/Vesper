@@ -46,6 +46,21 @@ TICKER_SYMBOLS = [
     "ARB/USDT", "OP/USDT", "FIL/USDT", "AAVE/USDT",
 ]
 
+# Extended altcoin universe for the Altcoin Hunter scanner
+# Includes top 50+ altcoins available on Coinbase
+ALTCOIN_UNIVERSE = TICKER_SYMBOLS + [
+    "SUI/USDT", "SEI/USDT", "TIA/USDT", "INJ/USDT",
+    "FET/USDT", "RENDER/USDT", "GRT/USDT", "IMX/USDT",
+    "STX/USDT", "ALGO/USDT", "HBAR/USDT", "VET/USDT",
+    "ICP/USDT", "SAND/USDT", "MANA/USDT", "AXS/USDT",
+    "CRV/USDT", "LDO/USDT", "MKR/USDT", "SNX/USDT",
+    "COMP/USDT", "SUSHI/USDT", "1INCH/USDT", "ENS/USDT",
+    "DYDX/USDT", "PEPE/USDT", "SHIB/USDT", "FLOKI/USDT",
+    "WIF/USDT", "BONK/USDT", "JUP/USDT", "WLD/USDT",
+    "PYTH/USDT", "JTO/USDT", "ONDO/USDT", "ENA/USDT",
+    "PENDLE/USDT", "ETHFI/USDT", "W/USDT", "ZRO/USDT",
+]
+
 # Stock symbols for Alpaca autopilot scanning
 STOCK_SYMBOLS = [
     "AAPL/USD", "MSFT/USD", "GOOGL/USD", "AMZN/USD",
