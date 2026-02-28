@@ -830,14 +830,9 @@ async def ws_live(ws: WebSocket):
             try:
                 portfolio = _load_portfolio(user.id)
                 all_positions = portfolio.get("positions", {})
-                mode_match = {"live": "real", "paper": "paper"}
-                current_mode = mode_match.get(user.trading_mode, "paper")
 
-                # --- Positions ---
-                positions = {
-                    pid: p for pid, p in all_positions.items()
-                    if p.get("trade_mode", "paper") == current_mode
-                }
+                # --- Positions (send ALL, client filters by trade_mode) ---
+                positions = all_positions
                 pos_list = []
                 if positions:
                     pos_symbols = {
@@ -914,9 +909,8 @@ async def ws_live(ws: WebSocket):
                             "strategy_reason": p.get("strategy_reason", ""),
                         })
 
-                # --- Portfolio stats ---
-                trades = [t for t in portfolio.get("trade_history", [])
-                          if t.get("trade_mode", "paper") == current_mode]
+                # --- Portfolio stats (send all, client filters) ---
+                trades = portfolio.get("trade_history", [])
                 cash = portfolio.get("cash", 0)
                 initial = portfolio.get("initial_balance", 0)
                 realized_pnl = sum(t.get("pnl_usd", 0) for t in trades)
@@ -1294,15 +1288,8 @@ async def api_positions(request: Request):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
     portfolio = _load_portfolio(user.id)
-    all_positions = portfolio.get("positions", {})
+    positions = portfolio.get("positions", {})
 
-    # Filter by current trading mode
-    mode_match = {"live": "real", "paper": "paper"}
-    current_mode = mode_match.get(user.trading_mode, "paper")
-    positions = {
-        pid: p for pid, p in all_positions.items()
-        if p.get("trade_mode", "paper") == current_mode
-    }
     if not positions:
         return []
 

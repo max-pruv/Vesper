@@ -1333,7 +1333,7 @@ const SEGMENTS = {
         scanEl: 'cryptoLastScan', topEl: 'cryptoTopScores', amountEl: 'cryptoAmount',
         riskEl: 'cryptoRisk', reinvestEl: 'cryptoReinvest', reinvestLabelEl: 'cryptoReinvestLabel',
         activeLabel: 'ACTIVE', activeColor: 'var(--green)',
-        extraBody: {max_positions: 5, trailing_stop_pct: 2.0},
+        extraBody: {max_positions: 20, trailing_stop_pct: 2.0},
     },
     stocks: {
         api: '/api/autopilot',
@@ -1342,7 +1342,7 @@ const SEGMENTS = {
         scanEl: 'stocksLastScan', topEl: null, amountEl: 'stocksAmount',
         riskEl: 'stocksRisk', reinvestEl: 'stocksReinvest', reinvestLabelEl: 'stocksReinvestLabel',
         activeLabel: 'ACTIVE', activeColor: '#818cf8',
-        extraBody: {max_positions: 3},
+        extraBody: {max_positions: 20},
     },
     predictions: {
         api: '/api/predictions-autopilot',
@@ -1351,7 +1351,7 @@ const SEGMENTS = {
         scanEl: 'predLastScan', topEl: null, amountEl: 'predAmount',
         riskEl: 'predRisk', reinvestEl: 'predReinvest', reinvestLabelEl: 'predReinvestLabel',
         activeLabel: 'SCANNING', activeColor: '#f5a623',
-        extraBody: {max_positions: 3},
+        extraBody: {max_positions: 20},
     },
 };
 
@@ -1392,7 +1392,7 @@ async function fetchSegmentStatus(segment) {
             document.getElementById(cfg.fundEl).textContent = '$' + (data.fund_usd || 0).toFixed(0);
             document.getElementById(cfg.deployedEl).textContent = '$' + (data.deployed_usd || 0).toFixed(0);
             document.getElementById(cfg.posEl).textContent =
-                (data.positions || []).length + '/' + (data.max_positions || 3);
+                (data.positions || []).length;
 
             // Sync risk level from server
             if (data.risk_level && cfg.riskEl) {
