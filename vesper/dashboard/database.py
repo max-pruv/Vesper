@@ -437,6 +437,12 @@ def log_api_usage(
     user_id: int | None = None,
 ):
     """Record an API call for cost tracking."""
+    import logging
+    _log = logging.getLogger(__name__)
+    _log.info(
+        f"[api_usage] {provider}/{model} — {input_tokens}in/{output_tokens}out "
+        f"${cost_usd:.6f} ({endpoint})"
+    )
     conn = _get_conn()
     conn.execute(
         """INSERT INTO api_usage

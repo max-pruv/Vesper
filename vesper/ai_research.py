@@ -217,13 +217,17 @@ def research_market(
     pplx_key, anthropic_key = _get_platform_keys()
     # Allow per-user override (backwards compat), but prefer platform keys
     pplx_key = pplx_key or api_key
+    logger.info(f"[research_market] '{question[:60]}...' — keys: pplx={'yes' if pplx_key else 'NO'}, anthropic={'yes' if anthropic_key else 'NO'}")
 
     if not pplx_key:
+        logger.warning("[research_market] No Perplexity API key, skipping")
         return _empty_result("No Perplexity API key available")
 
     try:
         # Stage 1: Perplexity web search
+        logger.info(f"[research_market] Calling Perplexity search...")
         search = _perplexity_search(question, market_probability, category, pplx_key)
+        logger.info(f"[research_market] Perplexity returned {len(search.get('search_results', ''))} chars")
 
         # Stage 2: Claude deep reasoning (if available)
         if anthropic_key:
@@ -373,21 +377,27 @@ def research_asset(
         return cached["data"]
 
     pplx_key, anthropic_key = _get_platform_keys()
+    logger.info(f"[research_asset] {symbol} @ ${price:.4f} — keys: pplx={'yes' if pplx_key else 'NO'}, anthropic={'yes' if anthropic_key else 'NO'}")
     if not pplx_key:
+        logger.warning(f"[research_asset] {symbol}: no Perplexity API key, skipping")
         return _empty_asset_result("No Perplexity API key")
 
     ticker = symbol.split("/")[0]  # "BTC/USDT" → "BTC"
 
     try:
         # Stage 1: Perplexity web search for the asset
+        logger.info(f"[research_asset] {symbol}: calling Perplexity search...")
         search = _perplexity_asset_search(ticker, price, asset_type, pplx_key)
+        logger.info(f"[research_asset] {symbol}: Perplexity returned {len(search.get('search_results', ''))} chars, {len(search.get('citations', []))} citations")
 
         if not anthropic_key:
+            logger.info(f"[research_asset] {symbol}: no Anthropic key, returning Perplexity-only result")
             result = _asset_result_from_search(search)
             _asset_cache[cache_key] = {"data": result, "ts": time.time()}
             return result
 
         # Stage 2: Claude combines technical + fundamental
+        logger.info(f"[research_asset] {symbol}: calling Claude analysis...")
         analysis = _claude_asset_analyze(
             ticker, price, indicators, search["search_results"],
             asset_type, anthropic_key,

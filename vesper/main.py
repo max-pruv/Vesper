@@ -540,6 +540,12 @@ class UserBot:
         score_thresholds = {"conservative": 0.60, "moderate": 0.50, "aggressive": 0.40}
         min_score = score_thresholds.get(risk_level, 0.50)
 
+        self.logger.info(
+            f"[User:{self.email}] [altcoin_hunter] Starting scan: "
+            f"fund=${fund_total:.2f}, max_positions={max_positions}, "
+            f"risk={risk_level}, min_score={min_score}"
+        )
+
         # Collect existing altcoin_hunter positions
         hunter_positions = [
             pos for pos in self.portfolio.positions.values()
@@ -639,7 +645,16 @@ class UserBot:
                 })
 
         # ── Phase 4: Open new positions on the strongest trends ──
+        self.logger.info(
+            f"[User:{self.email}] [altcoin_hunter] Phase 4: "
+            f"scanned={scanned}, slots_open={slots_open}, "
+            f"available=${available:.2f}, scored_above_0.4={sum(1 for s in scored if s['score'] >= 0.4)}"
+        )
         if slots_open <= 0 or available < 10:
+            self.logger.info(
+                f"[User:{self.email}] [altcoin_hunter] Skipping phase 4: "
+                f"{'fully_deployed' if slots_open <= 0 else 'low_funds'}"
+            )
             self._save_autopilot_log({
                 "type": "altcoin_hunter_scan",
                 "symbols_scanned": scanned,
@@ -676,9 +691,18 @@ class UserBot:
             ]
 
         # Deep research on top candidates (max 3 to control costs)
+        self.logger.info(
+            f"[User:{self.email}] [altcoin_hunter] {len(candidates)} candidates "
+            f"above min_score={min_score}: "
+            f"{[c['symbol'] + f'({c[\"score\"]:.2f})' for c in candidates[:5]]}"
+        )
         from vesper.ai_research import research_asset
         for c in candidates[:3]:
             try:
+                self.logger.info(
+                    f"[User:{self.email}] [altcoin_hunter] Researching {c['symbol']} "
+                    f"(score={c['score']:.2f})"
+                )
                 research = research_asset(
                     c["symbol"],
                     c["factors"],
@@ -686,13 +710,20 @@ class UserBot:
                     asset_type="crypto",
                 )
                 c["deep_research"] = research
+                self.logger.info(
+                    f"[User:{self.email}] [altcoin_hunter] Research result for {c['symbol']}: "
+                    f"researched={research.get('researched')}, signal={research.get('signal')}"
+                )
                 # Boost score if deep research agrees
                 if research.get("researched") and research.get("signal") == "BUY":
                     c["score"] = min(1.0, c["score"] + research["confidence"] * 0.15)
                     c["confidence"] = min(1.0, c.get("confidence", 0.5) + 0.10)
                 elif research.get("researched") and research.get("signal") == "SELL":
                     c["score"] = max(0.0, c["score"] - 0.20)
-            except Exception:
+            except Exception as e:
+                self.logger.warning(
+                    f"[User:{self.email}] [altcoin_hunter] Research failed for {c['symbol']}: {e}"
+                )
                 c["deep_research"] = {}
 
         # Re-sort after research adjustments
@@ -989,11 +1020,15 @@ class UserBot:
         research_limit = min(3, len(candidates))
         researched = []
         scanned_count = len(markets)
+        self.logger.info(
+            f"[User:{self.email}] [predictions] {len(markets)} markets scanned, "
+            f"{len(candidates)} candidates after filters, researching top {research_limit}"
+        )
 
         try:
             from vesper.ai_research import research_market
         except ImportError:
-            self.logger.error("[User:{self.email}] Predictions: ai_research module not available")
+            self.logger.error(f"[User:{self.email}] Predictions: ai_research module not available")
             return
 
         for market in candidates[:research_limit]:
@@ -1231,6 +1266,12 @@ class UserBot:
         deployed = sum(pos.cost_usd for pos in autopilot_positions)
         available = fund_total - deployed
         slots_open = max_positions - len(autopilot_positions)
+
+        self.logger.info(
+            f"[User:{self.email}] [autopilot] Starting scan: "
+            f"fund=${fund_total:.2f}, deployed=${deployed:.2f}, "
+            f"available=${available:.2f}, slots={slots_open}/{max_positions}, risk={risk_level}"
+        )
 
         if slots_open <= 0 or available < 10:
             self._save_autopilot_log({
