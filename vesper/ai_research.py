@@ -30,11 +30,27 @@ CACHE_TTL = 4 * 3600  # 4 hours
 
 
 def _get_platform_keys() -> tuple[str, str]:
-    """Get platform-provided API keys from environment."""
-    return (
-        os.environ.get("PERPLEXITY_API_KEY", ""),
-        os.environ.get("ANTHROPIC_API_KEY", ""),
-    )
+    """Get platform-provided API keys from env vars, with file-based fallback.
+
+    Keys can be set via environment OR via /app/data/api_keys.json (written
+    by the admin endpoint). File-based keys take precedence so admins can
+    update them at runtime without restarting the container.
+    """
+    pplx = os.environ.get("PERPLEXITY_API_KEY", "")
+    anth = os.environ.get("ANTHROPIC_API_KEY", "")
+
+    # Override from persistent data volume (set via admin UI)
+    keys_file = os.path.join(os.environ.get("VESPER_DATA_DIR", "data"), "api_keys.json")
+    try:
+        import json as _json
+        with open(keys_file) as f:
+            stored = _json.load(f)
+        pplx = stored.get("PERPLEXITY_API_KEY") or pplx
+        anth = stored.get("ANTHROPIC_API_KEY") or anth
+    except (FileNotFoundError, ValueError):
+        pass
+
+    return (pplx, anth)
 
 
 def _cache_key(question: str) -> str:

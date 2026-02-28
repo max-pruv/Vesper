@@ -619,10 +619,11 @@ async def admin_page(request: Request, days: int = 30):
             active_bots += 1
 
     # Check if LLM API keys are configured
-    import os as _os
+    from vesper.ai_research import _get_platform_keys
+    _pplx, _anth = _get_platform_keys()
     ai_keys = {
-        "perplexity": bool(_os.environ.get("PERPLEXITY_API_KEY", "")),
-        "anthropic": bool(_os.environ.get("ANTHROPIC_API_KEY", "")),
+        "perplexity": bool(_pplx),
+        "anthropic": bool(_anth),
     }
 
     return templates.TemplateResponse("admin.html", {
@@ -876,15 +877,45 @@ def _build_segment_statuses(portfolio: dict, pos_list: list) -> dict:
 
 @app.get("/api/health")
 async def health():
-    import os as _os
+    from vesper.ai_research import _get_platform_keys
+    pplx, anth = _get_platform_keys()
     return {
         "status": "running",
         "time": datetime.now().isoformat(),
         "ai_keys": {
-            "perplexity": bool(_os.environ.get("PERPLEXITY_API_KEY", "")),
-            "anthropic": bool(_os.environ.get("ANTHROPIC_API_KEY", "")),
+            "perplexity": bool(pplx),
+            "anthropic": bool(anth),
         },
     }
+
+
+@app.post("/api/admin/api-keys")
+async def update_api_keys(request: Request):
+    """Admin endpoint — update platform LLM API keys (persisted to data volume)."""
+    user = _get_user(request)
+    if not user or not user.is_admin:
+        return {"error": "admin only"}
+
+    body = await request.json()
+    keys_file = os.path.join(os.environ.get("VESPER_DATA_DIR", "data"), "api_keys.json")
+
+    # Load existing keys
+    existing = {}
+    try:
+        with open(keys_file) as f:
+            existing = json.load(f)
+    except (FileNotFoundError, ValueError):
+        pass
+
+    # Update only provided keys
+    for k in ("PERPLEXITY_API_KEY", "ANTHROPIC_API_KEY"):
+        if k in body and body[k]:
+            existing[k] = body[k]
+
+    with open(keys_file, "w") as f:
+        json.dump(existing, f)
+
+    return {"ok": True, "keys_updated": list(body.keys())}
 
 
 @app.get("/api/admin/diagnostics")
@@ -910,8 +941,11 @@ async def admin_diagnostics(request: Request):
         recent = [{"error": str(e)}]
 
     # Quick test: Perplexity key validity (lightweight)
+    # Use the same key resolution as ai_research (env + file fallback)
+    from vesper.ai_research import _get_platform_keys
+    pplx_key, anth_key = _get_platform_keys()
+
     pplx_ok = None
-    pplx_key = os.environ.get("PERPLEXITY_API_KEY", "")
     if pplx_key:
         try:
             import httpx
@@ -928,7 +962,6 @@ async def admin_diagnostics(request: Request):
             pplx_ok = f"error: {e}"
 
     anth_ok = None
-    anth_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if anth_key:
         try:
             import httpx
