@@ -13,6 +13,7 @@ from vesper.market_data import (
     get_market_snapshot, get_multi_tf_snapshot,
     get_order_book_pressure, fetch_fear_greed,
     enrich_with_intelligence, get_stock_snapshot,
+    discover_trending_coins,
 )
 from vesper.strategies import Signal
 from vesper.strategies.catalog import STRATEGY_MAP
@@ -545,12 +546,20 @@ class UserBot:
         except Exception:
             pass
 
-        # ── Phase 2: Score all altcoins ──
+        # ── Phase 2: Score all altcoins (static list + dynamic discovery) ──
         from vesper.strategies.altcoin_hunter import compute_trend_score
+
+        # Merge static universe with dynamically discovered trending coins
+        try:
+            trending = discover_trending_coins(self.exchange)
+        except Exception:
+            trending = []
+        scan_universe = list(dict.fromkeys(ALTCOIN_UNIVERSE + trending))  # dedupe, preserve order
+
         scored = []
         scanned = 0
 
-        for sym in ALTCOIN_UNIVERSE:
+        for sym in scan_universe:
             if sym == "BTC/USDT":
                 continue  # Skip BTC itself (we compare against it)
             try:

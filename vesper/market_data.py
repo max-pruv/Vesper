@@ -293,3 +293,69 @@ def fetch_fear_greed() -> int:
     except Exception as e:
         logger.debug(f"Fear & Greed fetch failed: {e}")
         return _fear_greed_cache["value"]
+
+
+# ── Dynamic Coin Discovery ──────────────────────────────────
+
+_trending_cache: dict = {"symbols": [], "time": 0}
+_TRENDING_TTL = 600  # 10 minutes
+
+
+def discover_trending_coins(exchange: ccxt.Exchange, min_volume_usd: float = 100_000,
+                            top_n: int = 30) -> list[str]:
+    """Discover trending coins by scanning all USDT pairs on the exchange.
+
+    Returns up to top_n symbols sorted by 24h volume * abs(change%).
+    This captures both high-volume coins and fast movers.
+    """
+    global _trending_cache
+    now = time.time()
+    if _trending_cache["symbols"] and (now - _trending_cache["time"]) < _TRENDING_TTL:
+        return _trending_cache["symbols"]
+
+    try:
+        exchange.load_markets()
+        # Get all USDT spot pairs
+        usdt_pairs = [
+            sym for sym, mkt in exchange.markets.items()
+            if mkt.get("quote") == "USDT"
+            and mkt.get("type") == "spot"
+            and mkt.get("active", True)
+        ]
+
+        if not usdt_pairs:
+            return _trending_cache["symbols"]
+
+        # Fetch all tickers in one call
+        tickers = exchange.fetch_tickers(usdt_pairs)
+
+        scored = []
+        for sym, t in tickers.items():
+            if not t:
+                continue
+            last = t.get("last", 0)
+            vol = t.get("quoteVolume") or (t.get("baseVolume", 0) * last)
+            if vol < min_volume_usd or last <= 0:
+                continue
+
+            pct = t.get("percentage", 0) or 0
+            # Score = volume rank * momentum rank
+            # High volume + big move = interesting
+            score = vol * abs(pct) if pct != 0 else vol * 0.01
+            scored.append({
+                "symbol": sym,
+                "volume": vol,
+                "change_pct": pct,
+                "score": score,
+            })
+
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        result = [s["symbol"] for s in scored[:top_n]]
+
+        _trending_cache = {"symbols": result, "time": now}
+        logger.info(f"Discovered {len(result)} trending coins from {len(usdt_pairs)} USDT pairs")
+        return result
+
+    except Exception as e:
+        logger.warning(f"Dynamic coin discovery failed: {e}")
+        return _trending_cache["symbols"]
