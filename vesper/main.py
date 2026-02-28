@@ -1641,6 +1641,8 @@ _cycle_state = {
     "last_cycle_time": 0,
     "last_cycle_error": "",
     "exchange_name": "",
+    "version": "v3-exchange-fix",
+    "startup_phase": "module_loaded",
 }
 
 
@@ -1708,15 +1710,19 @@ class Vesper:
                 self.logger.error(f"[User:{user.email}] Cycle failed: {e}")
 
     def start(self):
+        _cycle_state["startup_phase"] = "start_called"
         console.print(f"\n[bold magenta]{'='*60}[/]")
         console.print(f"[bold magenta]  VESPER — Crypto Trading Platform v0.2.0[/]")
         console.print(f"[bold magenta]{'='*60}[/]\n")
 
         # Start dashboard
+        _cycle_state["startup_phase"] = "starting_dashboard"
         self._start_dashboard()
 
         # Run first cycle
+        _cycle_state["startup_phase"] = "first_cycle"
         self.run_all_users()
+        _cycle_state["startup_phase"] = "scheduler_running"
 
         # Schedule cycles every minute (bot checks each user's interval)
         scheduler = BlockingScheduler()
