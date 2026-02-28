@@ -366,6 +366,13 @@ async def dashboard(request: Request):
     all_positions = portfolio.get("positions", {})
     all_trades = portfolio.get("trade_history", [])
 
+    # Total portfolio value = cash + all autopilot funds (which include deployed positions)
+    autopilot_funds = sum(
+        portfolio.get(key, {}).get("fund_usd", 0)
+        for key in ("altcoin_hunter", "autopilot", "predictions_autopilot")
+    )
+    portfolio_value = cash + autopilot_funds
+
     # Silo by trade_mode: only show positions/trades matching the user's active mode
     active_mode = user.trading_mode  # "paper" or "live"
     mode_match = {"live": "real", "paper": "paper"}
@@ -434,6 +441,7 @@ async def dashboard(request: Request):
 
     return templates.TemplateResponse("dashboard.html", {
         "request": request, "user": user, "cash": cash,
+        "portfolio_value": portfolio_value,
         "initial_balance": initial, "total_pnl": total_pnl,
         "realized_pnl": realized_pnl,
         "total_pnl_pct": (total_pnl / initial * 100) if initial > 0 else 0,
@@ -1262,6 +1270,10 @@ async def ws_live(ws: WebSocket):
                 all_trades = portfolio.get("trade_history", [])
                 cash = portfolio.get("cash", 0)
                 initial = portfolio.get("initial_balance", 0)
+                autopilot_funds = sum(
+                    portfolio.get(k, {}).get("fund_usd", 0)
+                    for k in ("altcoin_hunter", "autopilot", "predictions_autopilot")
+                )
 
                 stats_by_mode = {}
                 for mode in ("paper", "real"):
@@ -1275,7 +1287,7 @@ async def ws_live(ws: WebSocket):
                     m_wins = sum(1 for t in m_trades if t.get("pnl_usd", 0) > 0)
                     m_win_rate = (m_wins / m_total_trades * 100) if m_total_trades > 0 else 0
                     stats_by_mode[mode] = {
-                        "portfolio_value": round(cash + m_invested + m_unrealized, 2),
+                        "portfolio_value": round(cash + autopilot_funds + m_unrealized, 2),
                         "cash": round(cash, 2),
                         "total_invested": round(m_invested, 2),
                         "total_pnl": round(m_total_pnl, 2),
@@ -1604,9 +1616,11 @@ async def api_portfolio_stats(request: Request, mode: str = ""):
                 unrealized_pnl += (entry - current) * amount
 
     total_pnl = realized_pnl + unrealized_pnl
-    portfolio_value = cash + sum(
-        p.get("cost_usd", 0) for p in positions.values()
-    ) + unrealized_pnl
+    autopilot_funds = sum(
+        portfolio.get(k, {}).get("fund_usd", 0)
+        for k in ("altcoin_hunter", "autopilot", "predictions_autopilot")
+    )
+    portfolio_value = cash + autopilot_funds + unrealized_pnl
 
     # P&L history for chart: each closed trade as a cumulative data point
     pnl_history = []
