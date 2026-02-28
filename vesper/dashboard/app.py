@@ -618,6 +618,13 @@ async def admin_page(request: Request, days: int = 30):
         if p.get("predictions_autopilot", {}).get("enabled"):
             active_bots += 1
 
+    # Check if LLM API keys are configured
+    import os as _os
+    ai_keys = {
+        "perplexity": bool(_os.environ.get("PERPLEXITY_API_KEY", "")),
+        "anthropic": bool(_os.environ.get("ANTHROPIC_API_KEY", "")),
+    }
+
     return templates.TemplateResponse("admin.html", {
         "request": request,
         "user": user,
@@ -625,6 +632,7 @@ async def admin_page(request: Request, days: int = 30):
         "usage": usage,
         "days": days,
         "active_bots": active_bots,
+        "ai_keys": ai_keys,
     })
 
 
