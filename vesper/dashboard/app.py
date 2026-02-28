@@ -878,6 +878,7 @@ def _build_segment_statuses(portfolio: dict, pos_list: list) -> dict:
 @app.get("/api/health")
 async def health():
     from vesper.ai_research import _get_platform_keys
+    from vesper.main import _cycle_state
     pplx, anth = _get_platform_keys()
     return {
         "status": "running",
@@ -886,6 +887,7 @@ async def health():
             "perplexity": bool(pplx),
             "anthropic": bool(anth),
         },
+        "cycles": _cycle_state,
     }
 
 

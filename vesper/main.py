@@ -1635,6 +1635,15 @@ class UserBot:
         })
 
 
+# Global cycle tracker — accessible from health endpoint
+_cycle_state = {
+    "total_cycles": 0,
+    "last_cycle_time": 0,
+    "last_cycle_error": "",
+    "exchange_name": "",
+}
+
+
 class Vesper:
     """Main orchestrator — manages all user bots."""
 
@@ -1643,12 +1652,16 @@ class Vesper:
 
     def run_all_users(self):
         """Run a trading cycle for every active user."""
+        import time as _time
+        _cycle_state["total_cycles"] += 1
+        _cycle_state["last_cycle_time"] = _time.time()
+
         from vesper.dashboard.database import get_active_users, init_db
         init_db()
 
         active_users = get_active_users()
         self.logger.info(f"{'='*60}")
-        self.logger.info(f"Trading cycle — {len(active_users)} active user(s)")
+        self.logger.info(f"Trading cycle #{_cycle_state['total_cycles']} — {len(active_users)} active user(s)")
 
         for user in active_users:
             try:
@@ -1688,7 +1701,10 @@ class Vesper:
                     alpaca_client=alpaca_client,
                 )
                 bot.run_cycle()
+                _cycle_state["exchange_name"] = bot._exchange_name or ""
+                _cycle_state["last_cycle_error"] = ""
             except Exception as e:
+                _cycle_state["last_cycle_error"] = f"{user.email}: {str(e)[:200]}"
                 self.logger.error(f"[User:{user.email}] Cycle failed: {e}")
 
     def start(self):
