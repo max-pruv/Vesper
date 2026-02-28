@@ -922,38 +922,60 @@ async def bot_state():
 
 @app.get("/api/admin/scan-test")
 async def scan_test():
-    """Diagnostic endpoint — test the scanning pipeline on a single coin.
+    """Diagnostic endpoint — test crypto exchanges + prediction markets.
 
-    Verifies: Binance OHLCV fetch, indicator calculation, trend scoring.
-    Also tests prediction market fetch from Polymarket + Kalshi.
+    Tests which crypto exchanges are reachable from this server,
+    then verifies full scanning pipeline (OHLCV + indicators + scoring).
     """
     import traceback
+    import ccxt as _ccxt
+    from vesper.market_data import get_market_snapshot, get_multi_tf_snapshot
+    from vesper.strategies.altcoin_hunter import compute_trend_score
     results = {}
 
-    # Test 1: Binance OHLCV + indicators for BTC
-    try:
-        import ccxt as _ccxt
-        ex = _ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
-        ex.load_markets()
+    # Test which crypto exchanges work from this server
+    exchanges_to_test = [
+        ("bybit", lambda: _ccxt.bybit({"enableRateLimit": True, "options": {"defaultType": "spot"}})),
+        ("binanceus", lambda: _ccxt.binanceus({"enableRateLimit": True})),
+        ("kucoin", lambda: _ccxt.kucoin({"enableRateLimit": True})),
+        ("okx", lambda: _ccxt.okx({"enableRateLimit": True})),
+        ("binance", lambda: _ccxt.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})),
+    ]
+    working_exchange = None
+    exchange_results = {}
+    for name, factory in exchanges_to_test:
+        try:
+            ex = factory()
+            ex.load_markets()
+            ohlcv = ex.fetch_ohlcv("BTC/USDT", timeframe="1h", limit=5)
+            price = ohlcv[-1][4] if ohlcv else 0
+            exchange_results[name] = {"ok": True, "price": round(price, 2), "markets": len(ex.markets)}
+            if working_exchange is None:
+                working_exchange = ex
+                results["selected_exchange"] = name
+        except Exception as e:
+            exchange_results[name] = {"ok": False, "error": str(e)[:200]}
+    results["exchanges"] = exchange_results
 
-        from vesper.market_data import get_market_snapshot
-        snap = get_market_snapshot(ex, "BTC/USDT", timeframe="1h")
+    if not working_exchange:
+        results["error"] = "No crypto exchange reachable from this server"
+        return results
+
+    # Test full pipeline with working exchange
+    try:
+        snap = get_market_snapshot(working_exchange, "BTC/USDT", timeframe="1h")
         results["btc_snapshot"] = {
             "ok": True,
             "price": round(snap["price"], 2),
             "rsi": round(snap.get("rsi", 0), 2),
-            "macd_hist": round(snap.get("macd_hist", 0), 6),
             "adx": round(snap.get("adx", 0), 2),
         }
     except Exception as e:
-        results["btc_snapshot"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+        results["btc_snapshot"] = {"ok": False, "error": str(e)[:300]}
 
-    # Test 2: Altcoin trend scoring
     try:
-        from vesper.market_data import get_multi_tf_snapshot
-        snap = get_multi_tf_snapshot(ex, "ETH/USDT")
-        from vesper.strategies.altcoin_hunter import compute_trend_score
-        score = compute_trend_score(snap, results.get("btc_snapshot", {}).get("ok") and snap or None)
+        snap = get_multi_tf_snapshot(working_exchange, "ETH/USDT")
+        score = compute_trend_score(snap)
         results["eth_score"] = {
             "ok": True,
             "score": score["score"],
@@ -961,62 +983,53 @@ async def scan_test():
             "factors": score["factors"],
         }
     except Exception as e:
-        results["eth_score"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+        results["eth_score"] = {"ok": False, "error": str(e)[:300]}
 
-    # Test 3: Polymarket fetch
-    try:
-        from vesper.polymarket import get_trending_markets
-        poly = get_trending_markets(limit=5, max_days=14)
-        results["polymarket"] = {
-            "ok": True,
-            "count": len(poly),
-            "samples": [
-                {"q": m.get("question", "")[:80], "vol": m.get("volume", 0), "ev": m.get("ai_edge", {}).get("ev_per_dollar", 0)}
-                for m in poly[:3]
-            ],
-        }
-    except Exception as e:
-        results["polymarket"] = {"ok": False, "error": str(e)}
-
-    # Test 4: Kalshi fetch
-    try:
-        from vesper.kalshi import get_kalshi_markets
-        kalshi = get_kalshi_markets(limit=5, max_days=14)
-        results["kalshi"] = {
-            "ok": True,
-            "count": len(kalshi),
-            "samples": [
-                {"q": m.get("question", "")[:80], "vol": m.get("volume", 0)}
-                for m in kalshi[:3]
-            ],
-        }
-    except Exception as e:
-        results["kalshi"] = {"ok": False, "error": str(e)}
-
-    # Test 5: Thread-safe parallel scan (3 coins)
+    # Test parallel scan with thread-local exchanges
     try:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         test_coins = ["SOL/USDT", "XRP/USDT", "DOGE/USDT"]
-        thread_results = []
+
+        selected_name = results["selected_exchange"]
+        selected_factory = dict(exchanges_to_test)[selected_name]
+        cached_markets = working_exchange.markets
+        cached_markets_by_id = working_exchange.markets_by_id
+        cached_currencies = working_exchange.currencies
+        cached_currencies_by_id = working_exchange.currencies_by_id
 
         def _test_scan(sym):
-            import ccxt as _ccxt2
-            tex = _ccxt2.binance({"enableRateLimit": True, "options": {"defaultType": "spot"}})
-            tex.markets = ex.markets
-            tex.markets_by_id = ex.markets_by_id
+            tex = selected_factory()
+            tex.markets = cached_markets
+            tex.markets_by_id = cached_markets_by_id
+            tex.currencies = cached_currencies
+            tex.currencies_by_id = cached_currencies_by_id
             s = get_market_snapshot(tex, sym, timeframe="1h")
             sc = compute_trend_score(s)
             return {"symbol": sym, "price": round(s["price"], 4), "score": sc["score"], "signal": sc["signal"].name}
 
+        thread_results = []
         with ThreadPoolExecutor(max_workers=3) as pool:
             futs = {pool.submit(_test_scan, c): c for c in test_coins}
             for f in as_completed(futs):
-                r = f.result()
-                thread_results.append(r)
-
+                thread_results.append(f.result())
         results["parallel_scan"] = {"ok": True, "results": thread_results}
     except Exception as e:
-        results["parallel_scan"] = {"ok": False, "error": str(e), "trace": traceback.format_exc()[-500:]}
+        results["parallel_scan"] = {"ok": False, "error": str(e)[:300]}
+
+    # Test prediction markets
+    try:
+        from vesper.polymarket import get_trending_markets
+        poly = get_trending_markets(limit=5, max_days=14)
+        results["polymarket"] = {"ok": True, "count": len(poly)}
+    except Exception as e:
+        results["polymarket"] = {"ok": False, "error": str(e)[:200]}
+
+    try:
+        from vesper.kalshi import get_kalshi_markets
+        kalshi = get_kalshi_markets(limit=5, max_days=14)
+        results["kalshi"] = {"ok": True, "count": len(kalshi)}
+    except Exception as e:
+        results["kalshi"] = {"ok": False, "error": str(e)[:200]}
 
     return results
 
