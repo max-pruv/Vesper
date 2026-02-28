@@ -22,7 +22,8 @@ from fastapi.templating import Jinja2Templates
 
 from vesper.dashboard.database import (
     init_db, create_user, get_user_by_email, get_user_by_id,
-    verify_password, update_api_keys, update_alpaca_keys, update_trading_config,
+    verify_password, update_api_keys, update_alpaca_keys, update_kalshi_keys,
+    update_perplexity_key, update_trading_config,
     set_bot_active, update_trading_mode, create_oauth_user, User,
     add_trusted_device, is_device_trusted, remove_trusted_device,
 )
@@ -440,6 +441,8 @@ async def settings_page(request: Request, msg: str = ""):
         "has_api_keys": bool(user.coinbase_api_key),
         "has_coinbase": bool(user.coinbase_api_key),
         "has_alpaca": bool(user.alpaca_api_key),
+        "has_kalshi": bool(user.kalshi_api_key),
+        "has_perplexity": bool(user.perplexity_api_key),
         "msg": msg,
     })
 
@@ -473,6 +476,38 @@ async def remove_alpaca_keys(request: Request):
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     update_alpaca_keys(user.id, "", "")
+    return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
+
+@app.post("/settings/kalshi-keys")
+async def save_kalshi_keys(request: Request, kalshi_key: str = Form(...), kalshi_secret: str = Form(...)):
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    update_kalshi_keys(user.id, kalshi_key, kalshi_secret)
+    return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
+
+@app.post("/settings/kalshi-keys/remove")
+async def remove_kalshi_keys(request: Request):
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    update_kalshi_keys(user.id, "", "")
+    return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
+
+@app.post("/settings/perplexity-key")
+async def save_perplexity_key(request: Request, perplexity_key: str = Form(...)):
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    update_perplexity_key(user.id, perplexity_key)
+    return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
+
+@app.post("/settings/perplexity-key/remove")
+async def remove_perplexity_key(request: Request):
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    update_perplexity_key(user.id, "")
     return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
 
 @app.post("/settings/trading")
@@ -1389,3 +1424,33 @@ async def api_kalshi_markets(request: Request, limit: int = 20, max_days: int = 
             return JSONResponse({"error": f"Kalshi API error: {str(e)}"}, status_code=502)
 
     return {"markets": markets[:limit]}
+
+
+@app.get("/api/research/market")
+async def api_research_market(request: Request, question: str = "", market_prob: float = 50, category: str = ""):
+    """Deep AI research for a specific prediction market question.
+
+    Uses Perplexity Sonar API to search the web and synthesize a probability estimate
+    with evidence, citations, and reasoning.
+    """
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    if not question:
+        return JSONResponse({"error": "question parameter required"}, status_code=400)
+
+    if not user.perplexity_api_key:
+        return JSONResponse({
+            "researched": False,
+            "reason": "no_api_key",
+            "message": "Add your Perplexity API key in Settings to enable deep AI research.",
+        })
+
+    try:
+        from vesper.ai_research import research_market
+        api_key = user.get_perplexity_key()
+        result = research_market(question, market_prob, api_key, category)
+        return result
+    except Exception as e:
+        return JSONResponse({"error": f"Research failed: {str(e)}"}, status_code=500)

@@ -117,6 +117,47 @@
     }
     .pm-tf-pill:hover { color: var(--text); }
     .pm-tf-pill.active { background: var(--card); color: var(--text); }
+    .pm-research-btn {
+        font-size: 11px; color: var(--accent); cursor: pointer; border: 1px solid rgba(99,102,241,0.2);
+        background: rgba(99,102,241,0.08); padding: 3px 10px; border-radius: 6px;
+        font-family: inherit; font-weight: 600; transition: all 0.2s;
+    }
+    .pm-research-btn:hover { background: rgba(99,102,241,0.15); }
+    .pm-research-btn.loading { opacity: 0.5; pointer-events: none; }
+    .pm-research-panel {
+        margin-top: 10px; padding: 14px; border-radius: 10px;
+        background: rgba(99,102,241,0.04); border: 1px solid rgba(99,102,241,0.12);
+        display: none;
+    }
+    .pm-research-panel.open { display: block; }
+    .pm-research-heading {
+        font-size: 12px; font-weight: 700; color: var(--accent); margin-bottom: 10px;
+        display: flex; align-items: center; gap: 6px;
+    }
+    .pm-research-factors {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px;
+    }
+    .pm-factor-col { font-size: 11px; line-height: 1.6; }
+    .pm-factor-col .label { font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; }
+    .pm-factor-item { color: var(--text-muted); padding-left: 10px; position: relative; }
+    .pm-factor-item::before { content: '•'; position: absolute; left: 0; }
+    .pm-factor-item.yes::before { color: var(--green); }
+    .pm-factor-item.no::before { color: var(--red); }
+    .pm-research-reasoning {
+        font-size: 11px; color: var(--text-secondary); line-height: 1.5;
+        padding: 8px 10px; border-radius: 6px; background: rgba(255,255,255,0.03);
+        margin-bottom: 8px;
+    }
+    .pm-research-sources {
+        font-size: 10px; color: var(--text-muted);
+    }
+    .pm-research-sources a { color: var(--accent); text-decoration: none; }
+    .pm-research-sources a:hover { text-decoration: underline; }
+    .pm-research-prob {
+        display: inline-flex; align-items: center; gap: 6px;
+        padding: 4px 12px; border-radius: 8px; font-size: 13px; font-weight: 700;
+        background: rgba(99,102,241,0.12); color: var(--accent);
+    }
 </style>
 
 <div class="container">
@@ -1405,6 +1446,72 @@ function toggleSignals(id) {
     if (el) el.classList.toggle('open');
 }
 
+async function researchMarket(id, question, marketProb, category) {
+    const btn = document.getElementById('research-btn-' + id);
+    const panel = document.getElementById('research-' + id);
+    if (!btn || !panel) return;
+
+    // Toggle if already loaded
+    if (panel.dataset.loaded === 'true') {
+        panel.classList.toggle('open');
+        return;
+    }
+
+    btn.classList.add('loading');
+    btn.textContent = 'Researching...';
+
+    try {
+        const params = new URLSearchParams({question, market_prob: marketProb, category: category || ''});
+        const resp = await fetch('/api/research/market?' + params);
+        const data = await resp.json();
+
+        if (!data.researched) {
+            panel.innerHTML = `<div class="pm-research-heading">AI Research</div>
+                <div style="font-size:11px;color:var(--text-muted);">${escapeHtml(data.message || data.reason || 'Research unavailable')}.
+                ${data.reason === 'no_api_key' ? '<a href="/settings" style="color:var(--accent);">Add key in Settings</a>' : ''}</div>`;
+            panel.classList.add('open');
+            panel.dataset.loaded = 'true';
+            btn.textContent = 'Research';
+            btn.classList.remove('loading');
+            return;
+        }
+
+        const yesFactors = (data.yes_factors || []).map(f => `<div class="pm-factor-item yes">${escapeHtml(f)}</div>`).join('');
+        const noFactors = (data.no_factors || []).map(f => `<div class="pm-factor-item no">${escapeHtml(f)}</div>`).join('');
+        const sources = (data.sources || []).map((s, i) => `<a href="${escapeHtml(s)}" target="_blank">[${i+1}]</a>`).join(' ');
+        const confClass = data.confidence || 'low';
+
+        panel.innerHTML = `
+            <div class="pm-research-heading">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                Deep AI Research
+                <span class="pm-research-prob">${data.probability}%</span>
+                <span class="pm-confidence ${confClass}" style="margin-left:4px;" title="${confClass} confidence"></span>
+            </div>
+            <div class="pm-research-reasoning">${escapeHtml(data.reasoning || '')}</div>
+            <div class="pm-research-factors">
+                <div class="pm-factor-col">
+                    <div class="label" style="color:var(--green);">Supporting YES</div>
+                    ${yesFactors || '<div class="pm-factor-item" style="color:var(--text-muted);">No strong factors</div>'}
+                </div>
+                <div class="pm-factor-col">
+                    <div class="label" style="color:var(--red);">Supporting NO</div>
+                    ${noFactors || '<div class="pm-factor-item" style="color:var(--text-muted);">No strong factors</div>'}
+                </div>
+            </div>
+            ${sources ? `<div class="pm-research-sources">Sources: ${sources}</div>` : ''}
+        `;
+        panel.classList.add('open');
+        panel.dataset.loaded = 'true';
+        btn.textContent = 'Hide Research';
+        btn.classList.remove('loading');
+    } catch(e) {
+        btn.textContent = 'Research failed';
+        btn.classList.remove('loading');
+        setTimeout(() => { btn.textContent = 'Deep Research'; }, 3000);
+    }
+}
+
 async function fetchPolymarkets() {
     const container = document.getElementById('pmMarketsContainer');
     container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">Loading markets...</div>';
@@ -1528,9 +1635,15 @@ function renderPolymarkets(markets) {
                     </div>
                 </div>
                 ${signalsList ? `
-                    <button class="pm-signals-toggle" onclick="toggleSignals('${m.id}')" style="margin-top:6px;">View AI signals</button>
+                    <div style="display:flex;gap:8px;margin-top:6px;align-items:center;">
+                        <button class="pm-signals-toggle" onclick="toggleSignals('${m.id}')">View trading signals</button>
+                        <button class="pm-research-btn" id="research-btn-${m.id}" onclick="researchMarket('${m.id}', '${question.replace(/'/g, "\\'")}', ${mktProb}, '${escapeHtml((m.tags || [])[0] || '')}')">Deep Research</button>
+                    </div>
                     <div class="pm-signals-list" id="signals-${m.id}">${signalsList}</div>
-                ` : ''}
+                ` : `
+                    <button class="pm-research-btn" id="research-btn-${m.id}" onclick="researchMarket('${m.id}', '${question.replace(/'/g, "\\'")}', ${mktProb}, '${escapeHtml((m.tags || [])[0] || '')}')" style="margin-top:6px;">Deep Research</button>
+                `}
+                <div class="pm-research-panel" id="research-${m.id}"></div>
             `;
         } else {
             aiRowHtml = `
@@ -1538,7 +1651,9 @@ function renderPolymarkets(markets) {
                     <div>
                         <div style="font-size:11px;color:var(--text-muted);">No significant edge detected</div>
                     </div>
+                    <button class="pm-research-btn" id="research-btn-${m.id}" onclick="researchMarket('${m.id}', '${question.replace(/'/g, "\\'")}', ${mktProb}, '${escapeHtml((m.tags || [])[0] || '')}')">Deep Research</button>
                 </div>
+                <div class="pm-research-panel" id="research-${m.id}"></div>
             `;
         }
 

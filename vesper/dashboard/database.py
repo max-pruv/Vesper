@@ -53,6 +53,9 @@ class User:
     coinbase_api_secret: str  # encrypted
     alpaca_api_key: str  # encrypted
     alpaca_api_secret: str  # encrypted
+    kalshi_api_key: str  # encrypted
+    kalshi_api_secret: str  # encrypted
+    perplexity_api_key: str  # encrypted
     paper_balance: float
     trading_mode: str
     symbols: str
@@ -76,6 +79,19 @@ class User:
     def get_alpaca_secret(self) -> str:
         return _decrypt(self.alpaca_api_secret) if self.alpaca_api_secret else ""
 
+    def get_kalshi_key(self) -> str:
+        return _decrypt(self.kalshi_api_key) if self.kalshi_api_key else ""
+
+    def get_kalshi_secret(self) -> str:
+        return _decrypt(self.kalshi_api_secret) if self.kalshi_api_secret else ""
+
+    def get_perplexity_key(self) -> str:
+        return _decrypt(self.perplexity_api_key) if self.perplexity_api_key else ""
+
+    @property
+    def has_perplexity(self) -> bool:
+        return bool(self.perplexity_api_key)
+
     @property
     def has_alpaca(self) -> bool:
         return bool(self.alpaca_api_key)
@@ -83,6 +99,10 @@ class User:
     @property
     def has_coinbase(self) -> bool:
         return bool(self.coinbase_api_key)
+
+    @property
+    def has_kalshi(self) -> bool:
+        return bool(self.kalshi_api_key)
 
 
 def init_db():
@@ -116,6 +136,20 @@ def init_db():
         pass
     try:
         conn.execute("ALTER TABLE users ADD COLUMN alpaca_api_secret TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    # Migration: add Kalshi columns if missing
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN kalshi_api_key TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN kalshi_api_secret TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
+    # Migration: add Perplexity column if missing
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN perplexity_api_key TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
 
@@ -199,6 +233,9 @@ def get_user_by_email(email: str) -> User | None:
         coinbase_api_secret=row["coinbase_api_secret"],
         alpaca_api_key=row["alpaca_api_key"] if "alpaca_api_key" in row.keys() else "",
         alpaca_api_secret=row["alpaca_api_secret"] if "alpaca_api_secret" in row.keys() else "",
+        kalshi_api_key=row["kalshi_api_key"] if "kalshi_api_key" in row.keys() else "",
+        kalshi_api_secret=row["kalshi_api_secret"] if "kalshi_api_secret" in row.keys() else "",
+        perplexity_api_key=row["perplexity_api_key"] if "perplexity_api_key" in row.keys() else "",
         paper_balance=row["paper_balance"],
         trading_mode=row["trading_mode"],
         symbols=row["symbols"],
@@ -228,6 +265,9 @@ def get_user_by_id(user_id: int) -> User | None:
         coinbase_api_secret=row["coinbase_api_secret"],
         alpaca_api_key=row["alpaca_api_key"] if "alpaca_api_key" in row.keys() else "",
         alpaca_api_secret=row["alpaca_api_secret"] if "alpaca_api_secret" in row.keys() else "",
+        kalshi_api_key=row["kalshi_api_key"] if "kalshi_api_key" in row.keys() else "",
+        kalshi_api_secret=row["kalshi_api_secret"] if "kalshi_api_secret" in row.keys() else "",
+        perplexity_api_key=row["perplexity_api_key"] if "perplexity_api_key" in row.keys() else "",
         paper_balance=row["paper_balance"],
         trading_mode=row["trading_mode"],
         symbols=row["symbols"],
@@ -260,6 +300,26 @@ def update_alpaca_keys(user_id: int, api_key: str, api_secret: str):
     conn.execute(
         "UPDATE users SET alpaca_api_key = ?, alpaca_api_secret = ? WHERE id = ?",
         (_encrypt(api_key), _encrypt(api_secret), user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_kalshi_keys(user_id: int, api_key: str, api_secret: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE users SET kalshi_api_key = ?, kalshi_api_secret = ? WHERE id = ?",
+        (_encrypt(api_key), _encrypt(api_secret), user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_perplexity_key(user_id: int, api_key: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE users SET perplexity_api_key = ? WHERE id = ?",
+        (_encrypt(api_key), user_id),
     )
     conn.commit()
     conn.close()
@@ -342,6 +402,9 @@ def get_active_users() -> list[User]:
             coinbase_api_secret=row["coinbase_api_secret"],
             alpaca_api_key=row["alpaca_api_key"] if "alpaca_api_key" in row.keys() else "",
             alpaca_api_secret=row["alpaca_api_secret"] if "alpaca_api_secret" in row.keys() else "",
+            kalshi_api_key=row["kalshi_api_key"] if "kalshi_api_key" in row.keys() else "",
+            kalshi_api_secret=row["kalshi_api_secret"] if "kalshi_api_secret" in row.keys() else "",
+            perplexity_api_key=row["perplexity_api_key"] if "perplexity_api_key" in row.keys() else "",
             paper_balance=row["paper_balance"],
             trading_mode=row["trading_mode"],
             symbols=row["symbols"],
