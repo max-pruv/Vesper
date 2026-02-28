@@ -378,7 +378,8 @@ async def dashboard(request: Request):
         t for t in all_trades
         if t.get("trade_mode", "paper") == current_mode
     ]
-    total_pnl = sum(t.get("pnl_usd", 0) for t in trades)
+    realized_pnl = sum(t.get("pnl_usd", 0) for t in trades)
+    total_pnl = realized_pnl  # unrealized added by WS once live prices arrive
     wins = [t for t in trades if t.get("pnl_usd", 0) > 0]
     losses = [t for t in trades if t.get("pnl_usd", 0) <= 0]
     win_rate = (len(wins) / len(trades) * 100) if trades else 0
@@ -434,6 +435,7 @@ async def dashboard(request: Request):
     return templates.TemplateResponse("dashboard.html", {
         "request": request, "user": user, "cash": cash,
         "initial_balance": initial, "total_pnl": total_pnl,
+        "realized_pnl": realized_pnl,
         "total_pnl_pct": (total_pnl / initial * 100) if initial > 0 else 0,
         "win_rate": win_rate, "total_trades": len(trades),
         "wins": len(wins), "losses": len(losses),

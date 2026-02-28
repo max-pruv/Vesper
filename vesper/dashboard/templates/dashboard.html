@@ -210,7 +210,7 @@
             </div>
             <div class="stat-glass">
                 <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">Realized P&L</div>
-                <div style="font-size:20px;font-weight:700;" id="statRealized">${{ "%+.2f"|format(total_pnl) }}</div>
+                <div style="font-size:20px;font-weight:700;" id="statRealized">${{ "%+.2f"|format(realized_pnl) }}</div>
             </div>
             <div class="stat-glass">
                 <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;">Unrealized P&L</div>
@@ -572,7 +572,7 @@
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
             <div class="card-title" style="margin-bottom:0;">Profit & Loss</div>
             <div style="display:flex;gap:12px;font-size:13px;">
-                <span style="color:var(--text-muted);">Realized: <span id="pnlRealized" style="font-weight:600;">${{ "%+.2f"|format(total_pnl) }}</span></span>
+                <span style="color:var(--text-muted);">Realized: <span id="pnlRealized" style="font-weight:600;">${{ "%+.2f"|format(realized_pnl) }}</span></span>
                 <span style="color:var(--text-muted);">Unrealized: <span id="pnlUnrealized" style="font-weight:600;">$0.00</span></span>
             </div>
         </div>
