@@ -1022,9 +1022,13 @@ def _fetch_signal_sync(symbol: str, strategy_id: str = "smart_auto") -> dict:
 
 def _get_public_exchange():
     """Public (no auth) exchange for price data. Uses the auto-selected exchange."""
-    from vesper.main import _resolve_exchange
-    ex, _ = _resolve_exchange()
-    return ex
+    try:
+        from vesper.main import _resolve_exchange
+        ex, _ = _resolve_exchange()
+        return ex
+    except Exception as e:
+        _log.warning(f"[exchange] Failed to resolve public exchange: {e}")
+        return None
 
 
 def _calc_change_pct(t: dict) -> float:
@@ -1043,6 +1047,8 @@ def _fetch_tickers_sync() -> list[dict]:
     """Fetch ticker data for all symbols (sync, run in executor)."""
     ex = _get_public_exchange()
     result = []
+    if not ex or not getattr(ex, 'markets', None):
+        return result
     # Filter to symbols available on the selected exchange
     available_syms = [s for s in TICKER_SYMBOLS if s in ex.markets]
     try:
@@ -1075,6 +1081,8 @@ def _fetch_tickers_sync() -> list[dict]:
 def _fetch_ohlcv_sync(symbol: str, timeframe: str = "1h", limit: int = 100) -> list[dict]:
     """Fetch OHLCV candles formatted for lightweight-charts."""
     ex = _get_public_exchange()
+    if not ex:
+        return []
     try:
         raw = ex.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
         return [
@@ -1107,6 +1115,8 @@ _SYMBOL_REMAP = {
 
 def _fetch_single_price(symbol: str) -> float:
     """Fetch a single crypto symbol's price — tries exchange, then CoinGecko fallback."""
+    if not symbol:
+        return 0
     ex = _get_public_exchange()
 
     # Try original symbol first, then remapped symbol
@@ -1122,7 +1132,7 @@ def _fetch_single_price(symbol: str) -> float:
 
     for sym in symbols_to_try:
         try:
-            if sym in ex.markets:
+            if ex and hasattr(ex, 'markets') and ex.markets and sym in ex.markets:
                 t = ex.fetch_ticker(sym)
                 price = (t.get("last") or 0) if t else 0
                 if price > 0:
@@ -1189,6 +1199,7 @@ async def _get_price_map_for_positions(position_symbols: set[str], user=None) ->
     4. Direct exchange fetch per symbol (with symbol remapping)
     5. Direct CoinGecko /simple/price API
     """
+    position_symbols = {s for s in position_symbols if s}  # filter empty strings
     prices = await _get_cached_prices()
     price_map = {p["symbol"]: p["price"] for p in prices if p.get("price", 0) > 0}
 
@@ -3208,6 +3219,8 @@ def _fetch_crypto_markets_sync() -> list[dict]:
     """Fetch full ALTCOIN_UNIVERSE tickers with volume + market cap."""
     from config.settings import ALTCOIN_UNIVERSE
     ex = _get_public_exchange()
+    if not ex or not getattr(ex, 'markets', None):
+        return []
     available = [s for s in ALTCOIN_UNIVERSE if s in ex.markets]
 
     # Fetch market caps from CoinGecko
