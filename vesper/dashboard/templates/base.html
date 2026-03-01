@@ -152,34 +152,8 @@
         .oauth-btn:hover { border-color: var(--text-secondary); background: var(--surface); opacity: 1; }
         .oauth-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
 
-        /* Ticker Bar */
-        .ticker-bar {
-            position: fixed; top: 0; left: 0; right: 0; z-index: 200;
-            height: 36px; background: var(--surface);
-            border-bottom: 1px solid var(--border);
-            overflow: hidden; display: flex; align-items: center;
-        }
-        .ticker-track {
-            display: inline-flex; gap: 32px; align-items: center;
-            height: 100%; animation: ticker-scroll 40s linear infinite;
-            padding: 0 16px; white-space: nowrap;
-        }
-        .ticker-item {
-            display: inline-flex; align-items: center; gap: 6px;
-            font-size: 12px; font-weight: 500; flex-shrink: 0;
-        }
-        .ticker-name { color: var(--text); font-weight: 600; }
-        .ticker-price { color: var(--text-secondary); }
-        .ticker-change { font-weight: 600; font-size: 11px; }
-        @keyframes ticker-scroll {
-            0% { transform: translateX(0); }
-            100% { transform: translateX(-50%); }
-        }
-
-        /* Adjust layout for ticker */
-        .nav { top: 36px; }
-        body { padding-top: 0; }
-        .page-wrapper { padding-top: 92px; }
+        /* Nav spacing (no ticker) */
+        .page-wrapper { padding-top: 56px; }
 
         /* Strategy Cards */
         .strategy-grid {
