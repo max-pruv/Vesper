@@ -1076,7 +1076,7 @@ async function updatePositions() {
 
         // Update position count label
         const countLabel = document.getElementById('positionCountLabel');
-        if (countLabel) countLabel.textContent = positions.length + ' open' + (allPositions.length !== positions.length ? ` (${allPositions.length} total)` : '');
+        if (countLabel) countLabel.textContent = positions.length + ' open';
 
         if (positions.length === 0) {
             container.innerHTML = `<div class="empty-state">
