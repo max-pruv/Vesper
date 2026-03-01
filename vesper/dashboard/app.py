@@ -898,29 +898,37 @@ async def health():
 
 @app.post("/api/admin/deploy")
 async def admin_deploy():
-    """Trigger deploy by proxying to the deploy-webhook running on the host.
-    The webhook (port 9876) runs outside Docker and handles git pull + docker rebuild."""
-    import httpx
-    # Inside Docker, the host is reachable at host.docker.internal or 172.17.0.1
-    webhook_urls = [
-        "http://host.docker.internal:9876/deploy",
-        "http://172.17.0.1:9876/deploy",
-    ]
-    deploy_token = os.environ.get("DEPLOY_TOKEN", "")
-    headers = {"Authorization": f"Bearer {deploy_token}"} if deploy_token else {}
+    """Hot-deploy: git pull inside container + restart process.
+    Docker restart policy brings us back with new code.
+    For full rebuild (Dockerfile changes), use SSH deploy."""
+    import subprocess
+    branch = "claude/deploy-openclaw-cloudflare-GkBQL"
+    app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    for url in webhook_urls:
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.post(url, headers=headers)
-                return {"status": "triggered", "webhook_response": resp.text, "url": url}
-        except Exception:
-            continue
+    try:
+        result = subprocess.run(
+            ["git", "pull", "origin", branch],
+            capture_output=True, text=True, timeout=60, cwd=app_dir,
+        )
+        pull_output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            return {"status": "error", "phase": "git_pull", "output": pull_output}
 
-    return {"status": "webhook_unreachable",
-            "message": "Deploy webhook not reachable. SSH to server and run: "
-                       "cd /opt/vesper && git pull origin claude/deploy-openclaw-cloudflare-GkBQL && "
-                       "docker compose down && docker compose up -d --build"}
+        if "Already up to date" in pull_output:
+            return {"status": "already_current", "output": pull_output}
+
+        # Restart process — Docker restart=unless-stopped brings us back with new code
+        import threading
+        def _restart():
+            import time as _t
+            _t.sleep(1)
+            os._exit(0)
+        threading.Thread(target=_restart, daemon=True).start()
+
+        return {"status": "deploying", "output": pull_output,
+                "message": "Code pulled. Restarting in 1s..."}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 
 @app.get("/api/admin/bot-state")
