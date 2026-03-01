@@ -302,6 +302,14 @@ def verify_password(user: User, password: str) -> bool:
     return bcrypt.checkpw(password.encode(), user.password_hash.encode())
 
 
+def update_password(user_id: int, new_password_hash: str):
+    """Update a user's password hash."""
+    conn = _get_conn()
+    conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_password_hash, user_id))
+    conn.commit()
+    conn.close()
+
+
 def update_api_keys(user_id: int, api_key: str, api_secret: str):
     conn = _get_conn()
     conn.execute(

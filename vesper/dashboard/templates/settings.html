@@ -5,8 +5,11 @@
     <span class="nav-logo">vesper</span>
     <div class="nav-links">
         <a class="nav-link" href="/dashboard">Dashboard</a>
+        <a class="nav-link" href="/dashboard?tab=markets">Markets</a>
         <a class="nav-link" href="/how-it-works">How it works</a>
+        <a class="nav-link" href="/trade-history">Trade History</a>
         <a class="nav-link active" href="/settings">Settings</a>
+        {% if user.is_admin %}<a class="nav-link" href="/admin">Admin</a>{% endif %}
         <a class="nav-link" href="/logout">Log out</a>
     </div>
 </div>
@@ -19,6 +22,16 @@
     <div class="alert alert-success">Configuration updated.</div>
     {% elif msg == "mode_changed" %}
     <div class="alert alert-success">Trading mode updated.</div>
+    {% elif msg == "password_changed" %}
+    <div class="alert alert-success">Password changed successfully.</div>
+    {% elif msg == "wrong_password" %}
+    <div class="alert alert-error">Current password is incorrect.</div>
+    {% elif msg == "password_mismatch" %}
+    <div class="alert alert-error">New passwords do not match.</div>
+    {% elif msg == "password_weak" %}
+    <div class="alert alert-error">Password must include: 8+ characters, uppercase, lowercase, number, and special character.</div>
+    {% elif msg == "trades_reset" %}
+    <div class="alert alert-success">All trades, positions, and autopilots have been reset. Starting fresh.</div>
     {% endif %}
 
     <!-- Exchange Connections -->
@@ -192,11 +205,17 @@
             <input type="hidden" name="symbols" value="{{ user.symbols }}">
             <input type="hidden" name="interval_minutes" value="{{ user.interval_minutes }}">
             <input type="hidden" name="trading_mode" value="{{ user.trading_mode }}">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:end;">
                 <div class="input-group">
                     <label class="input-label" for="paper_balance">Paper Balance ($)</label>
                     <input class="input" type="number" name="paper_balance" id="paper_balance"
                            value="{{ user.paper_balance }}" step="1" min="10">
+                </div>
+                <div class="input-group">
+                    <button type="button" class="btn btn-sm" id="btnResetTrades"
+                            style="background:rgba(255,59,48,0.1);color:var(--red);border:1px solid rgba(255,59,48,0.2);width:100%;padding:12px 16px;">
+                        Reset All Trades
+                    </button>
                 </div>
             </div>
 
@@ -230,12 +249,66 @@
     <!-- Account -->
     <div class="card">
         <div class="card-title">Account</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
             <div>
                 <div style="font-size:15px;font-weight:500;">{{ user.email }}</div>
                 <div style="font-size:12px;color:var(--green);margin-top:2px;">2FA Active</div>
             </div>
         </div>
+        <div style="border-top:1px solid var(--border);padding-top:20px;">
+            <div style="font-size:14px;font-weight:600;margin-bottom:16px;">Change Password</div>
+            <form method="POST" action="/settings/change-password">
+                <div class="input-group">
+                    <label class="input-label" for="current_password">Current Password</label>
+                    <input class="input" type="password" name="current_password" id="current_password" required>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+                    <div class="input-group">
+                        <label class="input-label" for="new_password">New Password</label>
+                        <input class="input" type="password" name="new_password" id="new_password" required minlength="8">
+                    </div>
+                    <div class="input-group">
+                        <label class="input-label" for="confirm_password">Confirm New Password</label>
+                        <input class="input" type="password" name="confirm_password" id="confirm_password" required minlength="8">
+                    </div>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-bottom:12px;">
+                    Must include: 8+ characters, uppercase, lowercase, number, and special character (!@#$%...)
+                </div>
+                <button type="submit" class="btn btn-accent btn-sm">Change Password</button>
+            </form>
+        </div>
     </div>
 </div>
+
+<!-- Reset Trades Confirmation Modal -->
+<div class="modal-overlay" id="resetModal">
+    <div class="modal" style="max-width:440px;">
+        <button class="modal-close" onclick="document.getElementById('resetModal').classList.remove('active')">&times;</button>
+        <div style="text-align:center;margin-bottom:20px;">
+            <div style="width:56px;height:56px;border-radius:50%;background:rgba(255,59,48,0.1);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--red)" stroke-width="2"><path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+            </div>
+            <div style="font-size:18px;font-weight:700;margin-bottom:8px;">Reset All Trades?</div>
+            <div style="font-size:13px;color:var(--text-muted);line-height:1.6;">
+                This will permanently delete:<br>
+                <span style="color:var(--red);">All open positions, trade history, autopilot configurations, and P&L data.</span><br><br>
+                Your paper balance will be reset to <b>${{ user.paper_balance }}</b>.<br>
+                This action <b>cannot be undone</b>.
+            </div>
+        </div>
+        <div style="display:flex;gap:12px;">
+            <button class="btn btn-outline" style="flex:1;" onclick="document.getElementById('resetModal').classList.remove('active')">Cancel</button>
+            <form method="POST" action="/settings/reset-trades" style="flex:1;">
+                <button type="submit" class="btn" style="width:100%;background:var(--red);color:#fff;">Yes, Reset Everything</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('btnResetTrades').addEventListener('click', function() {
+    document.getElementById('resetModal').classList.add('active');
+});
+</script>
 {% endblock %}

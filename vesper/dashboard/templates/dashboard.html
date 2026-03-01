@@ -10,6 +10,8 @@
     <div class="nav-links">
         <a class="nav-link active" href="#" onclick="switchTab('trading');return false;" id="navDashboard">Dashboard</a>
         <a class="nav-link" href="#" onclick="switchTab('markets');return false;" id="navMarkets">Markets</a>
+        <a class="nav-link" href="/how-it-works">How it works</a>
+        <a class="nav-link" href="/trade-history">Trade History</a>
         <a class="nav-link" href="/settings">Settings</a>
         {% if user.is_admin %}<a class="nav-link" href="/admin">Admin</a>{% endif %}
         <a class="nav-link" href="/logout">Log out</a>
@@ -2791,5 +2793,13 @@ function renderPolymarkets(markets) {
     html += '</div>';
     container.innerHTML = html;
 }
+
+// Handle ?tab=markets query parameter (for nav links from other pages)
+(function() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('tab') === 'markets') {
+        switchTab('markets');
+    }
+})();
 </script>
 {% endblock %}

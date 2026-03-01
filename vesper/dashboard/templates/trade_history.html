@@ -1,0 +1,450 @@
+{% extends "base.html" %}
+{% block title %}Trade History — Vesper{% endblock %}
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{% endblock %}
+{% block body %}
+
+<div class="nav">
+    <span class="nav-logo">vesper</span>
+    <div class="nav-links">
+        <a class="nav-link" href="/dashboard">Dashboard</a>
+        <a class="nav-link" href="/dashboard?tab=markets">Markets</a>
+        <a class="nav-link" href="/how-it-works">How it works</a>
+        <a class="nav-link active" href="/trade-history">Trade History</a>
+        <a class="nav-link" href="/settings">Settings</a>
+        {% if user.is_admin %}<a class="nav-link" href="/admin">Admin</a>{% endif %}
+        <a class="nav-link" href="/logout">Log out</a>
+    </div>
+</div>
+
+<div class="page-wrapper" style="padding-top:32px;padding-bottom:64px;">
+
+    <!-- KPI Cards -->
+    <div id="kpiGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;">
+        <div class="stat-glass slide-up" id="kpi-overall">
+            <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Overall Win Rate</div>
+            <div style="font-size:28px;font-weight:800;margin-top:4px;" id="kpi-overall-rate"
+                 class="{{ 'positive' if kpis.overall.rate >= 50 else 'negative' }}">
+                {{ kpis.overall.rate }}%
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="kpi-overall-detail">
+                {{ kpis.overall.wins }}/{{ kpis.overall.total }} trades
+            </div>
+        </div>
+        <div class="stat-glass slide-up" style="animation-delay:0.05s;" id="kpi-crypto">
+            <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Crypto Win Rate</div>
+            <div style="font-size:28px;font-weight:800;margin-top:4px;" id="kpi-crypto-rate"
+                 class="{{ 'positive' if kpis.crypto.rate >= 50 else 'negative' }}">
+                {{ kpis.crypto.rate }}%
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="kpi-crypto-detail">
+                {{ kpis.crypto.wins }}/{{ kpis.crypto.total }} trades
+            </div>
+        </div>
+        <div class="stat-glass slide-up" style="animation-delay:0.1s;" id="kpi-stocks">
+            <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Stocks Win Rate</div>
+            <div style="font-size:28px;font-weight:800;margin-top:4px;" id="kpi-stocks-rate"
+                 class="{{ 'positive' if kpis.stocks.rate >= 50 else 'negative' }}">
+                {{ kpis.stocks.rate }}%
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="kpi-stocks-detail">
+                {{ kpis.stocks.wins }}/{{ kpis.stocks.total }} trades
+            </div>
+        </div>
+        <div class="stat-glass slide-up" style="animation-delay:0.15s;" id="kpi-predictions">
+            <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Predictions Win Rate</div>
+            <div style="font-size:28px;font-weight:800;margin-top:4px;" id="kpi-predictions-rate"
+                 class="{{ 'positive' if kpis.predictions.rate >= 50 else 'negative' }}">
+                {{ kpis.predictions.rate }}%
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="kpi-predictions-detail">
+                {{ kpis.predictions.wins }}/{{ kpis.predictions.total }} trades
+            </div>
+        </div>
+    </div>
+
+    <!-- Win Rate Chart -->
+    <div class="card slide-up" style="animation-delay:0.2s;padding:24px;margin-bottom:24px;">
+        <div class="card-title">Win Rate Over Time</div>
+        <div style="position:relative;height:280px;">
+            <canvas id="winRateChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card slide-up" style="animation-delay:0.25s;padding:16px 24px;margin-bottom:24px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div style="display:flex;gap:4px;" id="typeFilters">
+                <button class="tab-pill active" data-type="all" onclick="setTypeFilter('all')">All</button>
+                <button class="tab-pill" data-type="crypto" onclick="setTypeFilter('crypto')">Crypto</button>
+                <button class="tab-pill" data-type="stocks" onclick="setTypeFilter('stocks')">Stocks</button>
+                <button class="tab-pill" data-type="predictions" onclick="setTypeFilter('predictions')">Predictions</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;">
+                <label style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">From</label>
+                <input type="date" class="input" id="dateFrom" style="width:150px;padding:8px 12px;font-size:13px;" onchange="applyFilters()">
+                <label style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.5px;">To</label>
+                <input type="date" class="input" id="dateTo" style="width:150px;padding:8px 12px;font-size:13px;" onchange="applyFilters()">
+            </div>
+        </div>
+    </div>
+
+    <!-- Trade History Table -->
+    <div class="card slide-up" style="animation-delay:0.3s;padding:0;overflow:hidden;">
+        <div style="overflow-x:auto;">
+            <table id="tradeTable">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Symbol</th>
+                        <th>Type</th>
+                        <th>Side</th>
+                        <th>Entry Price</th>
+                        <th>Exit Price</th>
+                        <th style="text-align:right;">P&L ($)</th>
+                        <th style="text-align:right;">P&L (%)</th>
+                        <th>Duration</th>
+                        <th>Reason</th>
+                    </tr>
+                </thead>
+                <tbody id="tradeTableBody">
+                </tbody>
+            </table>
+        </div>
+        <div id="emptyState" class="empty-state" style="display:none;">
+            <div class="empty-state-icon">~</div>
+            <p>No trades match your filters.</p>
+        </div>
+    </div>
+
+</div>
+
+<style>
+    @media (max-width: 768px) {
+        #kpiGrid {
+            grid-template-columns: repeat(2, 1fr) !important;
+        }
+        #typeFilters {
+            flex-wrap: wrap;
+        }
+        div[style*="display:flex;align-items:center;gap:8px"] {
+            flex-wrap: wrap;
+        }
+    }
+    .type-badge {
+        display: inline-block;
+        padding: 2px 10px;
+        border-radius: 8px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: capitalize;
+    }
+    .type-badge-crypto {
+        background: rgba(0,232,94,0.1);
+        color: var(--green);
+    }
+    .type-badge-stocks {
+        background: rgba(99,102,241,0.1);
+        color: #818cf8;
+    }
+    .type-badge-predictions {
+        background: rgba(168,85,247,0.1);
+        color: #a855f7;
+    }
+    .side-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+    .side-buy {
+        background: rgba(0,232,94,0.08);
+        color: var(--green);
+    }
+    .side-sell {
+        background: rgba(255,68,68,0.08);
+        color: var(--red);
+    }
+    .reason-cell {
+        max-width: 200px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+    .reason-cell:hover {
+        white-space: normal;
+        overflow: visible;
+    }
+</style>
+
+<script>
+(function() {
+    const allTrades = {{ trades|tojson }};
+    const chartData = {{ chart_data|tojson }};
+    let currentType = 'all';
+    let winRateChart = null;
+
+    // --- Render chart ---
+    function renderWinRateChart() {
+        const ctx = document.getElementById('winRateChart').getContext('2d');
+
+        const datasets = [];
+
+        if (chartData.overall && chartData.overall.length > 0) {
+            datasets.push({
+                label: 'Overall',
+                data: chartData.overall,
+                borderColor: '#f0f0f5',
+                backgroundColor: 'rgba(240,240,245,0.05)',
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHitRadius: 8,
+                tension: 0.3,
+                fill: true,
+            });
+        }
+        if (chartData.crypto && chartData.crypto.length > 0) {
+            datasets.push({
+                label: 'Crypto',
+                data: chartData.crypto,
+                borderColor: '#00e85e',
+                backgroundColor: 'rgba(0,232,94,0.04)',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHitRadius: 8,
+                tension: 0.3,
+                fill: false,
+                borderDash: [],
+            });
+        }
+        if (chartData.stocks && chartData.stocks.length > 0) {
+            datasets.push({
+                label: 'Stocks',
+                data: chartData.stocks,
+                borderColor: '#818cf8',
+                backgroundColor: 'rgba(99,102,241,0.04)',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHitRadius: 8,
+                tension: 0.3,
+                fill: false,
+            });
+        }
+        if (chartData.predictions && chartData.predictions.length > 0) {
+            datasets.push({
+                label: 'Predictions',
+                data: chartData.predictions,
+                borderColor: '#a855f7',
+                backgroundColor: 'rgba(168,85,247,0.04)',
+                borderWidth: 1.5,
+                pointRadius: 0,
+                pointHitRadius: 8,
+                tension: 0.3,
+                fill: false,
+            });
+        }
+
+        if (datasets.length === 0) {
+            document.getElementById('winRateChart').parentElement.innerHTML =
+                '<div class="empty-state"><div class="empty-state-icon">~</div><p>No trade data for chart yet.</p></div>';
+            return;
+        }
+
+        // 50% reference line
+        datasets.push({
+            label: '50% Line',
+            data: datasets[0].data.map(p => ({ x: p.x, y: 50 })),
+            borderColor: 'rgba(255,255,255,0.15)',
+            borderWidth: 1,
+            borderDash: [6, 4],
+            pointRadius: 0,
+            pointHitRadius: 0,
+            fill: false,
+            tension: 0,
+        });
+
+        winRateChart = new Chart(ctx, {
+            type: 'line',
+            data: { datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        labels: {
+                            color: '#9ca3af',
+                            font: { size: 11, family: 'Inter' },
+                            boxWidth: 12,
+                            boxHeight: 2,
+                            padding: 16,
+                            filter: function(item) {
+                                return item.text !== '50% Line';
+                            }
+                        }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(10,10,14,0.95)',
+                        borderColor: 'rgba(255,255,255,0.08)',
+                        borderWidth: 1,
+                        titleColor: '#f0f0f5',
+                        bodyColor: '#9ca3af',
+                        titleFont: { size: 12, weight: 600 },
+                        bodyFont: { size: 11 },
+                        padding: 10,
+                        cornerRadius: 8,
+                        filter: function(item) {
+                            return item.dataset.label !== '50% Line';
+                        },
+                        callbacks: {
+                            label: function(ctx) {
+                                return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + '%';
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        type: 'category',
+                        labels: (chartData.overall || []).map(p => p.x),
+                        grid: { color: 'rgba(255,255,255,0.03)' },
+                        ticks: {
+                            color: '#6b7280',
+                            font: { size: 10 },
+                            maxTicksLimit: 12,
+                            maxRotation: 0,
+                        },
+                        border: { display: false },
+                    },
+                    y: {
+                        min: 0,
+                        max: 100,
+                        grid: { color: 'rgba(255,255,255,0.03)' },
+                        ticks: {
+                            color: '#6b7280',
+                            font: { size: 10 },
+                            callback: function(v) { return v + '%'; },
+                            stepSize: 25,
+                        },
+                        border: { display: false },
+                    }
+                }
+            }
+        });
+    }
+
+    // --- Render table ---
+    function renderTable(trades) {
+        const tbody = document.getElementById('tradeTableBody');
+        const empty = document.getElementById('emptyState');
+
+        if (trades.length === 0) {
+            tbody.innerHTML = '';
+            empty.style.display = 'block';
+            return;
+        }
+        empty.style.display = 'none';
+
+        tbody.innerHTML = trades.map(t => {
+            const pnlClass = t.pnl_usd >= 0 ? 'positive' : 'negative';
+            const pnlSign = t.pnl_usd >= 0 ? '+' : '';
+            return `<tr data-type="${t.type}" data-exit-date="${t.exit_date}">
+                <td style="font-size:13px;font-family:monospace;color:var(--text-secondary);white-space:nowrap;">${t.exit_date || '—'}</td>
+                <td style="font-weight:600;">${t.symbol}</td>
+                <td><span class="type-badge type-badge-${t.type}">${t.type}</span></td>
+                <td><span class="side-badge side-${t.side}">${t.side}</span></td>
+                <td style="font-family:monospace;font-size:13px;">$${Number(t.entry_price).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:6})}</td>
+                <td style="font-family:monospace;font-size:13px;">$${Number(t.exit_price).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:6})}</td>
+                <td style="text-align:right;font-weight:700;" class="${pnlClass}">${pnlSign}$${t.pnl_usd.toFixed(2)}</td>
+                <td style="text-align:right;font-weight:600;" class="${pnlClass}">${pnlSign}${t.pnl_pct.toFixed(2)}%</td>
+                <td style="font-size:13px;color:var(--text-muted);">${t.duration}</td>
+                <td class="reason-cell" title="${(t.reason || '').replace(/"/g, '&quot;')}">${t.reason || '—'}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    // --- Update KPI cards ---
+    function updateKPIs(trades) {
+        function calc(list) {
+            const total = list.length;
+            const wins = list.filter(t => t.pnl_usd > 0).length;
+            const rate = total > 0 ? Math.round(wins / total * 1000) / 10 : 0;
+            return { total, wins, rate };
+        }
+
+        const overall = calc(trades);
+        const crypto = calc(trades.filter(t => t.type === 'crypto'));
+        const stocks = calc(trades.filter(t => t.type === 'stocks'));
+        const predictions = calc(trades.filter(t => t.type === 'predictions'));
+
+        function setKPI(id, data) {
+            const rateEl = document.getElementById(id + '-rate');
+            const detailEl = document.getElementById(id + '-detail');
+            if (rateEl) {
+                rateEl.textContent = data.rate + '%';
+                rateEl.className = data.rate >= 50 ? 'positive' : (data.total === 0 ? '' : 'negative');
+            }
+            if (detailEl) {
+                detailEl.textContent = data.wins + '/' + data.total + ' trades';
+            }
+        }
+
+        setKPI('kpi-overall', overall);
+        setKPI('kpi-crypto', crypto);
+        setKPI('kpi-stocks', stocks);
+        setKPI('kpi-predictions', predictions);
+    }
+
+    // --- Filtering ---
+    function getFilteredTrades() {
+        let filtered = allTrades;
+
+        if (currentType !== 'all') {
+            filtered = filtered.filter(t => t.type === currentType);
+        }
+
+        const fromVal = document.getElementById('dateFrom').value;
+        const toVal = document.getElementById('dateTo').value;
+
+        if (fromVal) {
+            filtered = filtered.filter(t => t.exit_date >= fromVal);
+        }
+        if (toVal) {
+            const toEnd = toVal + ' 23:59';
+            filtered = filtered.filter(t => t.exit_date <= toEnd);
+        }
+
+        return filtered;
+    }
+
+    window.setTypeFilter = function(type) {
+        currentType = type;
+        document.querySelectorAll('#typeFilters .tab-pill').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-type') === type);
+        });
+        applyFilters();
+    };
+
+    window.applyFilters = function() {
+        const filtered = getFilteredTrades();
+        renderTable(filtered);
+        updateKPIs(filtered);
+    };
+
+    // --- Init ---
+    renderWinRateChart();
+    renderTable(allTrades);
+})();
+</script>
+
+{% endblock %}

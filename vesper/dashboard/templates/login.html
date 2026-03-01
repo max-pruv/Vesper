@@ -44,6 +44,7 @@
                     <label class="input-label" for="password">Password</label>
                     <input class="input" type="password" name="password" id="password" placeholder="Password" required>
                 </div>
+                {% if show_2fa %}
                 <div class="input-group">
                     <label class="input-label" for="totp_code">2FA code</label>
                     <input class="input" type="text" name="totp_code" id="totp_code" placeholder="000 000"
@@ -55,6 +56,12 @@
                     <input type="checkbox" name="remember_me" value="1" style="accent-color:var(--accent);width:16px;height:16px;">
                     <span style="font-size:13px;color:var(--text-secondary);">Remember this device for 7 days</span>
                 </label>
+                {% else %}
+                <div style="font-size:12px;color:var(--text-muted);margin:8px 0 12px;display:flex;align-items:center;gap:6px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    Device remembered — 2FA not required
+                </div>
+                {% endif %}
                 <button type="submit" class="btn btn-accent btn-full" style="padding:14px;">Log In</button>
             </form>
         {% endif %}

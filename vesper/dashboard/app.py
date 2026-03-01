@@ -5,11 +5,16 @@ import base64
 import hashlib
 import hmac
 import io
+import logging
 import os
 import json
 import secrets
 import time
+import traceback
 from datetime import datetime
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s %(message)s")
+_log = logging.getLogger("vesper.dashboard")
 
 import bcrypt
 import ccxt
@@ -22,7 +27,7 @@ from fastapi.templating import Jinja2Templates
 
 from vesper.dashboard.database import (
     init_db, create_user, get_user_by_email, get_user_by_id,
-    verify_password, update_api_keys, update_alpaca_keys, update_kalshi_keys,
+    verify_password, update_password, update_api_keys, update_alpaca_keys, update_kalshi_keys,
     update_perplexity_key, update_trading_config,
     set_bot_active, update_trading_mode, create_oauth_user, User,
     add_trusted_device, is_device_trusted, remove_trusted_device,
@@ -53,7 +58,9 @@ _oauth_states: dict[str, float] = {}
 
 @app.on_event("startup")
 async def startup():
+    _log.info("Dashboard starting up — initialising database")
     init_db()
+    _log.info("Dashboard ready")
 
 
 # --- Helpers ---
@@ -92,12 +99,29 @@ def _oauth_context() -> dict:
         "apple_enabled": bool(APPLE_CLIENT_ID),
     }
 
+def _clean_nones(obj):
+    """Recursively replace None/null values with sensible defaults.
+
+    JSON stores null which Python reads as None.  When code later does
+    ``val = d.get("price", 0)`` the default 0 is *ignored* because the
+    key exists (with value None).  Arithmetic on None then crashes with
+    TypeError.  Cleaning at load-time prevents this class of bug globally.
+    """
+    if isinstance(obj, dict):
+        return {k: _clean_nones(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_clean_nones(v) for v in obj]
+    if obj is None:
+        return 0
+    return obj
+
+
 def _load_portfolio(uid: int) -> dict:
     p = os.path.join(DATA_DIR, f"portfolio_{uid}.json")
     if not os.path.exists(p):
         return {"cash": 0, "initial_balance": 0, "positions": {}, "trade_history": []}
     with open(p) as f:
-        return json.load(f)
+        return _clean_nones(json.load(f))
 
 
 def _save_portfolio(uid: int, data: dict):
@@ -175,10 +199,16 @@ async def register_verify(request: Request, email: str = Form(...),
 # --- Login ---
 
 @app.get("/login", response_class=HTMLResponse)
-async def login_page(request: Request, error: str = ""):
+async def login_page(request: Request, error: str = "", need_2fa: str = ""):
+    # If a trust cookie exists, the device is likely remembered — hide 2FA field
+    has_trust = bool(request.cookies.get("vesper_trust", ""))
+    # But if we redirected back with need_2fa=1, show it anyway (cookie was expired)
+    show_2fa = not has_trust or need_2fa == "1"
     return templates.TemplateResponse("login.html", {
         "request": request, "error": error,
-        "locked": _is_locked(_get_ip(request)), **_oauth_context(),
+        "locked": _is_locked(_get_ip(request)),
+        "show_2fa": show_2fa,
+        **_oauth_context(),
     })
 
 @app.post("/login")
@@ -186,10 +216,13 @@ async def login(request: Request, email: str = Form(...),
                 password: str = Form(...), totp_code: str = Form(""),
                 remember_me: str = Form("")):
     ip = _get_ip(request)
+    _log.info(f"[login] attempt email={email} ip={ip}")
     if _is_locked(ip):
+        _log.warning(f"[login] locked ip={ip}")
         return RedirectResponse(url="/login?error=locked", status_code=303)
     user = get_user_by_email(email)
     if not user or not verify_password(user, password):
+        _log.warning(f"[login] invalid credentials email={email} ip={ip}")
         _record_fail(ip)
         return RedirectResponse(url="/login?error=invalid", status_code=303)
 
@@ -201,11 +234,18 @@ async def login(request: Request, email: str = Form(...),
         device_trusted = is_device_trusted(user.id, token_hash)
 
     if not device_trusted:
+        if not totp_code:
+            # Device was expected to be trusted but cookie is invalid/expired
+            # Redirect back to login with 2FA field visible
+            _log.info(f"[login] trust cookie expired, requesting 2FA email={email}")
+            return RedirectResponse(url="/login?need_2fa=1", status_code=303)
         if not pyotp.TOTP(user.totp_secret).verify(totp_code, valid_window=1):
+            _log.warning(f"[login] invalid 2FA email={email}")
             _record_fail(ip)
-            return RedirectResponse(url="/login?error=invalid_2fa", status_code=303)
+            return RedirectResponse(url="/login?error=invalid_2fa&need_2fa=1", status_code=303)
 
     _clear_fails(ip)
+    _log.info(f"[login] success user={user.id} email={email} trusted={device_trusted}")
     resp = _create_session(user.id)
 
     # Set trust cookie if "remember me" checked
@@ -349,7 +389,102 @@ async def how_it_works(request: Request):
     user = _get_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
-    return templates.TemplateResponse("how_it_works.html", {"request": request})
+    return templates.TemplateResponse("how_it_works.html", {"request": request, "user": user})
+
+
+# --- Trade History ---
+
+@app.get("/trade-history", response_class=HTMLResponse)
+async def trade_history_page(request: Request):
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    portfolio = _load_portfolio(user.id)
+    all_trades = portfolio.get("trade_history", [])
+
+    # Classify trades by vertical
+    trades = []
+    for t in reversed(all_trades):
+        strategy = t.get("strategy_id", "")
+        if strategy == "altcoin_hunter" or "Altcoin" in t.get("reason", ""):
+            trade_type = "crypto"
+        elif strategy == "autopilot" or t.get("symbol", "").endswith("/USD"):
+            trade_type = "stocks"
+        elif strategy == "predictions" or t.get("symbol", "").startswith("PRED:"):
+            trade_type = "predictions"
+        else:
+            trade_type = "crypto"  # default
+
+        entry_time = t.get("entry_time", 0)
+        exit_time = t.get("exit_time", 0)
+        duration_s = exit_time - entry_time if exit_time > entry_time else 0
+        if duration_s > 86400:
+            duration_str = f"{duration_s / 86400:.1f}d"
+        elif duration_s > 3600:
+            duration_str = f"{duration_s / 3600:.1f}h"
+        else:
+            duration_str = f"{duration_s / 60:.0f}m"
+
+        trades.append({
+            "symbol": t.get("symbol", ""),
+            "type": trade_type,
+            "side": t.get("side", "buy"),
+            "entry_price": t.get("entry_price", 0),
+            "exit_price": t.get("exit_price", 0),
+            "pnl_usd": round(t.get("pnl_usd", 0), 2),
+            "pnl_pct": round(t.get("pnl_pct", 0), 2),
+            "entry_time": entry_time,
+            "exit_time": exit_time,
+            "exit_date": datetime.fromtimestamp(exit_time).strftime("%Y-%m-%d %H:%M") if exit_time > 0 else "",
+            "duration": duration_str,
+            "reason": t.get("reason", ""),
+        })
+
+    # Build chart data: cumulative win rate over time per vertical
+    def build_win_rate_series(trade_list):
+        wins = 0
+        points = []
+        for i, t in enumerate(trade_list):
+            if t["pnl_usd"] > 0:
+                wins += 1
+            rate = round(wins / (i + 1) * 100, 1)
+            points.append({"x": t["exit_date"], "y": rate})
+        return points
+
+    # Trades are in reverse order (newest first), but chart needs oldest first
+    trades_chrono = list(reversed(trades))
+    crypto_trades = [t for t in trades_chrono if t["type"] == "crypto"]
+    stocks_trades = [t for t in trades_chrono if t["type"] == "stocks"]
+    pred_trades = [t for t in trades_chrono if t["type"] == "predictions"]
+
+    chart_data = {
+        "overall": build_win_rate_series(trades_chrono),
+        "crypto": build_win_rate_series(crypto_trades),
+        "stocks": build_win_rate_series(stocks_trades),
+        "predictions": build_win_rate_series(pred_trades),
+    }
+
+    # KPI stats
+    def calc_kpi(trade_list):
+        total = len(trade_list)
+        wins = sum(1 for t in trade_list if t["pnl_usd"] > 0)
+        return {"total": total, "wins": wins, "rate": round(wins / total * 100, 1) if total > 0 else 0}
+
+    kpis = {
+        "overall": calc_kpi(trades),
+        "crypto": calc_kpi([t for t in trades if t["type"] == "crypto"]),
+        "stocks": calc_kpi([t for t in trades if t["type"] == "stocks"]),
+        "predictions": calc_kpi([t for t in trades if t["type"] == "predictions"]),
+    }
+
+    return templates.TemplateResponse("trade_history.html", {
+        "request": request,
+        "user": user,
+        "trades": trades,
+        "chart_data": chart_data,
+        "kpis": kpis,
+    })
 
 
 # --- Dashboard ---
@@ -358,13 +493,16 @@ async def how_it_works(request: Request):
 async def dashboard(request: Request):
     user = _get_user(request)
     if not user:
+        _log.debug("[dashboard] unauthenticated access, redirecting to login")
         return RedirectResponse(url="/login", status_code=303)
 
     portfolio = _load_portfolio(user.id)
+    _log.info(f"[dashboard] user={user.id} email={user.email} mode={user.trading_mode}")
     cash = portfolio.get("cash", user.paper_balance)
     initial = portfolio.get("initial_balance", user.paper_balance)
     all_positions = portfolio.get("positions", {})
     all_trades = portfolio.get("trade_history", [])
+    _log.info(f"[dashboard] positions={len(all_positions)} trades={len(all_trades)} cash={cash}")
 
     # Total portfolio value = cash + all autopilot funds (which include deployed positions)
     autopilot_funds = sum(
@@ -534,6 +672,47 @@ async def remove_perplexity_key(request: Request):
     update_perplexity_key(user.id, "")
     return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
 
+@app.post("/settings/change-password")
+async def change_password(request: Request,
+                          current_password: str = Form(...),
+                          new_password: str = Form(...),
+                          confirm_password: str = Form(...)):
+    import logging
+    _log = logging.getLogger("vesper.dashboard")
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    # Verify current password
+    if not verify_password(user, current_password):
+        _log.warning(f"[change_password] user={user.id} — wrong current password")
+        return RedirectResponse(url="/settings?msg=wrong_password", status_code=303)
+
+    # Check passwords match
+    if new_password != confirm_password:
+        return RedirectResponse(url="/settings?msg=password_mismatch", status_code=303)
+
+    # Validate password complexity
+    errors = []
+    if len(new_password) < 8:
+        errors.append("at least 8 characters")
+    if not any(c.isupper() for c in new_password):
+        errors.append("one uppercase letter")
+    if not any(c.islower() for c in new_password):
+        errors.append("one lowercase letter")
+    if not any(c.isdigit() for c in new_password):
+        errors.append("one number")
+    if not any(c in "!@#$%^&*()_+-=[]{}|;':\",./<>?" for c in new_password):
+        errors.append("one special character")
+    if errors:
+        return RedirectResponse(url="/settings?msg=password_weak", status_code=303)
+
+    # Hash and update
+    new_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+    update_password(user.id, new_hash)
+    _log.info(f"[change_password] user={user.id} — password changed successfully")
+    return RedirectResponse(url="/settings?msg=password_changed", status_code=303)
+
 @app.post("/settings/trading")
 async def save_config(request: Request, paper_balance: float = Form(500),
                       trading_mode: str = Form("paper"),
@@ -567,6 +746,33 @@ async def toggle_mode(request: Request):
     new_mode = "live" if user.trading_mode == "paper" else "paper"
     update_trading_mode(user.id, new_mode)
     return RedirectResponse(url="/dashboard", status_code=303)
+
+
+@app.post("/settings/reset-trades")
+async def reset_trades(request: Request):
+    """Reset all trades, positions, and autopilot configs. Starts fresh."""
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    _log.warning(f"[reset-trades] user={user.id} email={user.email} — FULL RESET")
+
+    portfolio_path = os.path.join(DATA_DIR, f"portfolio_{user.id}.json")
+    fresh = {
+        "cash": user.paper_balance,
+        "initial_balance": user.paper_balance,
+        "positions": {},
+        "trade_history": [],
+        "autopilot_log": [],
+        "altcoin_hunter": {},
+        "autopilot": {},
+        "predictions_autopilot": {},
+    }
+    with open(portfolio_path, "w") as f:
+        json.dump(fresh, f, indent=2)
+
+    _log.info(f"[reset-trades] user={user.id} — portfolio reset to ${user.paper_balance}")
+    return RedirectResponse(url="/settings?msg=trades_reset", status_code=303)
 
 
 # --- Admin ---
@@ -1206,12 +1412,15 @@ async def ws_live(ws: WebSocket):
         session_id = auth_msg.get("session", "")
         user_id = _sessions.get(session_id)
         if not user_id:
+            _log.warning("[ws] auth failed — invalid session")
             await ws.send_json({"type": "error", "msg": "unauthorized"})
             return
         user = get_user_by_id(user_id)
         if not user:
+            _log.warning(f"[ws] auth failed — user_id={user_id} not found")
             await ws.send_json({"type": "error", "msg": "unauthorized"})
             return
+        _log.info(f"[ws] connected user={user.id}")
 
         await ws.send_json({"type": "auth_ok"})
 
@@ -1601,8 +1810,15 @@ async def api_portfolio_stats(request: Request, mode: str = ""):
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        return await _portfolio_stats_inner(user, mode)
+    except Exception:
+        _log.error(f"[portfolio-stats] user={user.id} error:\n{traceback.format_exc()}")
+        return JSONResponse({"error": "internal error"}, status_code=500)
 
+async def _portfolio_stats_inner(user, mode: str):
     portfolio = _load_portfolio(user.id)
+    _log.info(f"[portfolio-stats] user={user.id} mode={mode or user.trading_mode}")
     cash = portfolio.get("cash", user.paper_balance)
     initial = portfolio.get("initial_balance", user.paper_balance)
     all_positions = portfolio.get("positions", {})
@@ -1697,9 +1913,16 @@ async def api_positions(request: Request):
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        return await _positions_inner(user)
+    except Exception:
+        _log.error(f"[positions] user={user.id} error:\n{traceback.format_exc()}")
+        return JSONResponse({"error": "internal error"}, status_code=500)
 
+async def _positions_inner(user):
     portfolio = _load_portfolio(user.id)
     positions = portfolio.get("positions", {})
+    _log.info(f"[positions] user={user.id} count={len(positions)}")
 
     if not positions:
         return []
@@ -1835,7 +2058,7 @@ async def api_open_trade(request: Request):
     portfolio_path = os.path.join(DATA_DIR, f"portfolio_{user.id}.json")
     if os.path.exists(portfolio_path):
         with open(portfolio_path) as f:
-            pdata = json.load(f)
+            pdata = _clean_nones(json.load(f))
     else:
         pdata = {"cash": user.paper_balance, "initial_balance": user.paper_balance,
                  "positions": {}, "trade_history": []}
@@ -2099,7 +2322,7 @@ async def api_autopilot_toggle(request: Request):
     pdata = {}
     if os.path.exists(portfolio_path):
         with open(portfolio_path) as f:
-            pdata = json.load(f)
+            pdata = _clean_nones(json.load(f))
 
     if action == "start":
         if amount < 10:
@@ -2150,7 +2373,15 @@ async def api_altcoin_hunter_status(request: Request):
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        return await _altcoin_hunter_status_inner(user)
+    except Exception:
+        _log.error(f"[altcoin-hunter] user={user.id} GET error:\n{traceback.format_exc()}")
+        return JSONResponse({"error": "internal error"}, status_code=500)
+
+async def _altcoin_hunter_status_inner(user):
     portfolio = _load_portfolio(user.id)
+    _log.info(f"[altcoin-hunter] user={user.id} GET status")
     hunter = portfolio.get("altcoin_hunter", {})
     positions = portfolio.get("positions", {})
 
@@ -2217,9 +2448,14 @@ async def api_altcoin_hunter_toggle(request: Request):
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    body = await request.json()
+    try:
+        body = await request.json()
+        _log.info(f"[altcoin-hunter] user={user.id} POST action={body.get('action')} amount={body.get('amount_usd')}")
+    except Exception:
+        _log.error(f"[altcoin-hunter] user={user.id} POST bad JSON:\n{traceback.format_exc()}")
+        return JSONResponse({"error": "invalid request body"}, status_code=400)
     action = body.get("action", "")
-    amount = float(body.get("amount_usd", 0))
+    amount = float(body.get("amount_usd") or 0)
 
     portfolio_path = os.path.join(
         os.environ.get("VESPER_DATA_DIR", "data"),
@@ -2228,7 +2464,7 @@ async def api_altcoin_hunter_toggle(request: Request):
     pdata = {}
     if os.path.exists(portfolio_path):
         with open(portfolio_path) as f:
-            pdata = json.load(f)
+            pdata = _clean_nones(json.load(f))
 
     if action == "start":
         if amount < 10:
@@ -2344,7 +2580,7 @@ async def api_predictions_autopilot_toggle(request: Request):
     pdata = {}
     if os.path.exists(portfolio_path):
         with open(portfolio_path) as f:
-            pdata = json.load(f)
+            pdata = _clean_nones(json.load(f))
 
     if action == "start":
         if amount < 10:
