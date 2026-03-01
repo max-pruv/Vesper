@@ -409,12 +409,12 @@ async def dashboard(request: Request):
 
     fmt_pos = []
     for pid, p in positions.items():
-        entry = p.get("entry_price", 0)
-        amount = p.get("amount", 0)
+        entry = p.get("entry_price") or 0
+        amount = p.get("amount") or 0
         side = p.get("side", "buy")
-        sl_price = p.get("limits", {}).get("stop_loss_price", 0)
-        tp_max_price = p.get("limits", {}).get("take_profit_max_price", 0)
-        cost = p.get("cost_usd", 0)
+        sl_price = (p.get("limits") or {}).get("stop_loss_price") or 0
+        tp_max_price = (p.get("limits") or {}).get("take_profit_max_price") or 0
+        cost = p.get("cost_usd") or 0
         if side == "buy":
             ml = (entry - sl_price) * amount if sl_price > 0 else cost
             mw = (tp_max_price - entry) * amount if tp_max_price > 0 else 0
@@ -1233,25 +1233,25 @@ async def ws_live(ws: WebSocket):
 
                     for pid, p in positions.items():
                         sym = p.get("symbol", "")
-                        entry = p.get("entry_price", 0)
+                        entry = p.get("entry_price") or 0
                         if sym.startswith("PRED:"):
-                            current = p.get("current_probability", entry)
+                            current = p.get("current_probability") or entry
                         else:
-                            current = price_map.get(sym, entry)
-                        amount = p.get("amount", 0)
+                            current = price_map.get(sym, entry) or 0
+                        amount = p.get("amount") or 0
                         side = p.get("side", "buy")
                         pnl_usd = (current - entry) * amount if side == "buy" else (entry - current) * amount
                         pnl_pct = ((current - entry) / entry * 100) if entry > 0 and side == "buy" else (
                             ((entry - current) / entry * 100) if entry > 0 else 0)
 
-                        limits = p.get("limits", {})
-                        sl = limits.get("stop_loss_price", 0)
-                        tp_max = limits.get("take_profit_max_price", 0)
+                        limits = p.get("limits") or {}
+                        sl = limits.get("stop_loss_price") or 0
+                        tp_max = limits.get("take_profit_max_price") or 0
                         price_range = tp_max - sl if tp_max > sl else 1
                         progress = max(0, min(100, ((current - sl) / price_range) * 100))
 
-                        cost_usd = p.get("cost_usd", 0)
-                        tp_min = limits.get("take_profit_min_price", 0)
+                        cost_usd = p.get("cost_usd") or 0
+                        tp_min = limits.get("take_profit_min_price") or 0
                         if side == "buy":
                             max_loss = abs((entry - sl) * amount) if sl > 0 else cost_usd
                             max_win = abs((tp_max - entry) * amount) if tp_max > 0 else 0
@@ -1259,8 +1259,8 @@ async def ws_live(ws: WebSocket):
                             max_loss = abs((sl - entry) * amount) if sl > 0 else cost_usd
                             max_win = abs((entry - tp_max) * amount) if tp_max > 0 else 0
 
-                        trailing_pct = p.get("trailing_stop_pct", 0)
-                        highest_seen = p.get("highest_price_seen", 0)
+                        trailing_pct = p.get("trailing_stop_pct") or 0
+                        highest_seen = p.get("highest_price_seen") or 0
                         trailing_sl = highest_seen * (1 - trailing_pct / 100) if trailing_pct > 0 and highest_seen > 0 else 0
 
                         price_snapshots = p.get("price_history", [])
@@ -1640,13 +1640,13 @@ async def api_portfolio_stats(request: Request, mode: str = ""):
         pos_symbols = {p.get("symbol", "") for p in positions.values() if not p.get("symbol", "").startswith("PRED:")}
         price_map = await _get_price_map_for_positions(pos_symbols, user)
         for p in positions.values():
-            entry = p.get("entry_price", 0)
+            entry = p.get("entry_price") or 0
             sym = p.get("symbol", "")
             if sym.startswith("PRED:"):
-                current = p.get("current_probability", entry)
+                current = p.get("current_probability") or entry
             else:
-                current = price_map.get(sym, entry)
-            amount = p.get("amount", 0)
+                current = price_map.get(sym, entry) or 0
+            amount = p.get("amount") or 0
             side = p.get("side", "buy")
             if side == "buy":
                 unrealized_pnl += (current - entry) * amount
@@ -1655,7 +1655,7 @@ async def api_portfolio_stats(request: Request, mode: str = ""):
 
     total_pnl = realized_pnl + unrealized_pnl
     autopilot_funds = sum(
-        portfolio.get(k, {}).get("fund_usd", 0)
+        (portfolio.get(k) or {}).get("fund_usd") or 0
         for k in ("altcoin_hunter", "autopilot", "predictions_autopilot")
     )
     portfolio_value = cash + autopilot_funds + unrealized_pnl
@@ -1711,17 +1711,15 @@ async def api_positions(request: Request):
     result = []
     for pid, p in positions.items():
         sym = p.get("symbol", "")
-        entry = p.get("entry_price", 0)
+        entry = p.get("entry_price") or 0
         # For prediction positions (PRED:*), use stored probability data for P&L
         is_prediction = sym.startswith("PRED:")
         if is_prediction:
-            # Entry price = probability at entry (e.g. 0.35 means 35%)
-            # Current value = latest probability or stored estimate
-            stored_prob = p.get("current_probability", entry)
+            stored_prob = p.get("current_probability") or entry
             current = stored_prob
         else:
-            current = price_map.get(sym, entry)
-        amount = p.get("amount", 0)
+            current = price_map.get(sym, entry) or 0
+        amount = p.get("amount") or 0
         side = p.get("side", "buy")
 
         if side == "buy":
@@ -1731,15 +1729,15 @@ async def api_positions(request: Request):
             pnl_usd = (entry - current) * amount
             pnl_pct = ((entry - current) / entry * 100) if entry > 0 else 0
 
-        limits = p.get("limits", {})
-        sl = limits.get("stop_loss_price", 0)
-        tp_max = limits.get("take_profit_max_price", 0)
+        limits = p.get("limits") or {}
+        sl = limits.get("stop_loss_price") or 0
+        tp_max = limits.get("take_profit_max_price") or 0
         # Progress: 0% at stop-loss, 100% at take-profit
         price_range = tp_max - sl if tp_max > sl else 1
         progress = max(0, min(100, ((current - sl) / price_range) * 100))
 
-        cost_usd = p.get("cost_usd", 0)
-        tp_min = limits.get("take_profit_min_price", 0)
+        cost_usd = p.get("cost_usd") or 0
+        tp_min = limits.get("take_profit_min_price") or 0
         # Max loss/win in dollar terms
         if side == "buy":
             max_loss_usd = (entry - sl) * amount if sl > 0 else cost_usd
@@ -1751,10 +1749,9 @@ async def api_positions(request: Request):
         max_win_usd = abs(max_win_usd)
 
         # Win probability: how far is price from SL vs TP
-        # 0% at SL, 100% at TP max, interpolated linearly
         trailing_sl = 0
-        trailing_pct = p.get("trailing_stop_pct", 0)
-        highest_seen = p.get("highest_price_seen", 0)
+        trailing_pct = p.get("trailing_stop_pct") or 0
+        highest_seen = p.get("highest_price_seen") or 0
         if trailing_pct > 0 and highest_seen > 0:
             trailing_sl = highest_seen * (1 - trailing_pct / 100)
 
