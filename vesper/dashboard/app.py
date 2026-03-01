@@ -1380,6 +1380,20 @@ async def health():
     }
 
 
+@app.get("/api/error-log")
+async def public_error_log():
+    """Public error log — shows last 50 error lines for remote debugging."""
+    log_path = os.path.join(_LOG_DIR, "vesper_errors.log")
+    if not os.path.exists(log_path):
+        return {"logs": [], "message": "No errors logged yet"}
+    try:
+        with open(log_path) as f:
+            lines = f.readlines()
+        return {"logs": [l.rstrip() for l in lines[-50:]], "total": len(lines)}
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/api/debug")
 async def debug_endpoint(request: Request):
     """Diagnostic endpoint — tests each component that could cause 500 errors."""
@@ -1394,11 +1408,13 @@ async def debug_endpoint(request: Request):
             result["steps"].append({"name": name, "ok": False, "error": f"{type(e).__name__}: {e}"})
             return None
 
-    # Step 1: Check user session
+    # Step 1: Check user session (fallback to user ID 1 for unauthenticated debugging)
     user = step("get_user", lambda: _get_user(request))
     if not user:
-        result["steps"].append({"name": "auth", "ok": False, "error": "Not logged in"})
-        return result
+        user = step("fallback_user_1", lambda: get_user_by_id(1))
+        if not user:
+            result["steps"].append({"name": "auth", "ok": False, "error": "No users in database"})
+            return result
 
     # Step 2: Check portfolio file
     uid = user.id
