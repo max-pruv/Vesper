@@ -129,12 +129,27 @@ def _s(val) -> str:
     return str(val)
 
 
+def _normalize_trade_modes(data: dict) -> dict:
+    """Normalize trade_mode values: 'live' → 'real' for consistency.
+
+    Older code stored trade_mode='live' but the dashboard filters expect 'real'.
+    """
+    for p in data.get("positions", {}).values():
+        if p.get("trade_mode") == "live":
+            p["trade_mode"] = "real"
+    for t in data.get("trade_history", []):
+        if t.get("trade_mode") == "live":
+            t["trade_mode"] = "real"
+    return data
+
+
 def _load_portfolio(uid: int) -> dict:
     p = os.path.join(DATA_DIR, f"portfolio_{uid}.json")
     if not os.path.exists(p):
         return {"cash": 0, "initial_balance": 0, "positions": {}, "trade_history": []}
     with open(p) as f:
-        return _clean_nones(json.load(f))
+        data = _clean_nones(json.load(f))
+    return _normalize_trade_modes(data)
 
 
 def _save_portfolio(uid: int, data: dict):
@@ -1647,7 +1662,11 @@ async def ws_live(ws: WebSocket):
                         _s(p.get("symbol")) for p in positions.values()
                         if not _s(p.get("symbol")).startswith("PRED:")
                     }
-                    price_map = await _get_price_map_for_positions(pos_symbols, user)
+                    try:
+                        price_map = await _get_price_map_for_positions(pos_symbols, user)
+                    except Exception as e:
+                        _log.warning(f"[ws] price fetch failed: {e}")
+                        price_map = {}
 
                     for pid, p in positions.items():
                         sym = _s(p.get("symbol"))
@@ -1761,13 +1780,20 @@ async def ws_live(ws: WebSocket):
 
             except WebSocketDisconnect:
                 break
-            except Exception:
+            except Exception as e:
+                _log.error(f"[ws] push error user={user.id}: {e}")
                 await asyncio.sleep(2)
 
-    except (WebSocketDisconnect, asyncio.TimeoutError, Exception):
+    except WebSocketDisconnect:
         pass
+    except asyncio.TimeoutError:
+        _log.warning("[ws] auth timeout")
+    except Exception as e:
+        _log.error(f"[ws] connection error: {e}")
     finally:
         _ws_connections.discard(ws)
+        if user:
+            _log.info(f"[ws] disconnected user={user.id}")
 
 
 @app.get("/api/ticker")
@@ -2527,6 +2553,13 @@ async def api_autopilot_status(request: Request, mode: str = ""):
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        return await _autopilot_status_inner(user, mode)
+    except Exception:
+        _log.error(f"[autopilot] user={user.id} GET error:\n{traceback.format_exc()}")
+        return JSONResponse({"error": "internal error"}, status_code=500)
+
+async def _autopilot_status_inner(user, mode: str = ""):
     portfolio = _load_portfolio(user.id)
     autopilot = portfolio.get("autopilot", {})
     all_positions = portfolio.get("positions", {})
@@ -2600,7 +2633,10 @@ async def api_autopilot_toggle(request: Request):
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid request body"}, status_code=400)
     action = body.get("action", "")
     amount = float(body.get("amount_usd", 0))
 
@@ -2813,6 +2849,13 @@ async def api_predictions_autopilot_status(request: Request, mode: str = ""):
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        return await _predictions_autopilot_status_inner(user, mode)
+    except Exception:
+        _log.error(f"[predictions-autopilot] user={user.id} GET error:\n{traceback.format_exc()}")
+        return JSONResponse({"error": "internal error"}, status_code=500)
+
+async def _predictions_autopilot_status_inner(user, mode: str = ""):
     portfolio = _load_portfolio(user.id)
     pred_cfg = portfolio.get("predictions_autopilot", {})
     all_positions = portfolio.get("positions", {})

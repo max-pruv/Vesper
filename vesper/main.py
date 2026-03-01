@@ -396,7 +396,7 @@ class UserBot:
             if should_close:
                 self._save_decision({
                     "action": "EXIT", "symbol": symbol, "strategy_id": strategy_id,
-                    "source": "cycle", "trade_mode": self.mode,
+                    "source": "cycle", "trade_mode": "real" if self.mode == "live" else "paper",
                     "reason": reason,
                     "indicators": self._snapshot_indicators(snapshot),
                 })
@@ -424,7 +424,7 @@ class UserBot:
                            / existing_pos.entry_price) * 100
                 self._save_decision({
                     "action": "EXIT", "symbol": symbol, "strategy_id": strategy_id,
-                    "source": "cycle", "trade_mode": self.mode,
+                    "source": "cycle", "trade_mode": "real" if self.mode == "live" else "paper",
                     "reason": reason,
                     "pnl_pct": round(pnl_pct, 2),
                     "indicators": self._snapshot_indicators(snapshot),
@@ -451,7 +451,7 @@ class UserBot:
                         )
                         self._save_decision({
                             "action": "EXIT", "symbol": symbol, "strategy_id": strategy_id,
-                            "source": "ai_exit", "trade_mode": self.mode,
+                            "source": "ai_exit", "trade_mode": "real" if self.mode == "live" else "paper",
                             "signal": "SELL", "confidence": round(result.confidence, 3),
                             "reason": result.reason,
                             "pnl_pct": round(pnl_pct, 2),
@@ -486,7 +486,7 @@ class UserBot:
         if result.signal == Signal.HOLD:
             self._save_decision({
                 "action": "SKIP", "symbol": symbol, "strategy_id": strategy_id,
-                "source": "cycle", "trade_mode": self.mode,
+                "source": "cycle", "trade_mode": "real" if self.mode == "live" else "paper",
                 "signal": "HOLD", "confidence": round(result.confidence, 3),
                 "reason": result.reason,
                 "indicators": self._snapshot_indicators(snapshot),
@@ -496,7 +496,7 @@ class UserBot:
         if not self.risk_manager.can_open_position(len(self.portfolio.positions)):
             self._save_decision({
                 "action": "SKIP", "symbol": symbol, "strategy_id": strategy_id,
-                "source": "cycle", "trade_mode": self.mode,
+                "source": "cycle", "trade_mode": "real" if self.mode == "live" else "paper",
                 "signal": result.signal.name, "confidence": round(result.confidence, 3),
                 "reason": f"Max positions reached. Signal was: {result.reason}",
                 "indicators": self._snapshot_indicators(snapshot),
@@ -506,7 +506,7 @@ class UserBot:
         if result.signal == Signal.BUY:
             self._save_decision({
                 "action": "ENTER_LONG", "symbol": symbol, "strategy_id": strategy_id,
-                "source": "cycle", "trade_mode": self.mode,
+                "source": "cycle", "trade_mode": "real" if self.mode == "live" else "paper",
                 "signal": "BUY", "confidence": round(result.confidence, 3),
                 "reason": result.reason,
                 "indicators": self._snapshot_indicators(snapshot),
@@ -518,7 +518,7 @@ class UserBot:
         elif result.signal == Signal.SELL:
             self._save_decision({
                 "action": "SIGNAL_SELL", "symbol": symbol, "strategy_id": strategy_id,
-                "source": "cycle", "trade_mode": self.mode,
+                "source": "cycle", "trade_mode": "real" if self.mode == "live" else "paper",
                 "signal": "SELL", "confidence": round(result.confidence, 3),
                 "reason": result.reason,
                 "indicators": self._snapshot_indicators(snapshot),
@@ -921,7 +921,7 @@ class UserBot:
                     "action": "EXIT", "symbol": pos.symbol,
                     "strategy_id": "altcoin_hunter",
                     "source": "altcoin_hunter_rebalance",
-                    "trade_mode": self.mode,
+                    "trade_mode": "real" if self.mode == "live" else "paper",
                     "reason": reason,
                     "pnl_pct": round(pnl_pct, 2),
                 })
@@ -1133,7 +1133,7 @@ class UserBot:
                 strategy_reason=" | ".join(reason_parts),
                 strategy_id="altcoin_hunter",
                 bet_mode="continuous",
-                trade_mode=self.mode if self.mode == "live" else "paper",
+                trade_mode="real" if self.mode == "live" else "paper",
                 stop_loss_pct=sl_pct,
                 tp_min_pct=tp_min_pct,
                 tp_max_pct=tp_max_pct,
@@ -1195,7 +1195,7 @@ class UserBot:
                     "action": "ENTER_LONG", "symbol": sym,
                     "strategy_id": "altcoin_hunter",
                     "source": "altcoin_hunter",
-                    "trade_mode": self.mode if self.mode == "live" else "paper",
+                    "trade_mode": "real" if self.mode == "live" else "paper",
                     "signal": "BUY",
                     "confidence": round(candidate["confidence"], 3),
                     "reason": position.strategy_reason,
@@ -1902,7 +1902,7 @@ class UserBot:
                 "symbol": detail["symbol"],
                 "strategy_id": "autopilot",
                 "source": "autopilot",
-                "trade_mode": self.mode,
+                "trade_mode": "real" if self.mode == "live" else "paper",
                 "signal": detail["signal"],
                 "confidence": detail["confidence"],
                 "reason": detail["reason"],
@@ -1997,7 +1997,7 @@ class UserBot:
                 strategy_reason=" | ".join(reason_parts),
                 strategy_id="autopilot",
                 bet_mode="continuous",
-                trade_mode=self.mode if self.mode == "live" else "paper",
+                trade_mode="real" if self.mode == "live" else "paper",
                 stop_loss_pct=sl_pct,
                 tp_min_pct=tp_min_pct,
                 tp_max_pct=tp_max_pct,
@@ -2063,7 +2063,7 @@ class UserBot:
                     "symbol": sym,
                     "strategy_id": "autopilot",
                     "source": "autopilot",
-                    "trade_mode": self.mode if self.mode == "live" else "paper",
+                    "trade_mode": "real" if self.mode == "live" else "paper",
                     "signal": "BUY",
                     "confidence": round(confidence, 3),
                     "reason": result.reason,
