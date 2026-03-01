@@ -21,7 +21,7 @@
 <div class="page-wrapper">
 
 <!-- Paper / Real Mode Toggle -->
-<div style="display:flex;justify-content:flex-end;padding:12px 0 0;">
+<div id="tradeModeRow" style="display:flex;justify-content:flex-start;padding:12px 0 0;">
     <div id="tradeModeToggle" style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--glass-border);">
         <button class="trade-mode-btn {{ '' if user.trading_mode == 'live' else 'active' }}" id="modePaper" onclick="setTradeMode('paper')" data-mode="paper">
             <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f5a623;margin-right:4px;"></span>Paper
@@ -157,6 +157,38 @@
     .pm-research-sources {
         font-size: 10px; color: var(--text-muted);
     }
+
+    /* Mobile: position card collapsible details */
+    .bet-details-toggle {
+        display: none;
+        width: 100%; padding: 8px 0; border: none;
+        background: rgba(255,255,255,0.03); border-radius: 8px;
+        color: var(--accent); font-size: 12px; font-weight: 600;
+        cursor: pointer; font-family: inherit; margin-top: 8px;
+        transition: all 0.2s;
+    }
+    .bet-details-toggle:hover { background: rgba(255,255,255,0.06); }
+    .bet-details-collapsible { transition: max-height 0.3s ease, opacity 0.3s ease; overflow: hidden; }
+
+    /* Chart time range pills */
+    .chart-range-pills {
+        display: flex; gap: 4px; margin-bottom: 8px;
+    }
+    .chart-range-pill {
+        padding: 3px 10px; border: 1px solid var(--glass-border); border-radius: 8px;
+        font-size: 10px; font-weight: 600; cursor: pointer;
+        background: transparent; color: var(--text-muted);
+        font-family: inherit; transition: all 0.2s;
+    }
+    .chart-range-pill:hover { color: var(--text); }
+    .chart-range-pill.active { background: rgba(99,102,241,0.12); color: #818cf8; border-color: rgba(99,102,241,0.3); }
+
+    @media (max-width: 768px) {
+        .bet-details-toggle { display: block; }
+        .bet-details-collapsible.collapsed { max-height: 0; opacity: 0; overflow: hidden; }
+        .bet-details-collapsible.expanded { max-height: 1000px; opacity: 1; }
+        .bet-pl-row { font-size: 11px; }
+    }
     .pm-research-sources a { color: var(--accent); text-decoration: none; }
     .pm-research-sources a:hover { text-decoration: underline; }
     .pm-research-prob {
@@ -194,6 +226,13 @@
         </div>
 
         <!-- Portfolio Value Chart (stacked: uninvested + invested) -->
+        <div class="chart-range-pills">
+            <button class="chart-range-pill active" data-hours="24" onclick="setChartRange(24)">24h</button>
+            <button class="chart-range-pill" data-hours="168" onclick="setChartRange(168)">7d</button>
+            <button class="chart-range-pill" data-hours="720" onclick="setChartRange(720)">30d</button>
+            <button class="chart-range-pill" data-hours="2160" onclick="setChartRange(2160)">3m</button>
+            <button class="chart-range-pill" data-hours="4320" onclick="setChartRange(4320)">6m</button>
+        </div>
         <div style="height:180px;margin-bottom:16px;">
             <canvas id="portfolioChart"></canvas>
         </div>
@@ -950,11 +989,12 @@ function renderBetCard(p, isNew) {
         ? `${assetIcon}<span style="font-size:15px;font-weight:800;color:var(--accent);letter-spacing:0.3px;">${baseSym}</span> <span style="font-size:14px;color:var(--text-secondary);font-weight:500;">${companyName}</span>`
         : `${assetIcon}<span style="font-size:16px;font-weight:700;">${p.name || baseSym}</span>`;
 
+    const safeId = p.id.replace(/[^a-zA-Z0-9]/g, '_');
     return `<div class="bet-card ${isNew ? 'new-card' : ''} ${flashClass}" data-pid="${p.id}">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div>
                 <div>${titleHtml}</div>
-                <div style="display:flex;gap:6px;margin-top:4px;">
+                <div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">
                     <span class="mode-badge mode-${modeCls}">${betMode.replace('_', ' ')}</span>
                     <span class="mode-badge trade-mode-${tradeMode}">${tradeMode}</span>
                     ${hasTrailing ? '<span class="mode-badge" style="background:rgba(0,180,255,0.15);color:#0af;border-color:rgba(0,180,255,0.3);">trailing</span>' : ''}
@@ -971,41 +1011,45 @@ function renderBetCard(p, isNew) {
             <span class="bet-current-price" title="Live market price, updated every few seconds."><span class="live-dot"></span> Now $${formatPrice(p.current_price)}</span>
             <span style="font-size:12px;color:var(--text-muted);" title="How far the current price has moved from your entry price.">${p.current_price >= p.entry_price ? '\u25B2' : '\u25BC'} ${Math.abs(p.pnl_pct).toFixed(2)}% from entry</span>
         </div>
+        <!-- See More toggle (mobile only) -->
+        <button class="bet-details-toggle" onclick="toggleBetDetails(this)">See details &#x25BC;</button>
+        <!-- Collapsible details section -->
+        <div class="bet-details-collapsible collapsed">
         <!-- P/L Evolution Chart -->
         <div style="margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
                 <div style="font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.3px;">P&L Evolution</div>
-                <div style="font-size:10px;color:var(--text-muted);" id="sparktime-${p.id.replace(/[^a-zA-Z0-9]/g,'_')}"></div>
+                <div style="font-size:10px;color:var(--text-muted);" id="sparktime-${safeId}"></div>
             </div>
             <div style="height:52px;position:relative;">
-                <canvas id="spark-${p.id.replace(/[^a-zA-Z0-9]/g,'_')}" style="width:100%;height:52px;"></canvas>
+                <canvas id="spark-${safeId}" style="width:100%;height:52px;"></canvas>
             </div>
         </div>
         <!-- P/L View -->
         <div class="bet-pl-row">
             <div class="bet-pl-item">
-                <span class="bet-pl-label" title="Maximum possible loss if stop-loss triggers. Calculated as (entry price - stop-loss price) x quantity.">Max Loss &#9432;</span>
+                <span class="bet-pl-label" title="Maximum possible loss if stop-loss triggers.">Max Loss &#9432;</span>
                 <span class="bet-pl-value" style="color:var(--red);">-$${p.max_loss.toFixed(2)}</span>
             </div>
             <div class="bet-pl-item">
-                <span class="bet-pl-label" title="Estimated exchange trading fee (~0.1% of position size for maker/taker).">Fee &#9432;</span>
+                <span class="bet-pl-label" title="Estimated exchange trading fee.">Fee &#9432;</span>
                 <span class="bet-pl-value" style="color:var(--text-muted);">~$${(p.est_fee || 0).toFixed(2)}</span>
             </div>
             <div class="bet-pl-item">
-                <span class="bet-pl-label" title="Maximum profit if take-profit triggers. Calculated as (take-profit price - entry price) x quantity. Unlimited with trailing stops.">Max Win &#9432;</span>
+                <span class="bet-pl-label" title="Maximum profit if take-profit triggers.">Max Win &#9432;</span>
                 <span class="bet-pl-value" style="color:var(--green);">${maxWinHtml}</span>
             </div>
             <div class="bet-pl-item">
-                <span class="bet-pl-label" title="Risk-to-Reward ratio. Compares max loss to max win. A ratio of 1:2+ means you win twice what you risk — higher is better.">R:R &#9432;</span>
+                <span class="bet-pl-label" title="Risk-to-Reward ratio.">R:R &#9432;</span>
                 <span class="bet-pl-value bet-rr ${rrCls}">${hasTrailing ? '&#8734;' : '1:' + rr.toFixed(1)}</span>
             </div>
         </div>
-        <div style="display:flex;gap:16px;margin-top:8px;font-size:13px;color:var(--text-secondary);">
+        <div style="display:flex;gap:16px;margin-top:8px;font-size:13px;color:var(--text-secondary);flex-wrap:wrap;">
             <span title="The price at which this position was opened.">Entry $${formatPrice(p.entry_price)}</span>
             <span title="Total USD invested in this position.">Size $${p.cost_usd.toFixed(2)}</span>
             <span style="color:var(--text-muted);" title="Date and time the position was opened.">${entryDate}</span>
         </div>
-        <div class="bet-progress" title="Visual progress between stop-loss (0%) and take-profit (100%). Shows where the current price sits relative to your exit targets.">
+        <div class="bet-progress" title="Progress between stop-loss (0%) and take-profit (100%).">
             <div class="bet-progress-fill" style="width:${progressPct}%;background:${progressColor};"></div>
         </div>
         ${slTpRow}
@@ -1017,6 +1061,7 @@ function renderBetCard(p, isNew) {
             </div>
             <div style="color:var(--text-secondary);line-height:1.5;">${formatAiReasoning(p)}</div>
         </div>` : ''}
+        </div><!-- end collapsible -->
         <button class="btn btn-outline btn-sm" style="width:100%;margin-top:12px;"
                 onclick="closeTrade('${p.id}','${p.symbol}',${p.pnl_usd},${p.pnl_pct})">Close Position</button>
     </div>`;
@@ -1164,6 +1209,26 @@ function drawPnlChart(canvas, history, entryPrice, amount, side, timeEl) {
         timeEl.textContent = smartTimeLabel(elapsed) + ' ago';
     }
 }
+function toggleBetDetails(btn) {
+    const collapsible = btn.nextElementSibling;
+    if (collapsible.classList.contains('collapsed')) {
+        collapsible.classList.remove('collapsed');
+        collapsible.classList.add('expanded');
+        btn.innerHTML = 'Hide details &#x25B2;';
+        // Redraw sparklines after expanding (canvas needs visible parent)
+        setTimeout(() => {
+            const card = btn.closest('.bet-card');
+            if (card) {
+                const canvas = card.querySelector('canvas');
+                if (canvas) canvas.dispatchEvent(new Event('resize'));
+            }
+        }, 100);
+    } else {
+        collapsible.classList.remove('expanded');
+        collapsible.classList.add('collapsed');
+        btn.innerHTML = 'See details &#x25BC;';
+    }
+}
 // Initial fetch, then WebSocket takes over (with polling fallback)
 updatePositions();
 
@@ -1291,12 +1356,18 @@ const _portfolioChartHistory = [];
 function renderTopPortfolioChart() {
     const ctx = document.getElementById('portfolioChart');
     if (!ctx) return;
-    const data = _portfolioChartHistory.slice(-60);
+    // Use all data (API already downsamples to ~500 points max)
+    const data = _portfolioChartHistory.slice(-500);
     if (data.length < 1) return;
 
+    // Smart labels: use date format for ranges > 24h, time-only for shorter
+    const spanHours = data.length > 1 ? (data[data.length-1].time - data[0].time) / 3600 : 0;
     const labels = data.map(d => {
         if (!d.time) return '';
-        return new Date(d.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false});
+        const dt = new Date(d.time * 1000);
+        if (spanHours > 48) return dt.toLocaleDateString('en', {month:'short', day:'numeric'});
+        if (spanHours > 24) return dt.toLocaleDateString('en', {month:'short', day:'numeric'}) + ' ' + dt.toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false});
+        return dt.toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false});
     });
     const totalData = data.map(d => d.value || 0);
     const investedData = data.map(d => d.invested || 0);
@@ -1458,13 +1529,45 @@ async function updatePortfolioStats() {
     } catch(e) {}
 }
 
-// Seed portfolio chart — use time in the past so first real update is accepted
-_portfolioChartHistory.push({ time: Math.floor(Date.now() / 1000) - 30, value: {{ portfolio_value }}, invested: 0 });
+// Portfolio chart time range (in hours)
+let _chartRangeHours = 24;
 
-// Render chart immediately with seed data so it's visible right away
-renderTopPortfolioChart();
+// Load historical portfolio snapshots from the backend
+async function loadPortfolioHistory(hours) {
+    try {
+        const resp = await fetch('/api/portfolio-history?hours=' + hours);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        const snapshots = data.snapshots || [];
+        if (snapshots.length > 0) {
+            // Replace current history with server-side snapshots
+            _portfolioChartHistory.length = 0;
+            snapshots.forEach(s => {
+                _portfolioChartHistory.push({ time: s.t, value: s.v, invested: s.i || 0 });
+            });
+            renderTopPortfolioChart();
+            return;
+        }
+    } catch(e) {
+        console.log('Portfolio history not available yet:', e);
+    }
+    // Fallback: seed with current value if no history
+    _portfolioChartHistory.push({ time: Math.floor(Date.now() / 1000) - 30, value: {{ portfolio_value }}, invested: 0 });
+    renderTopPortfolioChart();
+}
 
-// Fetch live stats (will add a 2nd data point and re-render)
+function setChartRange(hours) {
+    _chartRangeHours = hours;
+    document.querySelectorAll('.chart-range-pill').forEach(b => {
+        b.classList.toggle('active', parseInt(b.getAttribute('data-hours')) === hours);
+    });
+    loadPortfolioHistory(hours);
+}
+
+// Initial load: 24h
+loadPortfolioHistory(24);
+
+// Also fetch live stats (will append new data points)
 updatePortfolioStats();
 
 // ═══════════════════════════════════════
@@ -2066,6 +2169,25 @@ async function openLearnMore(pid, name) {
             </div>`;
         }
 
+        // Social Sentiment (X/Twitter)
+        if (data.social_sentiment && data.social_sentiment.summary) {
+            const ss = data.social_sentiment;
+            const sentColor = ss.sentiment === 'bullish' ? 'var(--green)' : ss.sentiment === 'bearish' ? 'var(--red)' : '#f5a623';
+            const volLabel = ss.volume === 'high' ? 'High volume' : ss.volume === 'low' ? 'Low volume' : 'Normal volume';
+            html += `<div style="margin-bottom:16px;">
+                <div style="font-size:11px;font-weight:700;color:#1d9bf0;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:14px;">&#x1D54F;</span> X / Twitter Sentiment
+                </div>
+                <div style="padding:12px;border-radius:10px;background:rgba(29,155,240,0.04);border:1px solid rgba(29,155,240,0.12);">
+                    <div style="display:flex;gap:12px;margin-bottom:8px;">
+                        <span style="padding:3px 10px;border-radius:6px;font-size:11px;font-weight:700;text-transform:uppercase;background:${sentColor}22;color:${sentColor};">${ss.sentiment || 'unknown'}</span>
+                        <span style="font-size:11px;color:var(--text-muted);">${volLabel}</span>
+                    </div>
+                    <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">${escapeHtml(ss.summary)}</div>
+                </div>
+            </div>`;
+        }
+
         // Deep Search Summary
         if (data.search_summary) {
             html += `<div style="margin-bottom:16px;">
@@ -2164,7 +2286,17 @@ async function openLearnMore(pid, name) {
             html += `</div></div>`;
         }
 
-        body.innerHTML = html || '<div style="color:var(--text-muted);text-align:center;padding:20px;">No detailed analysis data stored for this position. Analysis data is saved for new positions opened after this update.</div>';
+        // If we have no meaningful content, show the raw reasoning as a fallback
+        if (!html && data.reasoning) {
+            const cleanReason = data.reasoning.replace(/\|/g, '\n').replace(/\[/g, '\n[').trim();
+            html = `<div style="margin-bottom:16px;">
+                <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:14px;">&#x1F9E0;</span> Strategy Analysis
+                </div>
+                <div style="padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);font-size:12px;color:var(--text-secondary);line-height:1.7;white-space:pre-line;">${escapeHtml(cleanReason)}</div>
+            </div>`;
+        }
+        body.innerHTML = html || '<div style="color:var(--text-muted);text-align:center;padding:20px;">No detailed analysis data stored for this position. New positions opened after this update will include full AI analysis.</div>';
     } catch(e) {
         body.innerHTML = '<div style="color:var(--red);text-align:center;padding:20px;">Failed to load analysis.</div>';
     }

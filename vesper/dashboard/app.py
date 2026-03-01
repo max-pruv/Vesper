@@ -428,15 +428,36 @@ async def trade_history_page(request: Request):
 
         cost_usd = t.get("cost_usd") or t.get("amount_usd") or 0
         pnl_usd = round(t.get("pnl_usd") or 0, 2)
-        exit_amount = round(cost_usd + pnl_usd, 2) if cost_usd else 0
+
+        # Reconstruct cost_usd from amount * entry_price if missing
+        if not cost_usd and t.get("amount") and t.get("entry_price"):
+            cost_usd = round(t["amount"] * t["entry_price"], 2)
+
+        exit_amount = round(cost_usd + pnl_usd, 2) if cost_usd else round(abs(pnl_usd), 2)
 
         # Fee calculation: use stored fees or estimate at 0.6% per side
         fee_rate = 0.006
         entry_fee = t.get("entry_fee") or round(cost_usd * fee_rate, 2)
         exit_fee = t.get("exit_fee") or (round(exit_amount * fee_rate, 2) if exit_amount > 0 else 0)
         total_fees = t.get("total_fees") or round(entry_fee + exit_fee, 2)
-        net_pnl_usd = t.get("net_pnl_usd") if t.get("net_pnl_usd") is not None else round(pnl_usd - total_fees, 2)
-        net_pnl_pct = t.get("net_pnl_pct") if t.get("net_pnl_pct") is not None else (round(net_pnl_usd / cost_usd * 100, 2) if cost_usd > 0 else 0)
+
+        # Use stored net_pnl_usd ONLY if it's meaningful (non-zero when pnl_usd is non-zero)
+        stored_net = t.get("net_pnl_usd")
+        if stored_net is not None and stored_net != 0:
+            net_pnl_usd = stored_net
+        elif stored_net == 0 and pnl_usd == 0:
+            net_pnl_usd = 0
+        else:
+            net_pnl_usd = round(pnl_usd - total_fees, 2)
+
+        stored_net_pct = t.get("net_pnl_pct")
+        if stored_net_pct is not None and stored_net_pct != 0:
+            net_pnl_pct = stored_net_pct
+        elif cost_usd > 0:
+            net_pnl_pct = round(net_pnl_usd / cost_usd * 100, 2)
+        else:
+            # Fallback: use pnl_pct if available
+            net_pnl_pct = round(t.get("pnl_pct") or 0, 2)
 
         trades.append({
             "symbol": t.get("symbol", ""),
@@ -458,12 +479,13 @@ async def trade_history_page(request: Request):
             "reason": t.get("reason", ""),
         })
 
-    # Build chart data: cumulative win rate over time per vertical (using net P&L)
+    # Build chart data: cumulative win rate over time per vertical
+    # Use pnl_usd (gross P&L) as the primary win indicator — always reliably set
     def build_win_rate_series(trade_list):
         wins = 0
         points = []
         for i, t in enumerate(trade_list):
-            if t.get("net_pnl_usd", t["pnl_usd"]) > 0:
+            if t.get("pnl_usd", 0) > 0:
                 wins += 1
             rate = round(wins / (i + 1) * 100, 1)
             points.append({"x": t["exit_date"], "y": rate})
@@ -482,10 +504,10 @@ async def trade_history_page(request: Request):
         "predictions": build_win_rate_series(pred_trades),
     }
 
-    # KPI stats (based on net P&L after fees)
+    # KPI stats — use gross pnl_usd (always reliable) for win/loss determination
     def calc_kpi(trade_list):
         total = len(trade_list)
-        wins = sum(1 for t in trade_list if t.get("net_pnl_usd", t["pnl_usd"]) > 0)
+        wins = sum(1 for t in trade_list if t.get("pnl_usd", 0) > 0)
         return {"total": total, "wins": wins, "rate": round(wins / total * 100, 1) if total > 0 else 0}
 
     kpis = {
@@ -1040,24 +1062,36 @@ def _fetch_stock_price(symbol: str, user) -> float:
         return 0
 
 
+_position_price_cache: dict[str, tuple[float, float]] = {}  # symbol -> (price, timestamp)
+_POSITION_PRICE_TTL = 15  # seconds
+
 async def _get_price_map_for_positions(position_symbols: set[str], user=None) -> dict[str, float]:
     """Build a complete price map covering all position symbols."""
     prices = await _get_cached_prices()
     price_map = {p["symbol"]: p["price"] for p in prices}
 
-    # Fetch missing symbols individually
+    # Check position price cache for recently fetched prices
+    now = time.time()
     missing = position_symbols - set(price_map.keys())
-    if missing:
+    still_missing = set()
+    for sym in missing:
+        cached = _position_price_cache.get(sym)
+        if cached and (now - cached[1]) < _POSITION_PRICE_TTL and cached[0] > 0:
+            price_map[sym] = cached[0]
+        else:
+            still_missing.add(sym)
+
+    # Fetch remaining missing symbols individually
+    if still_missing:
         loop = asyncio.get_event_loop()
-        for sym in missing:
+        for sym in still_missing:
             if sym.endswith("/USD"):
-                # Stock symbol — use Alpaca
                 price = await loop.run_in_executor(None, _fetch_stock_price, sym, user)
             else:
-                # Crypto symbol — use Binance
                 price = await loop.run_in_executor(None, _fetch_single_price, sym)
             if price and price > 0:
                 price_map[sym] = price
+                _position_price_cache[sym] = (price, now)
 
     return price_map
 
@@ -1924,6 +1958,31 @@ async def _portfolio_stats_inner(user, mode: str):
     }
 
 
+@app.get("/api/portfolio-history")
+async def api_portfolio_history(request: Request, hours: int = 24):
+    """Return portfolio value snapshots for the dashboard chart.
+
+    Snapshots are recorded every ~1 min by the bot. Supports up to 6 months.
+    Returns downsampled data: max ~500 points for performance.
+    """
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    portfolio = _load_portfolio(user.id)
+    snapshots = portfolio.get("portfolio_snapshots", [])
+
+    # Filter by time range
+    cutoff = time.time() - (hours * 3600)
+    filtered = [s for s in snapshots if s.get("t", 0) > cutoff]
+
+    # Downsample if too many points (keep max ~500 for chart performance)
+    if len(filtered) > 500:
+        step = len(filtered) // 500
+        filtered = filtered[::step] + [filtered[-1]]
+
+    return {"snapshots": filtered}
+
+
 @app.get("/api/positions")
 async def api_positions(request: Request):
     """Open positions with live unrealized P&L."""
@@ -2723,6 +2782,7 @@ async def api_position_analysis(pid: str, request: Request):
             "trend_factors": analysis.get("trend_factors"),
             "risk_level": analysis.get("risk_level", ""),
             "prediction_meta": analysis.get("prediction_meta"),
+            "social_sentiment": analysis.get("social_sentiment"),
         }
         # Include position context
         if pos:
@@ -2732,22 +2792,28 @@ async def api_position_analysis(pid: str, request: Request):
             result["symbol"] = pos.get("symbol", "")
         return result
 
-    # Fallback: build analysis from position metadata
+    # Fallback: build analysis from position metadata + strategy_reason
     if not pos:
         return {"found": False, "reasoning": "Position not found."}
+
+    reason = pos.get("strategy_reason", "")
+    strategy_id = pos.get("strategy_id", "")
+    symbol = pos.get("symbol", "")
+
     fallback = {
         "found": True,
         "signal": "BUY" if pos.get("side", "buy") == "buy" else "SELL",
         "confidence": pos.get("confidence", 0),
-        "reasoning": pos.get("strategy_reason", ""),
+        "reasoning": reason,
         "indicators": pos.get("indicators", {}),
         "entry_price": pos.get("entry_price", 0),
         "cost_usd": pos.get("cost_usd", 0),
-        "strategy_id": pos.get("strategy_id", ""),
-        "symbol": pos.get("symbol", ""),
+        "strategy_id": strategy_id,
+        "symbol": symbol,
     }
     if pos.get("search_summary"):
         fallback["search_summary"] = pos["search_summary"]
+
     # Include prediction metadata from raw position
     if pos.get("prediction_question"):
         fallback["prediction_meta"] = {
@@ -2757,8 +2823,30 @@ async def api_position_analysis(pid: str, request: Request):
             "edge": pos.get("prediction_edge", 0),
             "side": pos.get("prediction_side", ""),
         }
-    # Build factors from strategy reason text
-    reason = pos.get("strategy_reason", "")
+
+    # Parse altcoin_hunter trend factors from strategy_reason text
+    if strategy_id == "altcoin_hunter" and reason:
+        import re
+        score_m = re.search(r"score\s+([\d.]+)", reason)
+        if score_m:
+            fallback["trend_score"] = float(score_m.group(1))
+        # Extract factor values like momentum=0.8
+        factors = {}
+        for factor_name in ("momentum", "rsi", "ema_alignment", "volume_surge", "adx_strength", "btc_relative"):
+            m = re.search(rf"{factor_name}=([\d.]+)", reason)
+            if m:
+                factors[factor_name] = float(m.group(1))
+        if factors:
+            fallback["trend_factors"] = factors
+
+    # Parse autopilot strategy signals from reason text
+    if strategy_id in ("autopilot", "smart_auto") and reason:
+        # Extract strategy signals like [trend_following] BUY(0.60): ...
+        parts = reason.replace("|", "\n").strip()
+        if parts:
+            fallback["reasoning"] = parts
+
+    # Build bullish/bearish factors from strategy reason text
     if reason:
         bullish = []
         bearish = []
@@ -2767,15 +2855,29 @@ async def api_position_analysis(pid: str, request: Request):
             if not line:
                 continue
             lower = line.lower()
-            if any(w in lower for w in ["bullish", "uptrend", "above", "support", "momentum", "surge", "accumulation", "buy", "positive", "strong"]):
+            if any(w in lower for w in ["bullish", "uptrend", "above", "support", "momentum", "surge", "accumulation", "buy", "positive", "strong", "crossed above"]):
                 bullish.append(line)
-            elif any(w in lower for w in ["bearish", "downtrend", "below", "resistance", "overbought", "sell", "negative", "weak"]):
+            elif any(w in lower for w in ["bearish", "downtrend", "below", "resistance", "overbought", "sell", "negative", "weak", "neutral"]):
                 bearish.append(line)
         if bullish:
             fallback["bullish_factors"] = bullish[:5]
         if bearish:
             fallback["bearish_factors"] = bearish[:5]
     return fallback
+
+
+@app.get("/api/social-sentiment/{symbol:path}")
+async def api_social_sentiment(request: Request, symbol: str, asset_type: str = "crypto"):
+    """Get X/Twitter social sentiment for a symbol."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    from vesper.social_sentiment import fetch_social_sentiment
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, fetch_social_sentiment, symbol, asset_type)
+    if not result:
+        return JSONResponse({"error": "Social sentiment unavailable — check Perplexity API key"}, status_code=503)
+    return result
 
 
 # ═══════════════════════════════════════

@@ -153,6 +153,9 @@ class UserBot:
         # Record price snapshots for position P&L charts (runs every cycle = every minute)
         self._record_price_snapshots(prices)
 
+        # Record portfolio value snapshot (for 6-month dashboard chart)
+        self._record_portfolio_snapshot(prices)
+
         summary = self.portfolio.summary(prices)
         self.logger.info(
             f"[User:{self.email}] Portfolio: ${summary['total_value']:,.2f} | "
@@ -197,6 +200,64 @@ class UserBot:
             path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
             with open(path, "w") as f:
                 _json.dump(raw, f, indent=2)
+
+    def _record_portfolio_snapshot(self, prices: dict):
+        """Record a portfolio value snapshot every cycle (~1 min) for the dashboard chart.
+
+        Keeps 6 months of data (~262,800 points at 1/min). Stored in portfolio JSON
+        under 'portfolio_snapshots' as [{t, v, i}] where t=time, v=value, i=invested.
+        """
+        import time as _time
+        import json as _json
+        now = _time.time()
+        raw = self.portfolio._load_raw()
+        snapshots = raw.get("portfolio_snapshots", [])
+
+        # Only record if >50s since last snapshot (avoid duplicates if cycle runs fast)
+        if snapshots and (now - snapshots[-1].get("t", 0)) < 50:
+            return
+
+        # Calculate portfolio value
+        cash = raw.get("cash", 0)
+        autopilot_funds = sum(
+            (raw.get(k) or {}).get("fund_usd", 0) or 0
+            for k in ("altcoin_hunter", "autopilot", "predictions_autopilot")
+        )
+        positions = raw.get("positions", {})
+        unrealized = 0
+        invested = 0
+        for p in positions.values():
+            sym = p.get("symbol", "")
+            entry = p.get("entry_price", 0)
+            amount = p.get("amount", 0)
+            cost = p.get("cost_usd", 0)
+            invested += cost
+            if sym.startswith("PRED:"):
+                current = p.get("current_probability", entry) or entry
+            else:
+                current = prices.get(sym, 0) or entry
+            side = p.get("side", "buy")
+            if side == "buy":
+                unrealized += (current - entry) * amount
+            else:
+                unrealized += (entry - current) * amount
+
+        portfolio_value = cash + autopilot_funds + unrealized
+
+        snapshots.append({
+            "t": round(now),
+            "v": round(portfolio_value, 2),
+            "i": round(invested, 2),
+        })
+
+        # Prune: keep only 6 months (6 * 30 * 24 * 60 = 259,200 minutes)
+        six_months_ago = now - (6 * 30 * 24 * 3600)
+        snapshots = [s for s in snapshots if s.get("t", 0) > six_months_ago]
+
+        raw["portfolio_snapshots"] = snapshots
+        path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+        with open(path, "w") as f:
+            _json.dump(raw, f, indent=2)
 
     def _get_strategy(self, strategy_id: str):
         """Get or create a strategy instance for the given strategy_id."""
@@ -804,13 +865,14 @@ class UserBot:
                 and s["symbol"] not in held_symbols
             ]
 
-        # Deep research on top candidates (max 3 to control costs)
+        # Deep research + social sentiment on top candidates (max 3 to control costs)
         top5 = [(c['symbol'], round(c['score'], 2)) for c in candidates[:5]]
         self.logger.info(
             f"[User:{self.email}] [altcoin_hunter] {len(candidates)} candidates "
             f"above min_score={min_score}: {top5}"
         )
         from vesper.ai_research import research_asset
+        from vesper.social_sentiment import get_social_signal
         for c in candidates[:3]:
             try:
                 self.logger.info(
@@ -834,11 +896,33 @@ class UserBot:
                     c["confidence"] = min(1.0, c.get("confidence", 0.5) + 0.10)
                 elif research.get("researched") and research.get("signal") == "SELL":
                     c["score"] = max(0.0, c["score"] - 0.20)
+
+                # Social sentiment from X/Twitter
+                try:
+                    social = get_social_signal(c["symbol"], "crypto")
+                    c["social_sentiment"] = social
+                    if social["should_boost"] and social["social_score"] > 0.3:
+                        c["score"] = min(1.0, c["score"] + 0.05)
+                        self.logger.info(
+                            f"[altcoin_hunter] {c['symbol']} social boost: "
+                            f"score={social['social_score']:.2f}, vol={social['social_volume']}"
+                        )
+                    elif social["social_score"] < -0.4:
+                        c["score"] = max(0.0, c["score"] - 0.10)
+                        self.logger.info(
+                            f"[altcoin_hunter] {c['symbol']} social penalty: "
+                            f"score={social['social_score']:.2f}"
+                        )
+                except Exception as e:
+                    self.logger.debug(f"[altcoin_hunter] Social sentiment failed for {c['symbol']}: {e}")
+                    c["social_sentiment"] = {}
+
             except Exception as e:
                 self.logger.warning(
                     f"[User:{self.email}] [altcoin_hunter] Research failed for {c['symbol']}: {e}"
                 )
                 c["deep_research"] = {}
+                c["social_sentiment"] = {}
 
         # Re-sort after research adjustments
         candidates.sort(key=lambda x: x["score"], reverse=True)
@@ -898,6 +982,7 @@ class UserBot:
 
             # Build deep reasoning string
             deep = candidate.get("deep_research", {})
+            social = candidate.get("social_sentiment", {})
             reason_parts = [f"Altcoin Hunter: score {score:.2f}"]
             reason_parts.append(" | ".join(f"{k}={v:.2f}" for k, v in candidate["factors"].items()))
             if deep.get("researched"):
@@ -906,6 +991,8 @@ class UserBot:
                     reason_parts.append("Bullish: " + "; ".join(deep["bullish_factors"][:3]))
                 if deep.get("bearish_factors"):
                     reason_parts.append("Bearish: " + "; ".join(deep["bearish_factors"][:3]))
+            if social.get("social_summary"):
+                reason_parts.append(f"X/Twitter: {social['social_summary'][:150]}")
 
             position = Position(
                 symbol=sym, side="buy",
@@ -953,6 +1040,12 @@ class UserBot:
                         "search_summary": deep.get("search_summary", ""),
                         "engine": deep.get("engine", ""),
                     },
+                    "social_sentiment": {
+                        "sentiment": social.get("sentiment", ""),
+                        "score": social.get("social_score", 0),
+                        "volume": social.get("social_volume", ""),
+                        "summary": social.get("social_summary", ""),
+                    } if social else {},
                     "risk_level": risk_level,
                 }
                 self.portfolio._save_position_analysis(position.id, analysis_data)
