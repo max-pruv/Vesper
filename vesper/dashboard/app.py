@@ -426,17 +426,22 @@ async def trade_history_page(request: Request):
         else:
             duration_str = f"{duration_s / 60:.0f}m"
 
+        cost_usd = t.get("cost_usd") or t.get("amount_usd") or 0
+        exit_amount = round(cost_usd + (t.get("pnl_usd") or 0), 2) if cost_usd else 0
+
         trades.append({
             "symbol": t.get("symbol", ""),
             "type": trade_type,
             "side": t.get("side", "buy"),
             "entry_price": t.get("entry_price", 0),
             "exit_price": t.get("exit_price", 0),
-            "pnl_usd": round(t.get("pnl_usd", 0), 2),
-            "pnl_pct": round(t.get("pnl_pct", 0), 2),
+            "cost_usd": round(cost_usd, 2),
+            "exit_amount": exit_amount,
+            "pnl_usd": round(t.get("pnl_usd") or 0, 2),
+            "pnl_pct": round(t.get("pnl_pct") or 0, 2),
             "entry_time": entry_time,
             "exit_time": exit_time,
-            "exit_date": datetime.fromtimestamp(exit_time).strftime("%Y-%m-%d %H:%M") if exit_time > 0 else "",
+            "exit_date": exit_time,
             "duration": duration_str,
             "reason": t.get("reason", ""),
         })
@@ -540,8 +545,8 @@ async def dashboard(request: Request):
             "symbol": t.get("symbol", ""), "side": t.get("side", ""),
             "entry_price": t.get("entry_price", 0), "exit_price": t.get("exit_price", 0),
             "pnl_usd": t.get("pnl_usd", 0), "pnl_pct": t.get("pnl_pct", 0),
-            "entry_time": datetime.fromtimestamp(t.get("entry_time", 0)).strftime("%m/%d %H:%M"),
-            "exit_time": datetime.fromtimestamp(t.get("exit_time", 0)).strftime("%m/%d %H:%M"),
+            "entry_time": t.get("entry_time", 0),
+            "exit_time": t.get("exit_time", 0),
             "reason": t.get("reason", ""),
         })
 
@@ -563,7 +568,7 @@ async def dashboard(request: Request):
             "id": pid, "symbol": p.get("symbol", ""), "side": side,
             "entry_price": entry, "amount": amount,
             "cost_usd": cost,
-            "entry_time": datetime.fromtimestamp(p.get("entry_time", 0)).strftime("%m/%d %H:%M"),
+            "entry_time": p.get("entry_time", 0),
             "stop_loss": sl_price,
             "tp_min": p.get("limits", {}).get("take_profit_min_price", 0),
             "tp_max": tp_max_price,
@@ -802,7 +807,7 @@ async def admin_page(request: Request, days: int = 30):
 
     # Format recent calls timestamps
     for r in usage["recent"]:
-        r["time_fmt"] = datetime.fromtimestamp(r["created_at"]).strftime("%m/%d %H:%M")
+        r["time_fmt"] = r["created_at"]  # raw timestamp — formatted client-side
 
     # Format user join dates
     user_list = []
@@ -816,7 +821,7 @@ async def admin_page(request: Request, days: int = 30):
             "has_coinbase": u.has_coinbase,
             "has_alpaca": u.has_alpaca,
             "has_kalshi": u.has_kalshi,
-            "joined": datetime.fromtimestamp(u.created_at).strftime("%Y-%m-%d"),
+            "joined": u.created_at,  # raw timestamp — formatted client-side
         })
 
     # Count actual active autopilots across all users
@@ -1001,7 +1006,7 @@ def _fetch_single_price(symbol: str) -> float:
     try:
         ex = _get_public_exchange()
         t = ex.fetch_ticker(symbol)
-        return t.get("last", 0) if t else 0
+        return (t.get("last") or 0) if t else 0
     except Exception:
         return 0
 
@@ -1018,7 +1023,7 @@ def _fetch_stock_price(symbol: str, user) -> float:
             paper=False,
         )
         t = alpaca.fetch_ticker(symbol)
-        return t.get("last", 0) if t else 0
+        return (t.get("last") or 0) if t else 0
     except Exception:
         return 0
 
@@ -1039,7 +1044,7 @@ async def _get_price_map_for_positions(position_symbols: set[str], user=None) ->
             else:
                 # Crypto symbol — use Binance
                 price = await loop.run_in_executor(None, _fetch_single_price, sym)
-            if price > 0:
+            if price and price > 0:
                 price_map[sym] = price
 
     return price_map

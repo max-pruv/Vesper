@@ -100,8 +100,10 @@
                         <th>Symbol</th>
                         <th>Type</th>
                         <th>Side</th>
+                        <th style="text-align:right;">Entry Amt</th>
                         <th>Entry Price</th>
                         <th>Exit Price</th>
+                        <th style="text-align:right;">Exit Amt</th>
                         <th style="text-align:right;">P&L ($)</th>
                         <th style="text-align:right;">P&L (%)</th>
                         <th>Duration</th>
@@ -189,16 +191,48 @@
     let currentType = 'all';
     let winRateChart = null;
 
+    // Format Unix timestamp to user's local timezone
+    function fmtDate(ts) {
+        if (!ts) return '—';
+        return new Date(ts * 1000).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+    }
+    function fmtDateTime(ts) {
+        if (!ts) return '—';
+        return new Date(ts * 1000).toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' });
+    }
+    // Convert Unix timestamp to YYYY-MM-DD in local timezone (for date filter comparison)
+    function tsToLocalDate(ts) {
+        if (!ts) return '';
+        const d = new Date(ts * 1000);
+        return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+    }
+
+    // Format chart x-axis labels from raw timestamps
+    function fmtChartLabel(ts) {
+        if (!ts) return '';
+        return new Date(ts * 1000).toLocaleDateString(undefined, { month:'short', day:'numeric' });
+    }
+
+    // Convert chart data x values from raw timestamps to formatted labels
+    function convertChartData(series) {
+        if (!series) return [];
+        return series.map(p => ({ x: fmtChartLabel(p.x), y: p.y }));
+    }
+
     // --- Render chart ---
     function renderWinRateChart() {
         const ctx = document.getElementById('winRateChart').getContext('2d');
 
         const datasets = [];
+        const cOverall = convertChartData(chartData.overall);
+        const cCrypto = convertChartData(chartData.crypto);
+        const cStocks = convertChartData(chartData.stocks);
+        const cPredictions = convertChartData(chartData.predictions);
 
-        if (chartData.overall && chartData.overall.length > 0) {
+        if (cOverall.length > 0) {
             datasets.push({
                 label: 'Overall',
-                data: chartData.overall,
+                data: cOverall,
                 borderColor: '#f0f0f5',
                 backgroundColor: 'rgba(240,240,245,0.05)',
                 borderWidth: 2,
@@ -208,10 +242,10 @@
                 fill: true,
             });
         }
-        if (chartData.crypto && chartData.crypto.length > 0) {
+        if (cCrypto.length > 0) {
             datasets.push({
                 label: 'Crypto',
-                data: chartData.crypto,
+                data: cCrypto,
                 borderColor: '#00e85e',
                 backgroundColor: 'rgba(0,232,94,0.04)',
                 borderWidth: 1.5,
@@ -219,13 +253,12 @@
                 pointHitRadius: 8,
                 tension: 0.3,
                 fill: false,
-                borderDash: [],
             });
         }
-        if (chartData.stocks && chartData.stocks.length > 0) {
+        if (cStocks.length > 0) {
             datasets.push({
                 label: 'Stocks',
-                data: chartData.stocks,
+                data: cStocks,
                 borderColor: '#818cf8',
                 backgroundColor: 'rgba(99,102,241,0.04)',
                 borderWidth: 1.5,
@@ -235,10 +268,10 @@
                 fill: false,
             });
         }
-        if (chartData.predictions && chartData.predictions.length > 0) {
+        if (cPredictions.length > 0) {
             datasets.push({
                 label: 'Predictions',
-                data: chartData.predictions,
+                data: cPredictions,
                 borderColor: '#a855f7',
                 backgroundColor: 'rgba(168,85,247,0.04)',
                 borderWidth: 1.5,
@@ -316,7 +349,7 @@
                 scales: {
                     x: {
                         type: 'category',
-                        labels: (chartData.overall || []).map(p => p.x),
+                        labels: cOverall.map(p => p.x),
                         grid: { color: 'rgba(255,255,255,0.03)' },
                         ticks: {
                             color: '#6b7280',
@@ -358,13 +391,15 @@
         tbody.innerHTML = trades.map(t => {
             const pnlClass = t.pnl_usd >= 0 ? 'positive' : 'negative';
             const pnlSign = t.pnl_usd >= 0 ? '+' : '';
-            return `<tr data-type="${t.type}" data-exit-date="${t.exit_date}">
-                <td style="font-size:13px;font-family:monospace;color:var(--text-secondary);white-space:nowrap;">${t.exit_date || '—'}</td>
+            return `<tr data-type="${t.type}" data-exit-ts="${t.exit_date}">
+                <td style="font-size:13px;font-family:monospace;color:var(--text-secondary);white-space:nowrap;">${fmtDateTime(t.exit_date)}</td>
                 <td style="font-weight:600;">${t.symbol}</td>
                 <td><span class="type-badge type-badge-${t.type}">${t.type}</span></td>
                 <td><span class="side-badge side-${t.side}">${t.side}</span></td>
+                <td style="text-align:right;font-family:monospace;font-size:13px;">$${Number(t.cost_usd || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                 <td style="font-family:monospace;font-size:13px;">$${Number(t.entry_price).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:6})}</td>
                 <td style="font-family:monospace;font-size:13px;">$${Number(t.exit_price).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:6})}</td>
+                <td style="text-align:right;font-family:monospace;font-size:13px;">$${Number(t.exit_amount || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
                 <td style="text-align:right;font-weight:700;" class="${pnlClass}">${pnlSign}$${t.pnl_usd.toFixed(2)}</td>
                 <td style="text-align:right;font-weight:600;" class="${pnlClass}">${pnlSign}${t.pnl_pct.toFixed(2)}%</td>
                 <td style="font-size:13px;color:var(--text-muted);">${t.duration}</td>
@@ -413,15 +448,14 @@
             filtered = filtered.filter(t => t.type === currentType);
         }
 
-        const fromVal = document.getElementById('dateFrom').value;
+        const fromVal = document.getElementById('dateFrom').value;  // YYYY-MM-DD
         const toVal = document.getElementById('dateTo').value;
 
         if (fromVal) {
-            filtered = filtered.filter(t => t.exit_date >= fromVal);
+            filtered = filtered.filter(t => tsToLocalDate(t.exit_date) >= fromVal);
         }
         if (toVal) {
-            const toEnd = toVal + ' 23:59';
-            filtered = filtered.filter(t => t.exit_date <= toEnd);
+            filtered = filtered.filter(t => tsToLocalDate(t.exit_date) <= toVal);
         }
 
         return filtered;
