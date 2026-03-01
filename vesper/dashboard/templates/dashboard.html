@@ -1069,12 +1069,9 @@ function renderBetCard(p, isNew) {
 
 async function updatePositions() {
     try {
-        const resp = await fetch('/api/positions');
+        const resp = await fetch('/api/positions?mode=' + currentTradeMode);
         if (!resp.ok) return;
-        const allPositions = await resp.json();
-        // Filter by current trade mode — but show all if filter returns empty (avoids mode mismatch hiding positions)
-        let positions = allPositions.filter(p => (p.trade_mode || 'paper') === currentTradeMode);
-        if (positions.length === 0 && allPositions.length > 0) positions = allPositions;
+        const positions = await resp.json();
         const container = document.getElementById('activeBets');
 
         // Update position count label
@@ -1584,9 +1581,8 @@ function getSessionCookie() {
 }
 
 function applyWsPositions(positions) {
-    // Same rendering logic as updatePositions but from WS data
+    // Filter by current trade mode (strict — no fallback to avoid mode leaking)
     let filtered = positions.filter(p => (p.trade_mode || 'paper') === currentTradeMode);
-    if (filtered.length === 0 && positions.length > 0) filtered = positions;
     const container = document.getElementById('activeBets');
     const countLabel = document.getElementById('positionCountLabel');
     if (countLabel) countLabel.textContent = filtered.length + ' open';
@@ -1767,7 +1763,7 @@ async function fetchSegmentStatus(segment) {
     const cfg = SEGMENTS[segment];
     if (!cfg) return;
     try {
-        const resp = await fetch(cfg.api);
+        const resp = await fetch(cfg.api + '?mode=' + currentTradeMode);
         if (!resp.ok) return;
         const data = await resp.json();
 
@@ -2343,10 +2339,11 @@ function setTradeMode(mode) {
     document.getElementById('modePaper').classList.toggle('active', mode === 'paper');
     document.getElementById('modeReal').classList.toggle('active', mode === 'real');
     document.body.setAttribute('data-trade-mode', mode);
-    // Re-apply cached WS data with new filter
+    // Refresh everything with new mode filter
     if (_lastWsStats) applyWsStats(_lastWsStats);
     updatePositions();
     updatePortfolioStats();
+    ['crypto', 'stocks', 'predictions'].forEach(fetchSegmentStatus);
 }
 function confirmRealMode() {
     document.getElementById('realModeModal').classList.remove('active');
@@ -2357,6 +2354,7 @@ function confirmRealMode() {
     if (_lastWsStats) applyWsStats(_lastWsStats);
     updatePositions();
     updatePortfolioStats();
+    ['crypto', 'stocks', 'predictions'].forEach(fetchSegmentStatus);
 }
 function closeRealMode() {
     document.getElementById('realModeModal').classList.remove('active');

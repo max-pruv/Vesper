@@ -60,6 +60,9 @@ _oauth_states: dict[str, float] = {}
 async def startup():
     _log.info("Dashboard starting up — initialising database")
     init_db()
+    # Preload CoinGecko price data in background (non-blocking)
+    import threading
+    threading.Thread(target=_fetch_coingecko_market_caps, daemon=True).start()
     _log.info("Dashboard ready")
 
 
@@ -114,6 +117,16 @@ def _clean_nones(obj):
     if obj is None:
         return 0
     return obj
+
+
+def _s(val) -> str:
+    """Safe string coercion — portfolio values may be 0 (int) when JSON had null.
+    Always returns a string so .startswith(), ``in``, .split() etc. never crash."""
+    if isinstance(val, str):
+        return val
+    if val is None or val == 0:
+        return ""
+    return str(val)
 
 
 def _load_portfolio(uid: int) -> dict:
@@ -406,12 +419,12 @@ async def trade_history_page(request: Request):
     # Classify trades by vertical
     trades = []
     for t in reversed(all_trades):
-        strategy = t.get("strategy_id", "")
-        if strategy == "altcoin_hunter" or "Altcoin" in t.get("reason", ""):
+        strategy = _s(t.get("strategy_id"))
+        if strategy == "altcoin_hunter" or "Altcoin" in _s(t.get("reason")):
             trade_type = "crypto"
-        elif strategy == "autopilot" or t.get("symbol", "").endswith("/USD"):
+        elif strategy == "autopilot" or _s(t.get("symbol")).endswith("/USD"):
             trade_type = "stocks"
-        elif strategy == "predictions" or t.get("symbol", "").startswith("PRED:"):
+        elif strategy == "predictions" or _s(t.get("symbol")).startswith("PRED:"):
             trade_type = "predictions"
         else:
             trade_type = "crypto"  # default
@@ -603,15 +616,10 @@ async def dashboard(request: Request):
         pid: p for pid, p in all_positions.items()
         if p.get("trade_mode", "paper") == current_mode
     }
-    # Fallback: if mode filter returns empty but data exists, show all
-    if not positions and all_positions:
-        positions = all_positions
     trades = [
         t for t in all_trades
         if t.get("trade_mode", "paper") == current_mode
     ]
-    if not trades and all_trades:
-        trades = all_trades
     realized_pnl = sum(t.get("pnl_usd", 0) for t in trades)
     total_pnl = realized_pnl  # unrealized added by WS once live prices arrive
     wins = [t for t in trades if t.get("pnl_usd", 0) > 0]
@@ -1089,14 +1097,66 @@ async def _get_cached_prices() -> list[dict]:
     return _price_cache
 
 
+# Symbol remaps for rebranded tokens (old pair -> new pair on exchanges)
+_SYMBOL_REMAP = {
+    "MATIC/USDT": "POL/USDT",
+    "MATIC/USD": "POL/USD",
+    "LUNC/USDT": "LUNA/USDT",
+}
+
+
 def _fetch_single_price(symbol: str) -> float:
-    """Fetch a single crypto symbol's price via Binance."""
+    """Fetch a single crypto symbol's price — tries exchange, then CoinGecko fallback."""
+    ex = _get_public_exchange()
+
+    # Try original symbol first, then remapped symbol
+    symbols_to_try = [symbol]
+    remapped = _SYMBOL_REMAP.get(symbol)
+    if remapped:
+        symbols_to_try.append(remapped)
+    # Also try /USD if /USDT fails and vice versa
+    if symbol.endswith("/USDT"):
+        symbols_to_try.append(symbol.replace("/USDT", "/USD"))
+    elif symbol.endswith("/USD") and not symbol.endswith("/BUSD"):
+        symbols_to_try.append(symbol.replace("/USD", "/USDT"))
+
+    for sym in symbols_to_try:
+        try:
+            if sym in ex.markets:
+                t = ex.fetch_ticker(sym)
+                price = (t.get("last") or 0) if t else 0
+                if price > 0:
+                    return price
+        except Exception as e:
+            _log.debug(f"[price] exchange fetch failed {sym}: {e}")
+
+    # Fallback: CoinGecko price cache (refreshed with market caps every 5min)
+    base = symbol.split("/")[0].upper()
+    if _coingecko_price_cache and base in _coingecko_price_cache:
+        cg_price = _coingecko_price_cache[base]
+        if cg_price > 0:
+            _log.info(f"[price] CoinGecko fallback for {symbol}: ${cg_price}")
+            return cg_price
+
+    # Last resort: direct CoinGecko API call for this specific coin
     try:
-        ex = _get_public_exchange()
-        t = ex.fetch_ticker(symbol)
-        return (t.get("last") or 0) if t else 0
-    except Exception:
-        return 0
+        from vesper.sentiment import _COINGECKO_MAP
+        coin_id = _COINGECKO_MAP.get(base)
+        if coin_id:
+            import urllib.request
+            url = f"https://api.coingecko.com/api/v3/simple/price?ids={coin_id}&vs_currencies=usd"
+            req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "Vesper/1.0"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read())
+            price = data.get(coin_id, {}).get("usd", 0)
+            if price > 0:
+                _log.info(f"[price] CoinGecko direct for {symbol}: ${price}")
+                return float(price)
+    except Exception as e:
+        _log.debug(f"[price] CoinGecko direct failed for {symbol}: {e}")
+
+    _log.warning(f"[price] all sources failed for {symbol}")
+    return 0
 
 
 def _fetch_stock_price(symbol: str, user) -> float:
@@ -1120,9 +1180,17 @@ _position_price_cache: dict[str, tuple[float, float]] = {}  # symbol -> (price, 
 _POSITION_PRICE_TTL = 15  # seconds
 
 async def _get_price_map_for_positions(position_symbols: set[str], user=None) -> dict[str, float]:
-    """Build a complete price map covering all position symbols."""
+    """Build a complete price map covering all position symbols.
+
+    Multi-source approach:
+    1. Cached exchange tickers (TICKER_SYMBOLS)
+    2. Position price cache (15s TTL)
+    3. CoinGecko price cache (populated with market caps, 5min TTL)
+    4. Direct exchange fetch per symbol (with symbol remapping)
+    5. Direct CoinGecko /simple/price API
+    """
     prices = await _get_cached_prices()
-    price_map = {p["symbol"]: p["price"] for p in prices}
+    price_map = {p["symbol"]: p["price"] for p in prices if p.get("price", 0) > 0}
 
     # Check position price cache for recently fetched prices
     now = time.time()
@@ -1135,7 +1203,19 @@ async def _get_price_map_for_positions(position_symbols: set[str], user=None) ->
         else:
             still_missing.add(sym)
 
-    # Fetch remaining missing symbols individually
+    # Try CoinGecko price cache before making individual exchange calls
+    if still_missing and _coingecko_price_cache:
+        resolved = set()
+        for sym in still_missing:
+            base = sym.split("/")[0].upper()
+            cg_price = _coingecko_price_cache.get(base, 0)
+            if cg_price > 0:
+                price_map[sym] = cg_price
+                _position_price_cache[sym] = (cg_price, now)
+                resolved.add(sym)
+        still_missing -= resolved
+
+    # Fetch remaining missing symbols individually (exchange + CoinGecko fallback)
     if still_missing:
         loop = asyncio.get_event_loop()
         for sym in still_missing:
@@ -1548,18 +1628,18 @@ async def ws_live(ws: WebSocket):
                 portfolio = _load_portfolio(user.id)
                 all_positions = portfolio.get("positions", {})
 
-                # --- Positions (send ALL, client filters by trade_mode) ---
+                # --- Positions (send ALL with trade_mode, client filters) ---
                 positions = all_positions
                 pos_list = []
                 if positions:
                     pos_symbols = {
-                        p.get("symbol", "") for p in positions.values()
-                        if not p.get("symbol", "").startswith("PRED:")
+                        _s(p.get("symbol")) for p in positions.values()
+                        if not _s(p.get("symbol")).startswith("PRED:")
                     }
                     price_map = await _get_price_map_for_positions(pos_symbols, user)
 
                     for pid, p in positions.items():
-                        sym = p.get("symbol", "")
+                        sym = _s(p.get("symbol"))
                         entry = p.get("entry_price") or 0
                         if sym.startswith("PRED:"):
                             current = p.get("current_probability") or entry
@@ -1952,15 +2032,10 @@ async def _portfolio_stats_inner(user, mode: str):
         pid: p for pid, p in all_positions.items()
         if p.get("trade_mode", "paper") == current_mode
     }
-    # Fallback: if mode filter returns empty but data exists, show all
-    if not positions and all_positions:
-        positions = all_positions
     trades = [
         t for t in all_trades
         if t.get("trade_mode", "paper") == current_mode
     ]
-    if not trades and all_trades:
-        trades = all_trades
 
     # Realized P&L from closed trades
     realized_pnl = sum(t.get("pnl_usd", 0) for t in trades)
@@ -1971,11 +2046,11 @@ async def _portfolio_stats_inner(user, mode: str):
     # Unrealized P&L from open positions
     unrealized_pnl = 0
     if positions:
-        pos_symbols = {p.get("symbol", "") for p in positions.values() if not p.get("symbol", "").startswith("PRED:")}
+        pos_symbols = {_s(p.get("symbol")) for p in positions.values() if not _s(p.get("symbol")).startswith("PRED:")}
         price_map = await _get_price_map_for_positions(pos_symbols, user)
         for p in positions.values():
             entry = p.get("entry_price") or 0
-            sym = p.get("symbol", "")
+            sym = _s(p.get("symbol"))
             if sym.startswith("PRED:"):
                 current = p.get("current_probability") or entry
             else:
@@ -2051,32 +2126,42 @@ async def api_portfolio_history(request: Request, hours: int = 24):
 
 
 @app.get("/api/positions")
-async def api_positions(request: Request):
+async def api_positions(request: Request, mode: str = ""):
     """Open positions with live unrealized P&L."""
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     try:
-        return await _positions_inner(user)
+        return await _positions_inner(user, mode)
     except Exception:
         _log.error(f"[positions] user={user.id} error:\n{traceback.format_exc()}")
         return JSONResponse({"error": "internal error"}, status_code=500)
 
-async def _positions_inner(user):
+async def _positions_inner(user, mode: str = ""):
     portfolio = _load_portfolio(user.id)
-    positions = portfolio.get("positions", {})
+    all_positions = portfolio.get("positions", {})
+    # Filter by trade_mode
+    if mode in ("paper", "real"):
+        current_mode = mode
+    else:
+        mode_match = {"live": "real", "paper": "paper"}
+        current_mode = mode_match.get(user.trading_mode, "paper")
+    positions = {
+        pid: p for pid, p in all_positions.items()
+        if p.get("trade_mode", "paper") == current_mode
+    }
     _log.info(f"[positions] user={user.id} count={len(positions)}")
 
     if not positions:
         return []
 
     # Build price map that covers ALL position symbols (not just TICKER_SYMBOLS)
-    pos_symbols = {p.get("symbol", "") for p in positions.values() if not p.get("symbol", "").startswith("PRED:")}
+    pos_symbols = {_s(p.get("symbol")) for p in positions.values() if not _s(p.get("symbol")).startswith("PRED:")}
     price_map = await _get_price_map_for_positions(pos_symbols, user)
 
     result = []
     for pid, p in positions.items():
-        sym = p.get("symbol", "")
+        sym = _s(p.get("symbol"))
         entry = p.get("entry_price") or 0
         # For prediction positions (PRED:*), use stored probability data for P&L
         is_prediction = sym.startswith("PRED:")
@@ -2426,14 +2511,24 @@ async def api_decisions(request: Request, limit: int = 50):
 # ═══════════════════════════════════════
 
 @app.get("/api/autopilot")
-async def api_autopilot_status(request: Request):
+async def api_autopilot_status(request: Request, mode: str = ""):
     """Get autopilot status and positions."""
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     portfolio = _load_portfolio(user.id)
     autopilot = portfolio.get("autopilot", {})
-    positions = portfolio.get("positions", {})
+    all_positions = portfolio.get("positions", {})
+    # Filter by trade_mode
+    if mode in ("paper", "real"):
+        current_mode = mode
+    else:
+        mode_match = {"live": "real", "paper": "paper"}
+        current_mode = mode_match.get(user.trading_mode, "paper")
+    positions = {
+        pid: p for pid, p in all_positions.items()
+        if p.get("trade_mode", "paper") == current_mode
+    }
 
     # Autopilot positions
     ap_positions = []
@@ -2469,6 +2564,7 @@ async def api_autopilot_status(request: Request):
     realized_pnl = sum(
         t.get("pnl_usd", 0) for t in all_trades
         if t.get("strategy_id") == "autopilot"
+        and t.get("trade_mode", "paper") == current_mode
     )
 
     return {
@@ -2550,22 +2646,32 @@ async def api_autopilot_toggle(request: Request):
 # ═══════════════════════════════════════
 
 @app.get("/api/altcoin-hunter")
-async def api_altcoin_hunter_status(request: Request):
+async def api_altcoin_hunter_status(request: Request, mode: str = ""):
     """Get altcoin hunter status and positions."""
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     try:
-        return await _altcoin_hunter_status_inner(user)
+        return await _altcoin_hunter_status_inner(user, mode)
     except Exception:
         _log.error(f"[altcoin-hunter] user={user.id} GET error:\n{traceback.format_exc()}")
         return JSONResponse({"error": "internal error"}, status_code=500)
 
-async def _altcoin_hunter_status_inner(user):
+async def _altcoin_hunter_status_inner(user, mode: str = ""):
     portfolio = _load_portfolio(user.id)
-    _log.info(f"[altcoin-hunter] user={user.id} GET status")
+    _log.info(f"[altcoin-hunter] user={user.id} GET status mode={mode or user.trading_mode}")
     hunter = portfolio.get("altcoin_hunter", {})
-    positions = portfolio.get("positions", {})
+    all_positions = portfolio.get("positions", {})
+    # Filter by trade_mode
+    if mode in ("paper", "real"):
+        current_mode = mode
+    else:
+        mode_match = {"live": "real", "paper": "paper"}
+        current_mode = mode_match.get(user.trading_mode, "paper")
+    positions = {
+        pid: p for pid, p in all_positions.items()
+        if p.get("trade_mode", "paper") == current_mode
+    }
 
     hunter_positions = []
     deployed = 0.0
@@ -2596,11 +2702,12 @@ async def _altcoin_hunter_status_inner(user):
                 amount = hp["cost_usd"] / hp["entry_price"]
                 unrealized_pnl += (current - hp["entry_price"]) * amount
 
-    # Compute realized P&L from closed trades
+    # Compute realized P&L from closed trades (filtered by mode)
     all_trades = portfolio.get("trade_history", [])
     realized_pnl = sum(
         t.get("pnl_usd", 0) for t in all_trades
-        if t.get("strategy_id") == "altcoin_hunter" or "Altcoin Hunter" in t.get("reason", "")
+        if t.get("trade_mode", "paper") == current_mode
+        and (_s(t.get("strategy_id")) == "altcoin_hunter" or "Altcoin Hunter" in _s(t.get("reason")))
     )
 
     # Get recent altcoin_hunter scan logs
@@ -2690,14 +2797,24 @@ async def api_altcoin_hunter_toggle(request: Request):
 # ═══════════════════════════════════════
 
 @app.get("/api/predictions-autopilot")
-async def api_predictions_autopilot_status(request: Request):
+async def api_predictions_autopilot_status(request: Request, mode: str = ""):
     """Get predictions autopilot status and positions."""
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     portfolio = _load_portfolio(user.id)
     pred_cfg = portfolio.get("predictions_autopilot", {})
-    positions = portfolio.get("positions", {})
+    all_positions = portfolio.get("positions", {})
+    # Filter by trade_mode
+    if mode in ("paper", "real"):
+        current_mode = mode
+    else:
+        mode_match = {"live": "real", "paper": "paper"}
+        current_mode = mode_match.get(user.trading_mode, "paper")
+    positions = {
+        pid: p for pid, p in all_positions.items()
+        if p.get("trade_mode", "paper") == current_mode
+    }
 
     pred_positions = []
     deployed = 0.0
@@ -2737,11 +2854,12 @@ async def api_predictions_autopilot_status(request: Request):
 
     fund_total = pred_cfg.get("fund_usd", 0)
 
-    # Compute realized P&L from closed predictions
+    # Compute realized P&L from closed predictions (filtered by mode)
     all_trades = portfolio.get("trade_history", [])
     realized_pnl = sum(
         t.get("pnl_usd", 0) for t in all_trades
         if t.get("strategy_id") == "predictions"
+        and t.get("trade_mode", "paper") == current_mode
     )
 
     # Get recent prediction scan logs
@@ -2879,31 +2997,84 @@ async def api_position_analysis(pid: str, request: Request):
             result["symbol"] = pos.get("symbol", "")
         return result
 
-    # Fallback: build analysis from position metadata + strategy_reason
+    # Fallback: no pre-saved analysis — run live deep research on-demand
     if not pos:
         return {"found": False, "reasoning": "Position not found."}
 
-    reason = pos.get("strategy_reason", "")
-    strategy_id = pos.get("strategy_id", "")
-    symbol = pos.get("symbol", "")
+    reason = _s(pos.get("strategy_reason"))
+    strategy_id = _s(pos.get("strategy_id"))
+    symbol = _s(pos.get("symbol"))
+    entry_price = pos.get("entry_price", 0)
 
-    fallback = {
+    # Run live deep research for this position (Perplexity + Claude)
+    live_research = {}
+    social = {}
+    is_prediction = symbol.startswith("PRED:")
+
+    try:
+        loop = asyncio.get_event_loop()
+        if is_prediction:
+            question = _s(pos.get("prediction_question")) or symbol.replace("PRED:", "")
+            mkt_prob = pos.get("prediction_mkt_prob", 50)
+            category = ""
+            from vesper.ai_research import research_market
+            live_research = await loop.run_in_executor(
+                None, research_market, question, mkt_prob, "", category
+            )
+        else:
+            from vesper.ai_research import research_asset
+            # Get current market indicators if available
+            try:
+                ex = _get_public_exchange()
+                if symbol.endswith("/USD"):
+                    from vesper.market_data import get_stock_snapshot
+                    snapshot = await loop.run_in_executor(None, get_stock_snapshot, symbol)
+                else:
+                    from vesper.market_data import get_multi_tf_snapshot
+                    snapshot = await loop.run_in_executor(None, get_multi_tf_snapshot, ex, symbol)
+            except Exception:
+                snapshot = {"price": entry_price}
+
+            asset_type = "stock" if symbol.endswith("/USD") else "crypto"
+            live_research = await loop.run_in_executor(
+                None, research_asset, symbol, {}, snapshot.get("price", entry_price), asset_type
+            )
+
+            # Also fetch social sentiment
+            try:
+                from vesper.social_sentiment import get_social_signal
+                social = await loop.run_in_executor(None, get_social_signal, symbol, asset_type)
+            except Exception:
+                social = {}
+    except Exception as e:
+        _log.warning(f"[position-analysis] Live research failed for {symbol}: {e}")
+
+    # Build rich analysis from live research
+    deep = live_research if live_research.get("researched") else {}
+
+    result = {
         "found": True,
-        "signal": "BUY" if pos.get("side", "buy") == "buy" else "SELL",
-        "confidence": pos.get("confidence", 0),
-        "reasoning": reason,
-        "indicators": pos.get("indicators", {}),
-        "entry_price": pos.get("entry_price", 0),
+        "signal": deep.get("signal", "BUY" if pos.get("side", "buy") == "buy" else "SELL"),
+        "confidence": deep.get("confidence", 0),
+        "reasoning": deep.get("reasoning", reason),
+        "search_summary": deep.get("search_summary", ""),
+        "bullish_factors": deep.get("bullish_factors", []),
+        "bearish_factors": deep.get("bearish_factors", []),
+        "catalysts": deep.get("catalysts", []),
+        "sources": deep.get("sources", []),
+        "entry_price": entry_price,
         "cost_usd": pos.get("cost_usd", 0),
         "strategy_id": strategy_id,
         "symbol": symbol,
+        "risk_level": "",
     }
-    if pos.get("search_summary"):
-        fallback["search_summary"] = pos["search_summary"]
 
-    # Include prediction metadata from raw position
+    if social:
+        result["social_sentiment"] = social
+
+    # Include prediction metadata
     if pos.get("prediction_question"):
-        fallback["prediction_meta"] = {
+        result["prediction_meta"] = {
             "question": pos.get("prediction_question", ""),
             "ai_prob": pos.get("prediction_ai_prob", 0),
             "mkt_prob": pos.get("prediction_mkt_prob", 0),
@@ -2911,30 +3082,22 @@ async def api_position_analysis(pid: str, request: Request):
             "side": pos.get("prediction_side", ""),
         }
 
-    # Parse altcoin_hunter trend factors from strategy_reason text
+    # Parse trend factors from strategy_reason for altcoin_hunter
     if strategy_id == "altcoin_hunter" and reason:
         import re
         score_m = re.search(r"score\s+([\d.]+)", reason)
         if score_m:
-            fallback["trend_score"] = float(score_m.group(1))
-        # Extract factor values like momentum=0.8
+            result["trend_score"] = float(score_m.group(1))
         factors = {}
         for factor_name in ("momentum", "rsi", "ema_alignment", "volume_surge", "adx_strength", "btc_relative"):
             m = re.search(rf"{factor_name}=([\d.]+)", reason)
             if m:
                 factors[factor_name] = float(m.group(1))
         if factors:
-            fallback["trend_factors"] = factors
+            result["trend_factors"] = factors
 
-    # Parse autopilot strategy signals from reason text
-    if strategy_id in ("autopilot", "smart_auto") and reason:
-        # Extract strategy signals like [trend_following] BUY(0.60): ...
-        parts = reason.replace("|", "\n").strip()
-        if parts:
-            fallback["reasoning"] = parts
-
-    # Build bullish/bearish factors from strategy reason text
-    if reason:
+    # If live research didn't return factors, parse from strategy_reason text
+    if not result["bullish_factors"] and not result["bearish_factors"] and reason:
         bullish = []
         bearish = []
         for part in reason.replace(";", ".").replace("|", ".").split("."):
@@ -2942,15 +3105,44 @@ async def api_position_analysis(pid: str, request: Request):
             if not line:
                 continue
             lower = line.lower()
-            if any(w in lower for w in ["bullish", "uptrend", "above", "support", "momentum", "surge", "accumulation", "buy", "positive", "strong", "crossed above"]):
+            if any(w in lower for w in ["bullish", "uptrend", "above", "support", "momentum", "surge", "accumulation", "buy", "positive", "strong"]):
                 bullish.append(line)
-            elif any(w in lower for w in ["bearish", "downtrend", "below", "resistance", "overbought", "sell", "negative", "weak", "neutral"]):
+            elif any(w in lower for w in ["bearish", "downtrend", "below", "resistance", "overbought", "sell", "negative", "weak"]):
                 bearish.append(line)
         if bullish:
-            fallback["bullish_factors"] = bullish[:5]
+            result["bullish_factors"] = bullish[:5]
         if bearish:
-            fallback["bearish_factors"] = bearish[:5]
-    return fallback
+            result["bearish_factors"] = bearish[:5]
+
+    # Cache the analysis for future requests
+    try:
+        analysis_data = {
+            "deep_research": {
+                "signal": result.get("signal", ""),
+                "confidence": result.get("confidence", 0),
+                "reasoning": result.get("reasoning", ""),
+                "bullish_factors": result.get("bullish_factors", []),
+                "bearish_factors": result.get("bearish_factors", []),
+                "catalysts": result.get("catalysts", []),
+                "sources": result.get("sources", []),
+                "search_summary": result.get("search_summary", ""),
+            },
+            "social_sentiment": social,
+            "risk_level": result.get("risk_level", ""),
+        }
+        if result.get("trend_score"):
+            analysis_data["trend_score"] = result["trend_score"]
+        if result.get("trend_factors"):
+            analysis_data["trend_factors"] = result["trend_factors"]
+        if result.get("prediction_meta"):
+            analysis_data["prediction_meta"] = result["prediction_meta"]
+        analyses[pid] = analysis_data
+        portfolio["position_analyses"] = analyses
+        _save_portfolio(user.id, portfolio)
+    except Exception:
+        pass  # Non-critical — caching failure shouldn't break the response
+
+    return result
 
 
 @app.get("/api/social-sentiment/{symbol:path}")
@@ -2976,11 +3168,13 @@ _markets_stocks_cache: dict = {}
 
 
 _coingecko_mcap_cache: dict = {}
+_coingecko_price_cache: dict[str, float] = {}  # symbol (e.g. "BTC") -> USD price
+_coingecko_price_ts: float = 0
 
 
 def _fetch_coingecko_market_caps() -> dict:
-    """Fetch market caps from CoinGecko free API (cached 5min)."""
-    global _coingecko_mcap_cache
+    """Fetch market caps + prices from CoinGecko free API (cached 5min)."""
+    global _coingecko_mcap_cache, _coingecko_price_cache, _coingecko_price_ts
     now = time.time()
     if _coingecko_mcap_cache and now - _coingecko_mcap_cache.get("ts", 0) < 300:
         return _coingecko_mcap_cache.get("data", {})
@@ -2992,13 +3186,19 @@ def _fetch_coingecko_market_caps() -> dict:
         with urllib.request.urlopen(req, timeout=10) as resp:
             coins = json.loads(resp.read())
         mcap_map = {}
+        price_map = {}
         for c in coins:
             sym = (c.get("symbol") or "").upper()
             mcap_map[sym] = {
                 "market_cap": c.get("market_cap") or 0,
                 "name": c.get("name") or sym,
             }
+            price = c.get("current_price")
+            if price and price > 0:
+                price_map[sym] = float(price)
         _coingecko_mcap_cache = {"data": mcap_map, "ts": now}
+        _coingecko_price_cache = price_map
+        _coingecko_price_ts = now
         return mcap_map
     except Exception:
         return _coingecko_mcap_cache.get("data", {})

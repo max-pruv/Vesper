@@ -544,8 +544,10 @@ class UserBot:
             trade_mode="real" if self.mode == "live" else "paper",
         )
 
+        opened = False
         if self.mode == "paper":
             if self.portfolio.open_position(position):
+                opened = True
                 self.logger.info(
                     f"[User:{self.email}] PAPER BUY {symbol}: "
                     f"{position.amount:.6f} @ ${position.entry_price:,.2f}"
@@ -562,9 +564,29 @@ class UserBot:
                 position.amount = float(order.get("filled", limits.position_size_asset))
                 position.cost_usd = position.entry_price * position.amount
                 self.portfolio.open_position(position)
+                opened = True
                 self.logger.info(f"[User:{self.email}] LIVE BUY {symbol}: filled")
             except Exception as e:
                 self.logger.error(f"[User:{self.email}] BUY failed {symbol}: {e}")
+
+        # Save position analysis for "Learn More" at entry time
+        if opened:
+            try:
+                analysis_data = {
+                    "indicators": self._snapshot_indicators(snapshot),
+                    "deep_research": {
+                        "signal": result.signal,
+                        "confidence": result.confidence,
+                        "reasoning": result.reason,
+                        "bullish_factors": [],
+                        "bearish_factors": [],
+                        "engine": "strategy_cycle",
+                    },
+                    "risk_level": "medium",
+                }
+                self.portfolio._save_position_analysis(position.id, analysis_data)
+            except Exception:
+                pass
 
     def _close_position(self, position: Position, exit_price: float, reason: str):
         trade_mode = position.trade_mode if position.trade_mode else self.mode
@@ -644,6 +666,24 @@ class UserBot:
                 f"[User:{self.email}] CONTINUOUS RE-ENTRY {old_pos.symbol}: "
                 f"${amount_usd:.2f} @ ${new_price:,.2f}"
             )
+            # Save analysis for "Learn More" — inherit from original strategy
+            try:
+                analysis_data = {
+                    "deep_research": {
+                        "signal": "BUY",
+                        "confidence": 0,
+                        "reasoning": f"Continuous re-entry at ${new_price:,.2f}. "
+                                     f"Original strategy: {old_pos.strategy_id}. "
+                                     f"Previous entry: ${old_pos.entry_price:,.2f}. "
+                                     f"SL: {sl_pct}%, TP: {tp_min_pct}-{tp_max_pct}%."
+                                     + (f" Trailing stop: {trailing_pct}%." if trailing_pct > 0 else ""),
+                        "engine": "continuous_reentry",
+                    },
+                    "risk_level": "medium",
+                }
+                self.portfolio._save_position_analysis(position.id, analysis_data)
+            except Exception:
+                pass
 
     def _run_trend_scanner(self, prices: dict):
         """Scan the broader market for trend_scanner positions."""
@@ -722,7 +762,7 @@ class UserBot:
                 strategy_reason=f"Trend Scanner: {best_signal.reason}",
                 strategy_id="trend_scanner",
                 bet_mode="continuous",
-                trade_mode="paper",
+                trade_mode="real" if self.mode == "live" else "paper",
                 stop_loss_pct=sl_pct,
                 tp_min_pct=1.5,
                 tp_max_pct=tp_max_pct,
@@ -734,6 +774,21 @@ class UserBot:
                     f"BUY ${amount_usd:.2f} @ ${new_price:,.2f} "
                     f"(confidence: {best_signal.confidence:.0%})"
                 )
+                # Save analysis for "Learn More"
+                try:
+                    analysis_data = {
+                        "indicators": self._snapshot_indicators(best_snapshot),
+                        "deep_research": {
+                            "signal": best_signal.signal,
+                            "confidence": best_signal.confidence,
+                            "reasoning": best_signal.reason,
+                            "engine": "trend_scanner",
+                        },
+                        "risk_level": "medium",
+                    }
+                    self.portfolio._save_position_analysis(position.id, analysis_data)
+                except Exception:
+                    pass
 
     def _run_altcoin_hunter(self, prices: dict):
         """Altcoin Hunter — autonomous trend detection, self-investing, self-regulating.
