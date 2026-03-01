@@ -137,6 +137,17 @@ def _clean_nones(obj):
     return obj
 
 
+def _n(val, default=0) -> float:
+    """Safe numeric coercion — exchange APIs and JSON may return None, 'null', etc.
+    Always returns a number so comparisons (>, <, >=) and arithmetic never crash."""
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def _s(val) -> str:
     """Safe string coercion — portfolio values may be 0 (int) when JSON had null.
     Always returns a string so .startswith(), ``in``, .split() etc. never crash."""
@@ -1112,10 +1123,13 @@ def _calc_change_pct(t: dict) -> float:
     """Calculate 24h change % from ticker data."""
     pct = t.get("percentage")
     if pct is not None and pct != 0:
-        return round(pct, 2)
-    last = t.get("last", 0)
-    opening = t.get("open")
-    if opening and opening > 0 and last:
+        try:
+            return round(float(pct), 2)
+        except (TypeError, ValueError):
+            pass
+    last = t.get("last") or 0
+    opening = t.get("open") or 0
+    if opening > 0 and last:
         return round(((last - opening) / opening) * 100, 2)
     return 0.0
 
@@ -1136,7 +1150,7 @@ def _fetch_tickers_sync() -> list[dict]:
                 result.append({
                     "symbol": sym,
                     "name": sym.split("/")[0],
-                    "price": t.get("last", 0),
+                    "price": t.get("last") or 0,
                     "change_pct": _calc_change_pct(t),
                 })
     except Exception:
@@ -1147,7 +1161,7 @@ def _fetch_tickers_sync() -> list[dict]:
                 result.append({
                     "symbol": sym,
                     "name": sym.split("/")[0],
-                    "price": t.get("last", 0),
+                    "price": t.get("last") or 0,
                     "change_pct": _calc_change_pct(t),
                 })
             except Exception:
@@ -1278,7 +1292,7 @@ async def _get_price_map_for_positions(position_symbols: set[str], user=None) ->
     """
     position_symbols = {s for s in position_symbols if s}  # filter empty strings
     prices = await _get_cached_prices()
-    price_map = {p["symbol"]: p["price"] for p in prices if p.get("price", 0) > 0}
+    price_map = {p["symbol"]: p["price"] for p in prices if (p.get("price") or 0) > 0}
 
     # Check position price cache for recently fetched prices
     now = time.time()
@@ -1286,7 +1300,7 @@ async def _get_price_map_for_positions(position_symbols: set[str], user=None) ->
     still_missing = set()
     for sym in missing:
         cached = _position_price_cache.get(sym)
-        if cached and (now - cached[1]) < _POSITION_PRICE_TTL and cached[0] > 0:
+        if cached and (now - cached[1]) < _POSITION_PRICE_TTL and (cached[0] or 0) > 0:
             price_map[sym] = cached[0]
         else:
             still_missing.add(sym)
@@ -1296,7 +1310,7 @@ async def _get_price_map_for_positions(position_symbols: set[str], user=None) ->
         resolved = set()
         for sym in still_missing:
             base = sym.split("/")[0].upper()
-            cg_price = _coingecko_price_cache.get(base, 0)
+            cg_price = _coingecko_price_cache.get(base) or 0
             if cg_price > 0:
                 price_map[sym] = cg_price
                 _position_price_cache[sym] = (cg_price, now)
@@ -1311,7 +1325,8 @@ async def _get_price_map_for_positions(position_symbols: set[str], user=None) ->
                 price = await loop.run_in_executor(None, _fetch_stock_price, sym, user)
             else:
                 price = await loop.run_in_executor(None, _fetch_single_price, sym)
-            if price and price > 0:
+            price = price or 0
+            if price > 0:
                 price_map[sym] = price
                 _position_price_cache[sym] = (price, now)
 
@@ -2262,8 +2277,8 @@ async def _portfolio_stats_inner(user, mode: str):
     ]
 
     # Realized P&L from closed trades
-    realized_pnl = sum(t.get("pnl_usd", 0) for t in trades)
-    wins = sum(1 for t in trades if t.get("pnl_usd", 0) > 0)
+    realized_pnl = sum(_n(t.get("pnl_usd")) for t in trades)
+    wins = sum(1 for t in trades if _n(t.get("pnl_usd")) > 0)
     total_trades = len(trades)
     win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
 
@@ -2273,13 +2288,13 @@ async def _portfolio_stats_inner(user, mode: str):
         pos_symbols = {_s(p.get("symbol")) for p in positions.values() if not _s(p.get("symbol")).startswith("PRED:")}
         price_map = await _get_price_map_for_positions(pos_symbols, user)
         for p in positions.values():
-            entry = p.get("entry_price") or 0
+            entry = _n(p.get("entry_price"))
             sym = _s(p.get("symbol"))
             if sym.startswith("PRED:"):
-                current = p.get("current_probability") or entry
+                current = _n(p.get("current_probability"), entry)
             else:
-                current = price_map.get(sym, entry) or 0
-            amount = p.get("amount") or 0
+                current = _n(price_map.get(sym, entry))
+            amount = _n(p.get("amount"))
             side = p.get("side", "buy")
             if side == "buy":
                 unrealized_pnl += (current - entry) * amount
@@ -2288,7 +2303,7 @@ async def _portfolio_stats_inner(user, mode: str):
 
     total_pnl = realized_pnl + unrealized_pnl
     autopilot_funds = sum(
-        (portfolio.get(k) or {}).get("fund_usd") or 0
+        _n((portfolio.get(k) or {}).get("fund_usd"))
         for k in ("altcoin_hunter", "autopilot", "predictions_autopilot")
     )
     portfolio_value = cash + autopilot_funds + unrealized_pnl
@@ -2386,15 +2401,14 @@ async def _positions_inner(user, mode: str = ""):
     result = []
     for pid, p in positions.items():
         sym = _s(p.get("symbol"))
-        entry = p.get("entry_price") or 0
+        entry = _n(p.get("entry_price"))
         # For prediction positions (PRED:*), use stored probability data for P&L
         is_prediction = sym.startswith("PRED:")
         if is_prediction:
-            stored_prob = p.get("current_probability") or entry
-            current = stored_prob
+            current = _n(p.get("current_probability"), entry)
         else:
-            current = price_map.get(sym, entry) or 0
-        amount = p.get("amount") or 0
+            current = _n(price_map.get(sym, entry))
+        amount = _n(p.get("amount"))
         side = p.get("side", "buy")
 
         if side == "buy":
@@ -2405,14 +2419,14 @@ async def _positions_inner(user, mode: str = ""):
             pnl_pct = ((entry - current) / entry * 100) if entry > 0 else 0
 
         limits = p.get("limits") or {}
-        sl = limits.get("stop_loss_price") or 0
-        tp_max = limits.get("take_profit_max_price") or 0
+        sl = _n(limits.get("stop_loss_price"))
+        tp_max = _n(limits.get("take_profit_max_price"))
         # Progress: 0% at stop-loss, 100% at take-profit
         price_range = tp_max - sl if tp_max > sl else 1
         progress = max(0, min(100, ((current - sl) / price_range) * 100))
 
-        cost_usd = p.get("cost_usd") or 0
-        tp_min = limits.get("take_profit_min_price") or 0
+        cost_usd = _n(p.get("cost_usd"))
+        tp_min = _n(limits.get("take_profit_min_price"))
         # Max loss/win in dollar terms
         if side == "buy":
             max_loss_usd = (entry - sl) * amount if sl > 0 else cost_usd
@@ -2425,8 +2439,8 @@ async def _positions_inner(user, mode: str = ""):
 
         # Win probability: how far is price from SL vs TP
         trailing_sl = 0
-        trailing_pct = p.get("trailing_stop_pct") or 0
-        highest_seen = p.get("highest_price_seen") or 0
+        trailing_pct = _n(p.get("trailing_stop_pct"))
+        highest_seen = _n(p.get("highest_price_seen"))
         if trailing_pct > 0 and highest_seen > 0:
             trailing_sl = highest_seen * (1 - trailing_pct / 100)
 
@@ -2442,7 +2456,7 @@ async def _positions_inner(user, mode: str = ""):
         price_snapshots = p.get("price_history", [])
         # Store new snapshot (kept lean — max 60 points)
         now_ts = time.time()
-        if len(price_snapshots) == 0 or (now_ts - (price_snapshots[-1].get("t", 0))) > 30:
+        if len(price_snapshots) == 0 or (now_ts - _n(price_snapshots[-1].get("t"))) > 30:
             price_snapshots.append({"t": now_ts, "p": current, "w": round(win_prob, 1)})
             if len(price_snapshots) > 60:
                 price_snapshots = price_snapshots[-60:]
@@ -2467,12 +2481,12 @@ async def _positions_inner(user, mode: str = ""):
             "max_loss": round(max_loss_usd, 2),
             "max_win": round(max_win_usd, 2),
             "win_probability": round(win_prob, 1),
-            "price_history": [{"t": s.get("t", 0), "p": s.get("p", 0), "w": s.get("w", 50)} for s in price_snapshots[-30:]],
+            "price_history": [{"t": _n(s.get("t")), "p": _n(s.get("p")), "w": _n(s.get("w"), 50)} for s in price_snapshots[-30:]],
             "strategy_id": p.get("strategy_id", "ensemble"),
             "bet_mode": p.get("bet_mode", "one_off"),
             "trade_mode": p.get("trade_mode", "paper"),
-            "est_fee": p.get("est_fee", round(cost_usd * 0.006, 2)),
-            "entry_time": p.get("entry_time", 0),
+            "est_fee": _n(p.get("est_fee"), round(cost_usd * 0.006, 2)),
+            "entry_time": _n(p.get("entry_time")),
             "trailing_stop_pct": trailing_pct,
             "highest_price_seen": highest_seen,
             "trailing_sl_price": round(trailing_sl, 2) if trailing_pct > 0 else 0,
@@ -2755,25 +2769,26 @@ async def _autopilot_status_inner(user, mode: str = ""):
     pos_symbols = set()
     for pid, p in positions.items():
         if p.get("strategy_id") == "autopilot":
-            deployed += p.get("cost_usd", 0)
-            sym = p.get("symbol", "")
-            pos_symbols.add(sym)
+            deployed += _n(p.get("cost_usd"))
+            sym = _s(p.get("symbol"))
+            if sym:
+                pos_symbols.add(sym)
             ap_positions.append({
                 "id": pid,
                 "symbol": sym,
-                "entry_price": p.get("entry_price", 0),
-                "cost_usd": p.get("cost_usd", 0),
-                "entry_time": p.get("entry_time", 0),
+                "entry_price": _n(p.get("entry_price")),
+                "cost_usd": _n(p.get("cost_usd")),
+                "entry_time": _n(p.get("entry_time")),
             })
 
-    fund_total = autopilot.get("fund_usd", 0)
+    fund_total = _n(autopilot.get("fund_usd"))
 
     # Compute unrealized P&L
     unrealized_pnl = 0.0
     if ap_positions:
         price_map = await _get_price_map_for_positions(pos_symbols, user)
         for ap in ap_positions:
-            current = price_map.get(ap["symbol"], ap["entry_price"])
+            current = _n(price_map.get(ap["symbol"], ap["entry_price"]))
             if ap["entry_price"] > 0 and ap["cost_usd"] > 0:
                 amount = ap["cost_usd"] / ap["entry_price"]
                 unrealized_pnl += (current - ap["entry_price"]) * amount
@@ -2781,7 +2796,7 @@ async def _autopilot_status_inner(user, mode: str = ""):
     # Compute realized P&L
     all_trades = portfolio.get("trade_history", [])
     realized_pnl = sum(
-        t.get("pnl_usd", 0) for t in all_trades
+        _n(t.get("pnl_usd")) for t in all_trades
         if t.get("strategy_id") == "autopilot"
         and t.get("trade_mode", "paper") == current_mode
     )
@@ -2892,34 +2907,37 @@ async def _altcoin_hunter_status_inner(user, mode: str = ""):
     pos_symbols = set()
     for pid, p in positions.items():
         if p.get("strategy_id") == "altcoin_hunter":
-            deployed += p.get("cost_usd", 0)
-            sym = p.get("symbol", "")
+            cost = _n(p.get("cost_usd"))
+            deployed += cost
+            sym = _s(p.get("symbol"))
             pos_symbols.add(sym)
             hunter_positions.append({
                 "id": pid,
                 "symbol": sym,
-                "entry_price": p.get("entry_price", 0),
-                "cost_usd": p.get("cost_usd", 0),
-                "entry_time": p.get("entry_time", 0),
-                "strategy_reason": p.get("strategy_reason", ""),
+                "entry_price": _n(p.get("entry_price")),
+                "cost_usd": cost,
+                "entry_time": _n(p.get("entry_time")),
+                "strategy_reason": _s(p.get("strategy_reason")),
             })
 
-    fund_total = hunter.get("fund_usd", 0)
+    fund_total = _n(hunter.get("fund_usd"))
 
     # Compute unrealized P&L from open positions
     unrealized_pnl = 0.0
     if hunter_positions:
         price_map = await _get_price_map_for_positions(pos_symbols, user)
         for hp in hunter_positions:
-            current = price_map.get(hp["symbol"], hp["entry_price"])
-            if hp["entry_price"] > 0 and hp["cost_usd"] > 0:
-                amount = hp["cost_usd"] / hp["entry_price"]
-                unrealized_pnl += (current - hp["entry_price"]) * amount
+            current = _n(price_map.get(hp["symbol"], hp["entry_price"]))
+            entry_p = _n(hp["entry_price"])
+            cost_p = _n(hp["cost_usd"])
+            if entry_p > 0 and cost_p > 0:
+                amount = cost_p / entry_p
+                unrealized_pnl += (current - entry_p) * amount
 
     # Compute realized P&L from closed trades (filtered by mode)
     all_trades = portfolio.get("trade_history", [])
     realized_pnl = sum(
-        t.get("pnl_usd", 0) for t in all_trades
+        _n(t.get("pnl_usd")) for t in all_trades
         if t.get("trade_mode", "paper") == current_mode
         and (_s(t.get("strategy_id")) == "altcoin_hunter" or "Altcoin Hunter" in _s(t.get("reason")))
     )
@@ -2935,11 +2953,11 @@ async def _altcoin_hunter_status_inner(user, mode: str = ""):
         "available_usd": round(fund_total - deployed, 2),
         "unrealized_pnl": round(unrealized_pnl, 2),
         "realized_pnl": round(realized_pnl, 2),
-        "max_positions": hunter.get("max_positions", 20),
-        "max_bet_usd": hunter.get("max_bet_usd", 0),
-        "trailing_stop_pct": hunter.get("trailing_stop_pct", 2.0),
+        "max_positions": int(_n(hunter.get("max_positions"), 20)),
+        "max_bet_usd": _n(hunter.get("max_bet_usd")),
+        "trailing_stop_pct": _n(hunter.get("trailing_stop_pct"), 2.0),
         "risk_level": hunter.get("risk_level", "aggressive"),
-        "reinvest_pct": hunter.get("reinvest_pct", 100),
+        "reinvest_pct": _n(hunter.get("reinvest_pct"), 100),
         "positions": hunter_positions,
         "log": hunter_logs,
     }
@@ -3034,11 +3052,11 @@ async def _predictions_autopilot_status_inner(user, mode: str = ""):
     total_unrealized = 0.0
     for pid, p in positions.items():
         if p.get("strategy_id") == "predictions":
-            cost = p.get("cost_usd", 0)
+            cost = _n(p.get("cost_usd"))
             deployed += cost
-            entry = p.get("entry_price", 0)
-            current = p.get("current_probability") or entry
-            amount = p.get("amount", 0)
+            entry = _n(p.get("entry_price"))
+            current = _n(p.get("current_probability")) or entry
+            amount = _n(p.get("amount"))
             side = p.get("side", "buy")
             if side == "buy":
                 pnl_usd = (current - entry) * amount
@@ -3049,28 +3067,28 @@ async def _predictions_autopilot_status_inner(user, mode: str = ""):
             total_unrealized += pnl_usd
             pred_positions.append({
                 "id": pid,
-                "symbol": p.get("symbol", ""),
+                "symbol": _s(p.get("symbol")),
                 "entry_price": entry,
                 "current_price": current,
                 "cost_usd": cost,
                 "amount": amount,
                 "pnl_usd": round(pnl_usd, 2),
                 "pnl_pct": round(pnl_pct, 2),
-                "entry_time": p.get("entry_time", 0),
-                "strategy_reason": p.get("strategy_reason", ""),
-                "prediction_side": p.get("prediction_side", ""),
-                "prediction_question": p.get("prediction_question", ""),
-                "prediction_ai_prob": p.get("prediction_ai_prob", 0),
-                "prediction_mkt_prob": p.get("prediction_mkt_prob", 0),
-                "prediction_edge": p.get("prediction_edge", 0),
+                "entry_time": _n(p.get("entry_time")),
+                "strategy_reason": _s(p.get("strategy_reason")),
+                "prediction_side": _s(p.get("prediction_side")),
+                "prediction_question": _s(p.get("prediction_question")),
+                "prediction_ai_prob": _n(p.get("prediction_ai_prob")),
+                "prediction_mkt_prob": _n(p.get("prediction_mkt_prob")),
+                "prediction_edge": _n(p.get("prediction_edge")),
             })
 
-    fund_total = pred_cfg.get("fund_usd", 0)
+    fund_total = _n(pred_cfg.get("fund_usd"))
 
     # Compute realized P&L from closed predictions (filtered by mode)
     all_trades = portfolio.get("trade_history", [])
     realized_pnl = sum(
-        t.get("pnl_usd", 0) for t in all_trades
+        _n(t.get("pnl_usd")) for t in all_trades
         if t.get("strategy_id") == "predictions"
         and t.get("trade_mode", "paper") == current_mode
     )
@@ -3086,13 +3104,13 @@ async def _predictions_autopilot_status_inner(user, mode: str = ""):
         "available_usd": round(fund_total - deployed, 2),
         "unrealized_pnl": round(total_unrealized, 2),
         "realized_pnl": round(realized_pnl, 2),
-        "max_positions": pred_cfg.get("max_positions", 20),
-        "max_bet_usd": pred_cfg.get("max_bet_usd", 0),
+        "max_positions": int(_n(pred_cfg.get("max_positions"), 20)),
+        "max_bet_usd": _n(pred_cfg.get("max_bet_usd")),
         "risk_level": pred_cfg.get("risk_level", "aggressive"),
-        "reinvest_pct": pred_cfg.get("reinvest_pct", 100),
+        "reinvest_pct": _n(pred_cfg.get("reinvest_pct"), 100),
         "positions": pred_positions,
         "log": pred_logs,
-        "last_scan_time": pred_cfg.get("last_scan_time", 0),
+        "last_scan_time": _n(pred_cfg.get("last_scan_time")),
     }
 
 
