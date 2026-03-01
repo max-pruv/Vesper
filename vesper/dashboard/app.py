@@ -381,10 +381,15 @@ async def dashboard(request: Request):
         pid: p for pid, p in all_positions.items()
         if p.get("trade_mode", "paper") == current_mode
     }
+    # Fallback: if mode filter returns empty but data exists, show all
+    if not positions and all_positions:
+        positions = all_positions
     trades = [
         t for t in all_trades
         if t.get("trade_mode", "paper") == current_mode
     ]
+    if not trades and all_trades:
+        trades = all_trades
     realized_pnl = sum(t.get("pnl_usd", 0) for t in trades)
     total_pnl = realized_pnl  # unrealized added by WS once live prices arrive
     wins = [t for t in trades if t.get("pnl_usd", 0) > 0]
@@ -1613,10 +1618,15 @@ async def api_portfolio_stats(request: Request, mode: str = ""):
         pid: p for pid, p in all_positions.items()
         if p.get("trade_mode", "paper") == current_mode
     }
+    # Fallback: if mode filter returns empty but data exists, show all
+    if not positions and all_positions:
+        positions = all_positions
     trades = [
         t for t in all_trades
         if t.get("trade_mode", "paper") == current_mode
     ]
+    if not trades and all_trades:
+        trades = all_trades
 
     # Realized P&L from closed trades
     realized_pnl = sum(t.get("pnl_usd", 0) for t in trades)
@@ -2463,11 +2473,44 @@ _markets_crypto_cache: dict = {}
 _markets_stocks_cache: dict = {}
 
 
+_coingecko_mcap_cache: dict = {}
+
+
+def _fetch_coingecko_market_caps() -> dict:
+    """Fetch market caps from CoinGecko free API (cached 5min)."""
+    global _coingecko_mcap_cache
+    now = time.time()
+    if _coingecko_mcap_cache and now - _coingecko_mcap_cache.get("ts", 0) < 300:
+        return _coingecko_mcap_cache.get("data", {})
+
+    import urllib.request
+    try:
+        url = "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&order=market_cap_desc&per_page=250&page=1&sparkline=false"
+        req = urllib.request.Request(url, headers={"Accept": "application/json", "User-Agent": "Vesper/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            coins = json.loads(resp.read())
+        mcap_map = {}
+        for c in coins:
+            sym = (c.get("symbol") or "").upper()
+            mcap_map[sym] = {
+                "market_cap": c.get("market_cap") or 0,
+                "name": c.get("name") or sym,
+            }
+        _coingecko_mcap_cache = {"data": mcap_map, "ts": now}
+        return mcap_map
+    except Exception:
+        return _coingecko_mcap_cache.get("data", {})
+
+
 def _fetch_crypto_markets_sync() -> list[dict]:
     """Fetch full ALTCOIN_UNIVERSE tickers with volume + market cap."""
     from config.settings import ALTCOIN_UNIVERSE
     ex = _get_public_exchange()
     available = [s for s in ALTCOIN_UNIVERSE if s in ex.markets]
+
+    # Fetch market caps from CoinGecko
+    mcap_data = _fetch_coingecko_market_caps()
+
     result = []
     try:
         tickers = ex.fetch_tickers(available)
@@ -2475,35 +2518,38 @@ def _fetch_crypto_markets_sync() -> list[dict]:
             t = tickers.get(sym)
             if not t:
                 continue
+            base = sym.split("/")[0]
+            cg = mcap_data.get(base, {})
             result.append({
                 "symbol": sym,
-                "name": sym.split("/")[0],
+                "name": cg.get("name", base),
                 "price": t.get("last", 0) or 0,
                 "change_pct": _calc_change_pct(t),
                 "volume": (t.get("quoteVolume") or t.get("baseVolume", 0) or 0),
-                "market_cap": 0,  # ccxt doesn't provide this directly
+                "market_cap": cg.get("market_cap", 0),
                 "high": t.get("high", 0) or 0,
                 "low": t.get("low", 0) or 0,
             })
     except Exception:
-        # Fallback: fetch individually for key symbols
         for sym in available[:20]:
             try:
                 t = ex.fetch_ticker(sym)
+                base = sym.split("/")[0]
+                cg = mcap_data.get(base, {})
                 result.append({
                     "symbol": sym,
-                    "name": sym.split("/")[0],
+                    "name": cg.get("name", base),
                     "price": t.get("last", 0) or 0,
                     "change_pct": _calc_change_pct(t),
                     "volume": (t.get("quoteVolume") or t.get("baseVolume", 0) or 0),
-                    "market_cap": 0,
+                    "market_cap": cg.get("market_cap", 0),
                     "high": t.get("high", 0) or 0,
                     "low": t.get("low", 0) or 0,
                 })
             except Exception:
                 pass
-    # Sort by volume descending
-    result.sort(key=lambda x: x.get("volume", 0), reverse=True)
+    # Sort by market cap descending (fallback to volume)
+    result.sort(key=lambda x: x.get("market_cap", 0) or x.get("volume", 0), reverse=True)
     return result
 
 
@@ -2526,6 +2572,58 @@ async def api_markets_crypto(request: Request):
     return {"markets": markets}
 
 
+_STOCK_NAMES = {
+    "AAPL": "Apple", "MSFT": "Microsoft", "GOOGL": "Alphabet", "AMZN": "Amazon",
+    "NVDA": "NVIDIA", "META": "Meta Platforms", "TSLA": "Tesla", "AMD": "AMD",
+    "NFLX": "Netflix", "CRM": "Salesforce", "AVGO": "Broadcom", "ORCL": "Oracle",
+    "PLTR": "Palantir", "COIN": "Coinbase", "SQ": "Block", "SHOP": "Shopify",
+    "UBER": "Uber", "ABNB": "Airbnb", "SNOW": "Snowflake", "MSTR": "MicroStrategy",
+}
+
+
+def _fetch_stocks_sync() -> list[dict]:
+    """Fetch stock prices via free Yahoo Finance API."""
+    from config.settings import STOCK_SYMBOLS
+    import urllib.request
+
+    tickers = [s.split("/")[0] for s in STOCK_SYMBOLS]
+    result = []
+
+    try:
+        symbols_str = ",".join(tickers)
+        url = f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={symbols_str}&fields=regularMarketPrice,regularMarketChangePercent,regularMarketVolume,marketCap"
+        req = urllib.request.Request(url, headers={
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json",
+        })
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+
+        quotes = {q["symbol"]: q for q in data.get("quoteResponse", {}).get("result", [])}
+        for sym_pair in STOCK_SYMBOLS:
+            sym = sym_pair.split("/")[0]
+            q = quotes.get(sym, {})
+            result.append({
+                "symbol": sym_pair,
+                "name": _STOCK_NAMES.get(sym, sym),
+                "price": q.get("regularMarketPrice", 0) or 0,
+                "change_pct": round(q.get("regularMarketChangePercent", 0) or 0, 2),
+                "volume": (q.get("regularMarketVolume", 0) or 0) * (q.get("regularMarketPrice", 0) or 0),
+                "market_cap": q.get("marketCap", 0) or 0,
+            })
+    except Exception:
+        # Fallback: return stock list with names but no live data
+        for sym_pair in STOCK_SYMBOLS:
+            sym = sym_pair.split("/")[0]
+            result.append({
+                "symbol": sym_pair,
+                "name": _STOCK_NAMES.get(sym, sym),
+                "price": 0, "change_pct": 0, "volume": 0, "market_cap": 0,
+            })
+
+    return result
+
+
 @app.get("/api/markets/stocks")
 async def api_markets_stocks(request: Request):
     """Stock market browser — tracked equities."""
@@ -2533,51 +2631,13 @@ async def api_markets_stocks(request: Request):
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-    from config.settings import STOCK_SYMBOLS
-
     now = time.time()
     cached = _markets_stocks_cache.get("data")
     if cached and now - _markets_stocks_cache.get("ts", 0) < 60:
         return {"markets": cached}
 
-    # Try fetching from Alpaca if available
-    result = []
-    try:
-        import alpaca_trade_api as tradeapi
-        alpaca_key = os.environ.get("ALPACA_API_KEY", "")
-        alpaca_secret = os.environ.get("ALPACA_SECRET_KEY", "")
-        if alpaca_key and alpaca_secret:
-            api = tradeapi.REST(alpaca_key, alpaca_secret, base_url="https://paper-api.alpaca.markets")
-            for sym_pair in STOCK_SYMBOLS:
-                sym = sym_pair.split("/")[0]
-                try:
-                    snapshot = api.get_snapshot(sym)
-                    price = snapshot.latest_trade.price if snapshot.latest_trade else 0
-                    prev_close = snapshot.prev_daily_bar.close if snapshot.prev_daily_bar else price
-                    chg = ((price - prev_close) / prev_close * 100) if prev_close else 0
-                    vol = snapshot.daily_bar.volume if snapshot.daily_bar else 0
-                    result.append({
-                        "symbol": sym_pair,
-                        "name": sym,
-                        "price": price,
-                        "change_pct": round(chg, 2),
-                        "volume": vol * price,
-                        "market_cap": 0,
-                    })
-                except Exception:
-                    result.append({
-                        "symbol": sym_pair, "name": sym,
-                        "price": 0, "change_pct": 0, "volume": 0, "market_cap": 0,
-                    })
-    except Exception:
-        # No Alpaca — return static list with no prices
-        for sym_pair in STOCK_SYMBOLS:
-            sym = sym_pair.split("/")[0]
-            result.append({
-                "symbol": sym_pair, "name": sym,
-                "price": 0, "change_pct": 0, "volume": 0, "market_cap": 0,
-            })
-
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, _fetch_stocks_sync)
     _markets_stocks_cache["data"] = result
     _markets_stocks_cache["ts"] = now
     return {"markets": result}

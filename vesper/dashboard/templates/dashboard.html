@@ -8,41 +8,28 @@
 <div class="nav">
     <span class="nav-logo">vesper</span>
     <div class="nav-links">
-        <a class="nav-link active" href="/dashboard">Dashboard</a>
-        <a class="nav-link" href="/how-it-works">How it works</a>
-        {% if user.is_admin %}<a class="nav-link" href="/admin">Admin</a>{% endif %}
+        <a class="nav-link active" href="#" onclick="switchTab('trading');return false;" id="navDashboard">Dashboard</a>
+        <a class="nav-link" href="#" onclick="switchTab('markets');return false;" id="navMarkets">Markets</a>
         <a class="nav-link" href="/settings">Settings</a>
+        {% if user.is_admin %}<a class="nav-link" href="/admin">Admin</a>{% endif %}
         <a class="nav-link" href="/logout">Log out</a>
     </div>
 </div>
 
 <div class="page-wrapper">
 
-<!-- Top Bar: Tabs + Trade Mode Toggle -->
-<div style="display:flex;justify-content:center;align-items:center;padding:16px 0 0;gap:16px;flex-wrap:wrap;">
-    <div style="display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px;" id="mainTabs">
-        <button class="tab-pill active" onclick="switchTab('trading')" id="tabTrading">Dashboard</button>
-        <button class="tab-pill" onclick="switchTab('markets')" id="tabMarkets">Markets</button>
-    </div>
-    <!-- Paper / Real Mode Toggle -->
+<!-- Paper / Real Mode Toggle -->
+<div style="display:flex;justify-content:flex-end;padding:12px 0 0;">
     <div id="tradeModeToggle" style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--glass-border);">
-        <button class="trade-mode-btn active" id="modePaper" onclick="setTradeMode('paper')" data-mode="paper">
+        <button class="trade-mode-btn {{ '' if user.trading_mode == 'live' else 'active' }}" id="modePaper" onclick="setTradeMode('paper')" data-mode="paper">
             <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f5a623;margin-right:4px;"></span>Paper
         </button>
-        <button class="trade-mode-btn" id="modeReal" onclick="setTradeMode('real')" data-mode="real">
+        <button class="trade-mode-btn {{ 'active' if user.trading_mode == 'live' else '' }}" id="modeReal" onclick="setTradeMode('real')" data-mode="real">
             <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px;"></span>Real
         </button>
     </div>
 </div>
 <style>
-    .tab-pill {
-        padding: 8px 20px; border: none; border-radius: 8px;
-        font-size: 13px; font-weight: 600; cursor: pointer;
-        background: transparent; color: var(--text-muted);
-        font-family: inherit; transition: all 0.2s;
-    }
-    .tab-pill:hover { color: var(--text); }
-    .tab-pill.active { background: var(--card); color: var(--text); }
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
@@ -1074,8 +1061,9 @@ async function updatePositions() {
         const resp = await fetch('/api/positions');
         if (!resp.ok) return;
         const allPositions = await resp.json();
-        // Filter by current trade mode
-        const positions = allPositions.filter(p => (p.trade_mode || 'paper') === currentTradeMode);
+        // Filter by current trade mode — but show all if filter returns empty (avoids mode mismatch hiding positions)
+        let positions = allPositions.filter(p => (p.trade_mode || 'paper') === currentTradeMode);
+        if (positions.length === 0 && allPositions.length > 0) positions = allPositions;
         const container = document.getElementById('activeBets');
 
         // Update position count label
@@ -1507,7 +1495,10 @@ async function updatePortfolioStats() {
 // Seed portfolio chart — use time in the past so first real update is accepted
 _portfolioChartHistory.push({ time: Math.floor(Date.now() / 1000) - 30, value: {{ portfolio_value }}, invested: 0 });
 
-// Fetch live stats immediately (will add a 2nd data point and render chart)
+// Render chart immediately with seed data so it's visible right away
+renderTopPortfolioChart();
+
+// Fetch live stats (will add a 2nd data point and re-render)
 updatePortfolioStats();
 
 // ═══════════════════════════════════════
@@ -1525,10 +1516,11 @@ function getSessionCookie() {
 
 function applyWsPositions(positions) {
     // Same rendering logic as updatePositions but from WS data
-    const filtered = positions.filter(p => (p.trade_mode || 'paper') === currentTradeMode);
+    let filtered = positions.filter(p => (p.trade_mode || 'paper') === currentTradeMode);
+    if (filtered.length === 0 && positions.length > 0) filtered = positions;
     const container = document.getElementById('activeBets');
     const countLabel = document.getElementById('positionCountLabel');
-    if (countLabel) countLabel.textContent = filtered.length + ' open' + (positions.length !== filtered.length ? ` (${positions.length} total)` : '');
+    if (countLabel) countLabel.textContent = filtered.length + ' open';
 
     if (filtered.length === 0) {
         container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">~</div>No active positions — start an autopilot above to begin auto-trading</div>`;
@@ -1883,7 +1875,9 @@ function getReinvestPct(segment) {
 async function startSegment(segment) {
     const cfg = SEGMENTS[segment];
     if (!cfg) return;
-    const amount = parseFloat(document.getElementById(cfg.amountEl).value);
+    const inputEl = document.getElementById(cfg.amountEl);
+    const rawVal = inputEl.value || inputEl.placeholder || '0';
+    const amount = parseFloat(rawVal);
     if (!amount || amount < 10) {
         alert('Minimum $10');
         return;
@@ -2373,14 +2367,17 @@ let pmTimeframe = 14;
 let pmSource = 'polymarket';
 
 function switchTab(tab) {
-    document.querySelectorAll('.tab-pill').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    // Update nav active states
+    document.getElementById('navDashboard').classList.toggle('active', tab === 'trading');
+    document.getElementById('navMarkets').classList.toggle('active', tab === 'markets');
+    // Show/hide trade mode toggle (only on dashboard)
+    const tmToggle = document.getElementById('tradeModeToggle');
+    if (tmToggle) tmToggle.parentElement.style.display = tab === 'trading' ? 'flex' : 'none';
 
     if (tab === 'trading') {
-        document.getElementById('tabTrading').classList.add('active');
         document.getElementById('contentTrading').classList.add('active');
     } else if (tab === 'markets') {
-        document.getElementById('tabMarkets').classList.add('active');
         document.getElementById('contentMarkets').classList.add('active');
         // Load crypto by default on first visit
         if (!_marketsLoaded.crypto) {
