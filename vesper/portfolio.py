@@ -200,35 +200,51 @@ class Portfolio:
         with open(path) as f:
             return json.load(f)
 
+    # Extra per-position keys written by other modules (price recorder, predictions, etc.)
+    # that must survive _save_state() rebuilds.
+    _PRESERVED_POS_KEYS = {
+        "price_history", "est_fee", "current_probability",
+        "prediction_question", "prediction_side",
+        "prediction_ai_prob", "prediction_mkt_prob", "prediction_edge",
+    }
+
     def _save_state(self):
         # Preserve any extra keys (e.g., autopilot config) from the existing file
         existing = self._load_raw()
+        existing_positions = existing.get("positions", {})
+
+        new_positions = {}
+        for pid, p in self.positions.items():
+            pos_data = {
+                "symbol": p.symbol,
+                "side": p.side,
+                "entry_price": p.entry_price,
+                "amount": p.amount,
+                "cost_usd": p.cost_usd,
+                "entry_time": p.entry_time,
+                "strategy_reason": p.strategy_reason,
+                "id": p.id,
+                "strategy_id": p.strategy_id,
+                "bet_mode": p.bet_mode,
+                "trade_mode": p.trade_mode,
+                "stop_loss_pct": p.stop_loss_pct,
+                "tp_min_pct": p.tp_min_pct,
+                "tp_max_pct": p.tp_max_pct,
+                "trailing_stop_pct": p.trailing_stop_pct,
+                "highest_price_seen": p.highest_price_seen,
+                "limits": asdict(p.limits),
+            }
+            # Carry over extra per-position fields from the existing raw JSON
+            old_pos = existing_positions.get(pid, {})
+            for key in self._PRESERVED_POS_KEYS:
+                if key in old_pos:
+                    pos_data[key] = old_pos[key]
+            new_positions[pid] = pos_data
 
         state = {
             "cash": self.cash,
             "initial_balance": self.initial_balance,
-            "positions": {
-                pid: {
-                    "symbol": p.symbol,
-                    "side": p.side,
-                    "entry_price": p.entry_price,
-                    "amount": p.amount,
-                    "cost_usd": p.cost_usd,
-                    "entry_time": p.entry_time,
-                    "strategy_reason": p.strategy_reason,
-                    "id": p.id,
-                    "strategy_id": p.strategy_id,
-                    "bet_mode": p.bet_mode,
-                    "trade_mode": p.trade_mode,
-                    "stop_loss_pct": p.stop_loss_pct,
-                    "tp_min_pct": p.tp_min_pct,
-                    "tp_max_pct": p.tp_max_pct,
-                    "trailing_stop_pct": p.trailing_stop_pct,
-                    "highest_price_seen": p.highest_price_seen,
-                    "limits": asdict(p.limits),
-                }
-                for pid, p in self.positions.items()
-            },
+            "positions": new_positions,
             "trade_history": [asdict(t) for t in self.trade_history],
         }
         # Carry over extra keys like "autopilot"

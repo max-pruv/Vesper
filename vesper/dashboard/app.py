@@ -526,6 +526,35 @@ async def trade_history_page(request: Request):
     })
 
 
+# --- Onboarding Wizard ---
+
+@app.get("/onboarding", response_class=HTMLResponse)
+async def onboarding_page(request: Request):
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    if user.onboarding_complete:
+        return RedirectResponse(url="/dashboard", status_code=303)
+    return templates.TemplateResponse("onboarding.html", {
+        "request": request, "user": user,
+        "has_coinbase": user.has_coinbase,
+        "has_alpaca": user.has_alpaca,
+        "has_kalshi": user.has_kalshi,
+        "has_perplexity": user.has_perplexity,
+    })
+
+
+@app.post("/onboarding/complete")
+async def onboarding_complete(request: Request):
+    """Mark onboarding as done and redirect to dashboard."""
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+    from vesper.dashboard.database import set_onboarding_complete
+    set_onboarding_complete(user.id)
+    return RedirectResponse(url="/dashboard", status_code=303)
+
+
 # --- Dashboard ---
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -534,6 +563,22 @@ async def dashboard(request: Request):
     if not user:
         _log.debug("[dashboard] unauthenticated access, redirecting to login")
         return RedirectResponse(url="/login", status_code=303)
+
+    # Redirect to onboarding wizard if not completed
+    # Skip for existing users who already have data (pre-onboarding feature)
+    if not user.onboarding_complete:
+        portfolio = _load_portfolio(user.id)
+        has_activity = (
+            portfolio.get("positions") or portfolio.get("trade_history") or
+            portfolio.get("altcoin_hunter", {}).get("enabled") or
+            portfolio.get("autopilot", {}).get("enabled") or
+            user.has_coinbase or user.has_alpaca or user.has_kalshi
+        )
+        if has_activity:
+            from vesper.dashboard.database import set_onboarding_complete
+            set_onboarding_complete(user.id)
+        else:
+            return RedirectResponse(url="/onboarding", status_code=303)
 
     portfolio = _load_portfolio(user.id)
     _log.info(f"[dashboard] user={user.id} email={user.email} mode={user.trading_mode}")
@@ -648,11 +693,14 @@ async def settings_page(request: Request, msg: str = ""):
     })
 
 @app.post("/settings/api-keys")
-async def save_keys(request: Request, api_key: str = Form(...), api_secret: str = Form(...)):
+async def save_keys(request: Request, api_key: str = Form(...), api_secret: str = Form(...),
+                    redirect: str = Form("")):
     user = _get_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     update_api_keys(user.id, api_key, api_secret)
+    if redirect and redirect.startswith("/onboarding"):
+        return RedirectResponse(url=redirect, status_code=303)
     return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
 
 @app.post("/settings/api-keys/remove")
@@ -664,11 +712,14 @@ async def remove_keys(request: Request):
     return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
 
 @app.post("/settings/alpaca-keys")
-async def save_alpaca_keys(request: Request, alpaca_key: str = Form(...), alpaca_secret: str = Form(...)):
+async def save_alpaca_keys(request: Request, alpaca_key: str = Form(...), alpaca_secret: str = Form(...),
+                           redirect: str = Form("")):
     user = _get_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     update_alpaca_keys(user.id, alpaca_key, alpaca_secret)
+    if redirect and redirect.startswith("/onboarding"):
+        return RedirectResponse(url=redirect, status_code=303)
     return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
 
 @app.post("/settings/alpaca-keys/remove")
@@ -680,11 +731,14 @@ async def remove_alpaca_keys(request: Request):
     return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
 
 @app.post("/settings/kalshi-keys")
-async def save_kalshi_keys(request: Request, kalshi_key: str = Form(...), kalshi_secret: str = Form(...)):
+async def save_kalshi_keys(request: Request, kalshi_key: str = Form(...), kalshi_secret: str = Form(...),
+                           redirect: str = Form("")):
     user = _get_user(request)
     if not user:
         return RedirectResponse(url="/login", status_code=303)
     update_kalshi_keys(user.id, kalshi_key, kalshi_secret)
+    if redirect and redirect.startswith("/onboarding"):
+        return RedirectResponse(url=redirect, status_code=303)
     return RedirectResponse(url="/settings?msg=keys_saved", status_code=303)
 
 @app.post("/settings/kalshi-keys/remove")
@@ -1222,6 +1276,19 @@ async def bot_state():
         }
         result["users"].append(user_info)
     return result
+
+
+@app.get("/api/learning-state")
+async def api_learning_state(request: Request):
+    """Get the current learning engine state and strategy performance profiles."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    portfolio = _load_portfolio(user.id)
+    learning = portfolio.get("learning_state", {})
+    if not learning:
+        return {"status": "not_initialized", "message": "Learning engine activates after 8+ closed trades."}
+    return learning
 
 
 @app.get("/api/admin/scan-test")
@@ -2634,18 +2701,38 @@ async def api_predictions_autopilot_status(request: Request):
 
     pred_positions = []
     deployed = 0.0
+    total_unrealized = 0.0
     for pid, p in positions.items():
         if p.get("strategy_id") == "predictions":
-            deployed += p.get("cost_usd", 0)
+            cost = p.get("cost_usd", 0)
+            deployed += cost
+            entry = p.get("entry_price", 0)
+            current = p.get("current_probability") or entry
+            amount = p.get("amount", 0)
+            side = p.get("side", "buy")
+            if side == "buy":
+                pnl_usd = (current - entry) * amount
+                pnl_pct = ((current - entry) / entry * 100) if entry > 0 else 0
+            else:
+                pnl_usd = (entry - current) * amount
+                pnl_pct = ((entry - current) / entry * 100) if entry > 0 else 0
+            total_unrealized += pnl_usd
             pred_positions.append({
                 "id": pid,
                 "symbol": p.get("symbol", ""),
-                "entry_price": p.get("entry_price", 0),
-                "cost_usd": p.get("cost_usd", 0),
+                "entry_price": entry,
+                "current_price": current,
+                "cost_usd": cost,
+                "amount": amount,
+                "pnl_usd": round(pnl_usd, 2),
+                "pnl_pct": round(pnl_pct, 2),
                 "entry_time": p.get("entry_time", 0),
                 "strategy_reason": p.get("strategy_reason", ""),
                 "prediction_side": p.get("prediction_side", ""),
                 "prediction_question": p.get("prediction_question", ""),
+                "prediction_ai_prob": p.get("prediction_ai_prob", 0),
+                "prediction_mkt_prob": p.get("prediction_mkt_prob", 0),
+                "prediction_edge": p.get("prediction_edge", 0),
             })
 
     fund_total = pred_cfg.get("fund_usd", 0)
@@ -2666,7 +2753,7 @@ async def api_predictions_autopilot_status(request: Request):
         "fund_usd": fund_total,
         "deployed_usd": round(deployed, 2),
         "available_usd": round(fund_total - deployed, 2),
-        "unrealized_pnl": 0,
+        "unrealized_pnl": round(total_unrealized, 2),
         "realized_pnl": round(realized_pnl, 2),
         "max_positions": pred_cfg.get("max_positions", 20),
         "max_bet_usd": pred_cfg.get("max_bet_usd", 0),

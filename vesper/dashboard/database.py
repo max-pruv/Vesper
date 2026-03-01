@@ -73,6 +73,7 @@ class User:
     bot_active: bool
     created_at: float
     is_admin: bool = False
+    onboarding_complete: bool = False
 
     def get_api_key(self) -> str:
         return _decrypt(self.coinbase_api_key) if self.coinbase_api_key else ""
@@ -171,6 +172,11 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+    # Migration: add onboarding_complete flag
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN onboarding_complete INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
 
     conn.execute("""
         CREATE TABLE IF NOT EXISTS trusted_devices (
@@ -225,6 +231,7 @@ def _row_to_user(row: sqlite3.Row) -> User:
         bot_active=bool(row["bot_active"]),
         created_at=row["created_at"],
         is_admin=bool(row["is_admin"]) if "is_admin" in keys else False,
+        onboarding_complete=bool(row["onboarding_complete"]) if "onboarding_complete" in keys else False,
     )
 
 
@@ -432,6 +439,14 @@ def set_admin(user_id: int, is_admin: bool):
     """Promote/demote a user to admin."""
     conn = _get_conn()
     conn.execute("UPDATE users SET is_admin = ? WHERE id = ?", (int(is_admin), user_id))
+    conn.commit()
+    conn.close()
+
+
+def set_onboarding_complete(user_id: int):
+    """Mark onboarding as complete for a user."""
+    conn = _get_conn()
+    conn.execute("UPDATE users SET onboarding_complete = 1 WHERE id = ?", (user_id,))
     conn.commit()
     conn.close()
 

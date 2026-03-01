@@ -150,6 +150,9 @@ class UserBot:
         # Predictions Autopilot: AI research on prediction markets, auto-betting
         self._run_predictions_autopilot()
 
+        # Refresh prediction market prices + check SL/TP (every cycle)
+        self._refresh_prediction_prices(prices)
+
         # Record price snapshots for position P&L charts (runs every cycle = every minute)
         self._record_price_snapshots(prices)
 
@@ -161,6 +164,48 @@ class UserBot:
             f"[User:{self.email}] Portfolio: ${summary['total_value']:,.2f} | "
             f"P&L: ${summary['total_pnl_usd']:+,.2f} ({summary['total_pnl_pct']:+.2f}%)"
         )
+
+        # Update learning engine (adaptive strategy optimization)
+        self._update_learning_state()
+
+    def _update_learning_state(self):
+        """Run the learning engine to adapt strategy parameters based on trade history.
+
+        Updates every 10 minutes (not every cycle) to avoid excessive computation.
+        """
+        import time as _time
+        import json as _json
+
+        raw = self.portfolio._load_raw()
+        learning = raw.get("learning_state", {})
+        last_update = learning.get("updated_at", 0)
+
+        # Rate limit: update every 10 minutes
+        if _time.time() - last_update < 600:
+            return
+
+        trade_history = raw.get("trade_history", [])
+        if len(trade_history) < 5:
+            return
+
+        try:
+            from vesper.learning import compute_learning_state
+            new_state = compute_learning_state(trade_history, learning)
+            raw["learning_state"] = new_state
+            path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+            with open(path, "w") as f:
+                _json.dump(raw, f, indent=2)
+
+            status = new_state.get("status", "unknown")
+            if status == "active":
+                adj_keys = list(new_state.get("adjustments", {}).keys())
+                self.logger.info(
+                    f"[User:{self.email}] Learning engine updated: "
+                    f"{new_state['total_trades_analyzed']} trades analyzed, "
+                    f"adjustments for: {adj_keys}"
+                )
+        except Exception as e:
+            self.logger.warning(f"[User:{self.email}] Learning engine error: {e}")
 
     def _record_price_snapshots(self, prices: dict):
         """Record a price data point for each open position (for sparkline charts)."""
@@ -714,6 +759,18 @@ class UserBot:
         score_thresholds = {"conservative": 0.60, "moderate": 0.50, "aggressive": 0.40}
         min_score = score_thresholds.get(risk_level, 0.50)
 
+        # Apply learning engine adjustments (adaptive entry threshold)
+        learning_state = pdata.get("learning_state", {})
+        if learning_state.get("status") == "active":
+            from vesper.learning import apply_entry_threshold, apply_rebalance_threshold
+            original_min = min_score
+            min_score = apply_entry_threshold(min_score, learning_state, "altcoin_hunter")
+            if abs(min_score - original_min) > 0.001:
+                self.logger.info(
+                    f"[User:{self.email}] [altcoin_hunter] Learning adjusted entry "
+                    f"threshold: {original_min:.3f} → {min_score:.3f}"
+                )
+
         self.logger.info(
             f"[User:{self.email}] [altcoin_hunter] Starting scan: "
             f"fund=${fund_total:.2f}, max_positions={max_positions}, "
@@ -789,16 +846,21 @@ class UserBot:
         scored.sort(key=lambda x: x["score"], reverse=True)
 
         # ── Phase 3: Rebalance — close positions that lost momentum ──
+        rebalance_threshold = 0.40
+        if learning_state.get("status") == "active":
+            from vesper.learning import apply_rebalance_threshold
+            rebalance_threshold = apply_rebalance_threshold(0.40, learning_state)
+
         actions = []
         for pos in list(hunter_positions):
             sym_data = next((s for s in scored if s["symbol"] == pos.symbol), None)
-            if sym_data and sym_data["score"] < 0.40:
+            if sym_data and sym_data["score"] < rebalance_threshold:
                 # Trend has weakened significantly — exit
                 exit_price = prices.get(pos.symbol, pos.entry_price)
                 pnl_pct = ((exit_price - pos.entry_price) / pos.entry_price) * 100
                 reason = (
                     f"Altcoin Hunter rebalance: trend weakened "
-                    f"(score {sym_data['score']:.2f} < 0.40, P&L {pnl_pct:+.1f}%)"
+                    f"(score {sym_data['score']:.2f} < {rebalance_threshold:.2f}, P&L {pnl_pct:+.1f}%)"
                 )
                 self._save_decision({
                     "action": "EXIT", "symbol": pos.symbol,
@@ -951,6 +1013,12 @@ class UserBot:
         for candidate in to_open:
             weight = candidate["score"] / total_score if total_score > 0 else 1 / len(to_open)
             amount_usd = min(available * weight, available)
+
+            # Apply learning: adjust position size
+            if learning_state.get("status") == "active":
+                from vesper.learning import apply_position_size
+                amount_usd = apply_position_size(amount_usd, learning_state, "altcoin_hunter")
+
             if amount_usd < 10:
                 continue
 
@@ -969,6 +1037,13 @@ class UserBot:
             score = candidate["score"]
             tp_min_pct = 2.0 + score * 2.0   # 2% to 4%
             tp_max_pct = 8.0 + score * 12.0  # 8% to 20%
+
+            # Apply learning: adjust SL/TP
+            if learning_state.get("status") == "active":
+                from vesper.learning import apply_stop_loss, apply_take_profit
+                sl_pct = apply_stop_loss(sl_pct, learning_state, "altcoin_hunter")
+                tp_min_pct = apply_take_profit(tp_min_pct, learning_state, "altcoin_hunter")
+                tp_max_pct = apply_take_profit(tp_max_pct, learning_state, "altcoin_hunter")
 
             limits = PositionLimits(
                 stop_loss_price=new_price * (1 - sl_pct / 100),
@@ -1474,6 +1549,143 @@ class UserBot:
         import json as _json
         with open(path, "w") as f:
             _json.dump(final_pdata, f, indent=2)
+
+    def _refresh_prediction_prices(self, prices: dict):
+        """Refresh live market probabilities for all open prediction positions.
+
+        Fetches current YES/NO prices from Polymarket/Kalshi, updates
+        current_probability in the portfolio JSON, and checks SL/TP exits.
+        Runs every cycle (~60s) so prediction P&L is always up-to-date.
+        """
+        import time as _time
+        import json as _json
+
+        pred_positions = [
+            pos for pos in self.portfolio.positions.values()
+            if pos.strategy_id == "predictions"
+        ]
+        if not pred_positions:
+            return
+
+        raw = self.portfolio._load_raw()
+        raw_positions = raw.get("positions", {})
+
+        # Build a map of question -> current market probability
+        # by fetching from Polymarket + Kalshi (lightweight, no AI research)
+        prob_map = {}  # question -> current_yes_price (0-1)
+        try:
+            from vesper.polymarket import fetch_events, parse_market
+            events = fetch_events(limit=100)
+            for event in events:
+                for raw_mkt in event.get("markets", []):
+                    if raw_mkt.get("closed"):
+                        continue
+                    parsed = parse_market(raw_mkt)
+                    q = parsed.get("question", "")
+                    outcomes = parsed.get("outcomes", [])
+                    yes_out = next((o for o in outcomes if o["name"] == "Yes"), None)
+                    if yes_out and q:
+                        prob_map[q] = yes_out["price"]
+        except Exception as e:
+            self.logger.warning(f"[User:{self.email}] Prediction price refresh (Polymarket) failed: {e}")
+
+        try:
+            from vesper.kalshi import fetch_events as fetch_kalshi_events, parse_kalshi_market
+            kalshi_events = fetch_kalshi_events(limit=50, status="open")
+            for event in kalshi_events:
+                for raw_mkt in event.get("markets", []):
+                    if raw_mkt.get("status") in ("closed", "settled"):
+                        continue
+                    parsed = parse_kalshi_market(raw_mkt, event)
+                    q = parsed.get("question", "")
+                    outcomes = parsed.get("outcomes", [])
+                    yes_out = next((o for o in outcomes if o["name"] == "Yes"), None)
+                    if yes_out and q:
+                        prob_map[q] = yes_out["price"]
+        except Exception as e:
+            self.logger.warning(f"[User:{self.email}] Prediction price refresh (Kalshi) failed: {e}")
+
+        if not prob_map:
+            return
+
+        changed = False
+        for pos in pred_positions:
+            raw_pos = raw_positions.get(pos.id, {})
+            question = raw_pos.get("prediction_question", "")
+            pred_side = raw_pos.get("prediction_side", "yes")
+
+            if not question:
+                continue
+
+            # Find matching market by question text
+            mkt_yes_price = prob_map.get(question)
+            if mkt_yes_price is None:
+                # Try partial match (position symbol is truncated to 50 chars)
+                for q, price in prob_map.items():
+                    if question[:45] in q or q[:45] in question:
+                        mkt_yes_price = price
+                        break
+
+            if mkt_yes_price is None:
+                continue
+
+            # Current share price depends on which side we bet
+            if pred_side == "yes":
+                current_share_price = mkt_yes_price
+            else:
+                current_share_price = 1 - mkt_yes_price
+
+            # Update current_probability in raw portfolio
+            raw_pos["current_probability"] = round(current_share_price, 4)
+            changed = True
+
+            # Add to prices dict so _record_price_snapshots picks it up
+            prices[pos.symbol] = current_share_price
+
+            # Check SL/TP for this prediction position
+            entry = pos.entry_price
+            amount = pos.amount
+            limits = pos.limits
+            sl_price = limits.stop_loss_price
+            tp_max = limits.take_profit_max_price
+
+            if current_share_price <= sl_price and sl_price > 0:
+                pnl_pct = ((current_share_price - entry) / entry * 100) if entry > 0 else 0
+                reason = (
+                    f"PREDICTION SL hit: probability dropped to "
+                    f"{current_share_price:.2f} (entry {entry:.2f}, {pnl_pct:+.1f}%)"
+                )
+                self.logger.info(f"[User:{self.email}] {reason}")
+                self._save_decision({
+                    "action": "EXIT", "symbol": pos.symbol,
+                    "strategy_id": "predictions",
+                    "source": "prediction_sl", "trade_mode": pos.trade_mode,
+                    "reason": reason, "pnl_pct": round(pnl_pct, 2),
+                })
+                self._close_position(pos, current_share_price, reason)
+                continue
+
+            if current_share_price >= tp_max and tp_max > 0:
+                pnl_pct = ((current_share_price - entry) / entry * 100) if entry > 0 else 0
+                reason = (
+                    f"PREDICTION TP hit: probability rose to "
+                    f"{current_share_price:.2f} (entry {entry:.2f}, {pnl_pct:+.1f}%)"
+                )
+                self.logger.info(f"[User:{self.email}] {reason}")
+                self._save_decision({
+                    "action": "EXIT", "symbol": pos.symbol,
+                    "strategy_id": "predictions",
+                    "source": "prediction_tp", "trade_mode": pos.trade_mode,
+                    "reason": reason, "pnl_pct": round(pnl_pct, 2),
+                })
+                self._close_position(pos, current_share_price, reason)
+                continue
+
+        if changed:
+            raw["positions"] = raw_positions
+            path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+            with open(path, "w") as f:
+                _json.dump(raw, f, indent=2)
 
     def _save_decision(self, decision: dict):
         """Save a structured decision to the decision log (keep last 100).

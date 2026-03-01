@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+{% block title %}Vesper — Welcome{% endblock %}
+{% block body %}
+<style>
+    .onboard-wrap {
+        max-width: 560px; margin: 0 auto; padding: 48px 24px 80px;
+        min-height: calc(100vh - 56px);
+    }
+    .onboard-progress {
+        display: flex; gap: 6px; margin-bottom: 40px;
+    }
+    .onboard-progress .dot {
+        height: 4px; flex: 1; border-radius: 4px;
+        background: var(--border); transition: background 0.4s;
+    }
+    .onboard-progress .dot.active { background: var(--accent); }
+    .onboard-progress .dot.done { background: rgba(0,232,94,0.4); }
+
+    .step { display: none; animation: fade-in 0.4s ease; }
+    .step.active { display: block; }
+    @keyframes fade-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+    .onboard-hero {
+        text-align: center; margin-bottom: 36px;
+    }
+    .onboard-hero h1 {
+        font-size: 28px; font-weight: 800; letter-spacing: -0.5px;
+        background: linear-gradient(135deg, var(--text), var(--accent));
+        -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        background-clip: text; margin-bottom: 10px;
+    }
+    .onboard-hero p {
+        font-size: 15px; color: var(--text-secondary); line-height: 1.6;
+    }
+
+    .connector-card {
+        background: linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+        border: 1px solid var(--glass-border); border-radius: 14px;
+        padding: 20px; margin-bottom: 12px; cursor: pointer;
+        transition: all 0.3s; position: relative; overflow: hidden;
+    }
+    .connector-card::before {
+        content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent);
+    }
+    .connector-card:hover { border-color: var(--border-hover); transform: translateY(-1px); }
+    .connector-card.selected { border-color: var(--accent); background: rgba(0,232,94,0.03); }
+    .connector-card.connected { border-color: rgba(0,232,94,0.3); }
+
+    .connector-header {
+        display: flex; align-items: center; gap: 12px; margin-bottom: 4px;
+    }
+    .connector-icon {
+        width: 40px; height: 40px; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 20px;
+    }
+    .connector-name { font-size: 15px; font-weight: 600; }
+    .connector-type {
+        font-size: 11px; color: var(--text-muted); font-weight: 400;
+        margin-left: 6px;
+    }
+    .connector-desc { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+    .connector-badge {
+        position: absolute; top: 12px; right: 12px;
+        font-size: 10px; font-weight: 700; text-transform: uppercase;
+        letter-spacing: 0.5px; padding: 3px 10px; border-radius: 8px;
+    }
+    .badge-optional { background: rgba(255,255,255,0.04); color: var(--text-muted); }
+    .badge-connected { background: var(--green-dim); color: var(--green); }
+
+    .connector-form {
+        display: none; margin-top: 14px; padding-top: 14px;
+        border-top: 1px solid var(--border);
+        animation: fade-in 0.3s ease;
+    }
+    .connector-card.selected .connector-form { display: block; }
+
+    .check-icon {
+        width: 22px; height: 22px; border-radius: 50%;
+        border: 2px solid var(--border); display: flex;
+        align-items: center; justify-content: center;
+        transition: all 0.3s; flex-shrink: 0;
+    }
+    .connector-card.connected .check-icon {
+        border-color: var(--accent); background: var(--accent);
+    }
+
+    .interest-grid {
+        display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
+        margin-bottom: 24px;
+    }
+    .interest-card {
+        background: var(--glass); border: 1px solid var(--glass-border);
+        border-radius: 12px; padding: 20px 14px; text-align: center;
+        cursor: pointer; transition: all 0.3s;
+    }
+    .interest-card:hover { border-color: var(--border-hover); }
+    .interest-card.selected { border-color: var(--accent); background: rgba(0,232,94,0.04); }
+    .interest-card .icon { font-size: 28px; margin-bottom: 8px; }
+    .interest-card .label { font-size: 13px; font-weight: 600; }
+    .interest-card .sub { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+    .onboard-footer {
+        display: flex; gap: 12px; margin-top: 32px;
+    }
+    .onboard-footer .btn { flex: 1; }
+
+    .summary-row {
+        display: flex; align-items: center; gap: 12px; padding: 14px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+    }
+    .summary-row:last-child { border-bottom: none; }
+    .summary-icon {
+        width: 36px; height: 36px; border-radius: 10px;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 18px;
+    }
+    .summary-label { font-size: 14px; font-weight: 500; flex: 1; }
+    .summary-status { font-size: 12px; font-weight: 600; }
+</style>
+
+<div class="nav">
+    <span class="nav-logo">vesper</span>
+</div>
+
+<div class="onboard-wrap">
+
+    <!-- Progress dots -->
+    <div class="onboard-progress">
+        <div class="dot active" id="dot-0"></div>
+        <div class="dot" id="dot-1"></div>
+        <div class="dot" id="dot-2"></div>
+        <div class="dot" id="dot-3"></div>
+    </div>
+
+    <!-- STEP 0: Welcome -->
+    <div class="step active" id="step-0">
+        <div class="onboard-hero">
+            <h1>Welcome to Vesper</h1>
+            <p>Your AI-powered trading autopilot. Let's get you set up in under 2 minutes.</p>
+        </div>
+
+        <div class="card" style="text-align:center;padding:32px;">
+            <div style="font-size:48px;margin-bottom:16px;">
+                <span style="filter:grayscale(0);">&#x1F680;</span>
+            </div>
+            <div style="font-size:15px;font-weight:600;margin-bottom:8px;">Here's what we'll do</div>
+            <div style="font-size:13px;color:var(--text-secondary);line-height:1.8;">
+                Choose what you want to trade<br>
+                Connect your exchange accounts (optional)<br>
+                Start with paper trading or go live
+            </div>
+        </div>
+
+        <div class="onboard-footer">
+            <button class="btn btn-accent btn-full" onclick="goStep(1)">Let's go</button>
+        </div>
+    </div>
+
+    <!-- STEP 1: What do you want to trade? -->
+    <div class="step" id="step-1">
+        <div class="onboard-hero">
+            <h1>What interests you?</h1>
+            <p>Select one or more. You can always change this later.</p>
+        </div>
+
+        <div class="interest-grid">
+            <div class="interest-card selected" data-interest="crypto" onclick="toggleInterest(this)">
+                <div class="icon">&#x1F4B0;</div>
+                <div class="label">Crypto</div>
+                <div class="sub">60+ altcoins</div>
+            </div>
+            <div class="interest-card" data-interest="stocks" onclick="toggleInterest(this)">
+                <div class="icon">&#x1F4C8;</div>
+                <div class="label">Stocks</div>
+                <div class="sub">US equities</div>
+            </div>
+            <div class="interest-card" data-interest="predictions" onclick="toggleInterest(this)">
+                <div class="icon">&#x1F52E;</div>
+                <div class="label">Predictions</div>
+                <div class="sub">Event markets</div>
+            </div>
+        </div>
+
+        <div class="onboard-footer">
+            <button class="btn btn-outline" onclick="goStep(0)">Back</button>
+            <button class="btn btn-accent" onclick="goStep(2)">Continue</button>
+        </div>
+    </div>
+
+    <!-- STEP 2: Connect exchanges (optional) -->
+    <div class="step" id="step-2">
+        <div class="onboard-hero">
+            <h1>Connect your accounts</h1>
+            <p>Optional. You can start with paper trading and connect later.</p>
+        </div>
+
+        <!-- Coinbase -->
+        <div class="connector-card {% if has_coinbase %}connected{% endif %}" id="cc-coinbase" onclick="toggleConnector('coinbase')">
+            <span class="connector-badge {% if has_coinbase %}badge-connected{% else %}badge-optional{% endif %}">
+                {{ 'Connected' if has_coinbase else 'Optional' }}
+            </span>
+            <div class="connector-header">
+                <div class="connector-icon" style="background:rgba(0,82,255,0.1);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0052ff" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M15 9.5a4 4 0 11-6 0"/></svg>
+                </div>
+                <div>
+                    <span class="connector-name">Coinbase Advanced</span>
+                    <span class="connector-type">Crypto</span>
+                </div>
+                <div style="margin-left:auto;">
+                    <div class="check-icon">
+                        {% if has_coinbase %}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="connector-desc">Trade 60+ cryptocurrencies with Vesper's AI trend detection.</div>
+            {% if not has_coinbase %}
+            <div class="connector-form" id="form-coinbase">
+                <form method="POST" action="/settings/api-keys" id="coinbase-form">
+                    <input type="hidden" name="redirect" value="/onboarding?step=2">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <div class="input-group" style="margin-bottom:0;">
+                            <label class="input-label">API Key</label>
+                            <input class="input" type="password" name="api_key" placeholder="Paste API key" required>
+                        </div>
+                        <div class="input-group" style="margin-bottom:0;">
+                            <label class="input-label">Private Key</label>
+                            <input class="input" type="password" name="api_secret" placeholder="Paste private key" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-accent btn-sm" style="margin-top:12px;" onclick="event.stopPropagation()">Connect</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Alpaca -->
+        <div class="connector-card {% if has_alpaca %}connected{% endif %}" id="cc-alpaca" onclick="toggleConnector('alpaca')">
+            <span class="connector-badge {% if has_alpaca %}badge-connected{% else %}badge-optional{% endif %}">
+                {{ 'Connected' if has_alpaca else 'Optional' }}
+            </span>
+            <div class="connector-header">
+                <div class="connector-icon" style="background:rgba(252,209,22,0.1);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fcd116" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M8 12h8M12 8v8"/></svg>
+                </div>
+                <div>
+                    <span class="connector-name">Alpaca</span>
+                    <span class="connector-type">US Stocks</span>
+                </div>
+                <div style="margin-left:auto;">
+                    <div class="check-icon">
+                        {% if has_alpaca %}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="connector-desc">Commission-free US stock trading. Free paper trading at alpaca.markets.</div>
+            {% if not has_alpaca %}
+            <div class="connector-form" id="form-alpaca">
+                <form method="POST" action="/settings/alpaca-keys" id="alpaca-form">
+                    <input type="hidden" name="redirect" value="/onboarding?step=2">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <div class="input-group" style="margin-bottom:0;">
+                            <label class="input-label">API Key</label>
+                            <input class="input" type="password" name="alpaca_key" placeholder="Paste API key" required>
+                        </div>
+                        <div class="input-group" style="margin-bottom:0;">
+                            <label class="input-label">Secret Key</label>
+                            <input class="input" type="password" name="alpaca_secret" placeholder="Paste secret key" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-accent btn-sm" style="margin-top:12px;" onclick="event.stopPropagation()">Connect</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Kalshi -->
+        <div class="connector-card {% if has_kalshi %}connected{% endif %}" id="cc-kalshi" onclick="toggleConnector('kalshi')">
+            <span class="connector-badge {% if has_kalshi %}badge-connected{% else %}badge-optional{% endif %}">
+                {{ 'Connected' if has_kalshi else 'Optional' }}
+            </span>
+            <div class="connector-header">
+                <div class="connector-icon" style="background:rgba(147,51,234,0.1);">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#9333ea" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                </div>
+                <div>
+                    <span class="connector-name">Kalshi</span>
+                    <span class="connector-type">Predictions</span>
+                </div>
+                <div style="margin-left:auto;">
+                    <div class="check-icon">
+                        {% if has_kalshi %}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            <div class="connector-desc">CFTC-regulated prediction markets. Bet on real-world events.</div>
+            {% if not has_kalshi %}
+            <div class="connector-form" id="form-kalshi">
+                <form method="POST" action="/settings/kalshi-keys" id="kalshi-form">
+                    <input type="hidden" name="redirect" value="/onboarding?step=2">
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <div class="input-group" style="margin-bottom:0;">
+                            <label class="input-label">API Key</label>
+                            <input class="input" type="password" name="kalshi_key" placeholder="Paste API key" required>
+                        </div>
+                        <div class="input-group" style="margin-bottom:0;">
+                            <label class="input-label">Secret Key</label>
+                            <input class="input" type="password" name="kalshi_secret" placeholder="Paste secret key" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn btn-accent btn-sm" style="margin-top:12px;" onclick="event.stopPropagation()">Connect</button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="onboard-footer">
+            <button class="btn btn-outline" onclick="goStep(1)">Back</button>
+            <button class="btn btn-accent" onclick="goStep(3)">
+                {{ 'Continue' if (has_coinbase or has_alpaca or has_kalshi) else 'Skip for now' }}
+            </button>
+        </div>
+    </div>
+
+    <!-- STEP 3: Trading mode + summary -->
+    <div class="step" id="step-3">
+        <div class="onboard-hero">
+            <h1>You're all set</h1>
+            <p>Start with paper trading to learn the ropes, or go live with your connected accounts.</p>
+        </div>
+
+        <div class="card" style="margin-bottom:20px;">
+            <div class="card-title">Your setup</div>
+
+            <div class="summary-row">
+                <div class="summary-icon" style="background:rgba(0,232,94,0.08);">&#x1F4B0;</div>
+                <div class="summary-label">Paper Balance</div>
+                <div class="summary-status" style="color:var(--accent);">${{ user.paper_balance|int }}</div>
+            </div>
+
+            <div class="summary-row">
+                <div class="summary-icon" style="background:rgba(0,82,255,0.08);">&#x1F4B1;</div>
+                <div class="summary-label">Coinbase</div>
+                <div class="summary-status" style="color:{{ 'var(--green)' if has_coinbase else 'var(--text-muted)' }};">
+                    {{ 'Connected' if has_coinbase else 'Not connected' }}
+                </div>
+            </div>
+
+            <div class="summary-row">
+                <div class="summary-icon" style="background:rgba(252,209,22,0.08);">&#x1F4C8;</div>
+                <div class="summary-label">Alpaca (Stocks)</div>
+                <div class="summary-status" style="color:{{ 'var(--green)' if has_alpaca else 'var(--text-muted)' }};">
+                    {{ 'Connected' if has_alpaca else 'Not connected' }}
+                </div>
+            </div>
+
+            <div class="summary-row">
+                <div class="summary-icon" style="background:rgba(147,51,234,0.08);">&#x1F52E;</div>
+                <div class="summary-label">Kalshi (Predictions)</div>
+                <div class="summary-status" style="color:{{ 'var(--green)' if has_kalshi else 'var(--text-muted)' }};">
+                    {{ 'Connected' if has_kalshi else 'Not connected' }}
+                </div>
+            </div>
+        </div>
+
+        <div style="font-size:13px;color:var(--text-secondary);text-align:center;margin-bottom:8px;">
+            You'll start in <strong style="color:var(--text);">paper trading mode</strong> with ${{ user.paper_balance|int }} virtual funds.
+            <br>Switch to live any time in Settings.
+        </div>
+
+        <div class="onboard-footer">
+            <button class="btn btn-outline" onclick="goStep(2)">Back</button>
+            <form method="POST" action="/onboarding/complete" style="flex:1;">
+                <button type="submit" class="btn btn-accent btn-full">Launch Dashboard</button>
+            </form>
+        </div>
+    </div>
+
+</div>
+
+<script>
+let currentStep = {{ request.query_params.get('step', '0') }};
+
+function goStep(n) {
+    document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+    document.getElementById('step-' + n).classList.add('active');
+    document.querySelectorAll('.onboard-progress .dot').forEach((d, i) => {
+        d.classList.toggle('active', i === n);
+        d.classList.toggle('done', i < n);
+    });
+    currentStep = n;
+    window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+function toggleInterest(el) {
+    el.classList.toggle('selected');
+}
+
+function toggleConnector(name) {
+    const card = document.getElementById('cc-' + name);
+    if (card.classList.contains('connected')) return;
+    const wasSelected = card.classList.contains('selected');
+    // Close all other forms
+    document.querySelectorAll('.connector-card').forEach(c => {
+        if (c.id !== 'cc-' + name) c.classList.remove('selected');
+    });
+    card.classList.toggle('selected', !wasSelected);
+}
+
+// Restore step from URL param
+if (currentStep > 0 && currentStep <= 3) {
+    goStep(currentStep);
+}
+</script>
+{% endblock %}
