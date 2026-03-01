@@ -427,7 +427,16 @@ async def trade_history_page(request: Request):
             duration_str = f"{duration_s / 60:.0f}m"
 
         cost_usd = t.get("cost_usd") or t.get("amount_usd") or 0
-        exit_amount = round(cost_usd + (t.get("pnl_usd") or 0), 2) if cost_usd else 0
+        pnl_usd = round(t.get("pnl_usd") or 0, 2)
+        exit_amount = round(cost_usd + pnl_usd, 2) if cost_usd else 0
+
+        # Fee calculation: use stored fees or estimate at 0.6% per side
+        fee_rate = 0.006
+        entry_fee = t.get("entry_fee") or round(cost_usd * fee_rate, 2)
+        exit_fee = t.get("exit_fee") or (round(exit_amount * fee_rate, 2) if exit_amount > 0 else 0)
+        total_fees = t.get("total_fees") or round(entry_fee + exit_fee, 2)
+        net_pnl_usd = t.get("net_pnl_usd") if t.get("net_pnl_usd") is not None else round(pnl_usd - total_fees, 2)
+        net_pnl_pct = t.get("net_pnl_pct") if t.get("net_pnl_pct") is not None else (round(net_pnl_usd / cost_usd * 100, 2) if cost_usd > 0 else 0)
 
         trades.append({
             "symbol": t.get("symbol", ""),
@@ -437,8 +446,11 @@ async def trade_history_page(request: Request):
             "exit_price": t.get("exit_price", 0),
             "cost_usd": round(cost_usd, 2),
             "exit_amount": exit_amount,
-            "pnl_usd": round(t.get("pnl_usd") or 0, 2),
+            "pnl_usd": pnl_usd,
             "pnl_pct": round(t.get("pnl_pct") or 0, 2),
+            "total_fees": total_fees,
+            "net_pnl_usd": net_pnl_usd,
+            "net_pnl_pct": net_pnl_pct,
             "entry_time": entry_time,
             "exit_time": exit_time,
             "exit_date": exit_time,
@@ -446,12 +458,12 @@ async def trade_history_page(request: Request):
             "reason": t.get("reason", ""),
         })
 
-    # Build chart data: cumulative win rate over time per vertical
+    # Build chart data: cumulative win rate over time per vertical (using net P&L)
     def build_win_rate_series(trade_list):
         wins = 0
         points = []
         for i, t in enumerate(trade_list):
-            if t["pnl_usd"] > 0:
+            if t.get("net_pnl_usd", t["pnl_usd"]) > 0:
                 wins += 1
             rate = round(wins / (i + 1) * 100, 1)
             points.append({"x": t["exit_date"], "y": rate})
@@ -470,10 +482,10 @@ async def trade_history_page(request: Request):
         "predictions": build_win_rate_series(pred_trades),
     }
 
-    # KPI stats
+    # KPI stats (based on net P&L after fees)
     def calc_kpi(trade_list):
         total = len(trade_list)
-        wins = sum(1 for t in trade_list if t["pnl_usd"] > 0)
+        wins = sum(1 for t in trade_list if t.get("net_pnl_usd", t["pnl_usd"]) > 0)
         return {"total": total, "wins": wins, "rate": round(wins / total * 100, 1) if total > 0 else 0}
 
     kpis = {
@@ -2156,6 +2168,27 @@ async def api_open_trade(request: Request):
     # Save
     pdata["cash"] = cash - amount_usd
     pdata["positions"][pos_id] = position
+
+    # Store analysis data for "Learn More" modal
+    analyses = pdata.get("position_analyses", {})
+    analyses[pos_id] = {
+        "deep_research": {
+            "signal": "BUY",
+            "confidence": 0,
+            "reasoning": f"Manual trade: {strategy_id}. Entry at ${current_price:,.2f}, "
+                         f"SL {stop_loss_pct}%, TP {tp_min_pct}-{tp_max_pct}%"
+                         + (f", trailing {trailing_stop_pct}%" if trailing_stop_pct > 0 else ""),
+        },
+        "indicators": {},
+        "risk_level": "moderate" if stop_loss_pct <= 3 else "aggressive",
+    }
+    # Prune old analyses
+    if len(analyses) > 50:
+        keys = sorted(analyses.keys())
+        for k in keys[:len(analyses) - 50]:
+            del analyses[k]
+    pdata["position_analyses"] = analyses
+
     with open(portfolio_path, "w") as f:
         json.dump(pdata, f, indent=2)
 
@@ -2191,12 +2224,22 @@ async def api_close_trade(request: Request):
     # Calculate P&L
     entry = pos["entry_price"]
     amount = pos["amount"]
+    cost_usd = pos.get("cost_usd", 0)
     if pos.get("side", "buy") == "buy":
         pnl_usd = (current_price - entry) * amount
         pnl_pct = ((current_price - entry) / entry * 100) if entry > 0 else 0
     else:
         pnl_usd = (entry - current_price) * amount
         pnl_pct = ((entry - current_price) / entry * 100) if entry > 0 else 0
+
+    # Calculate fees (0.6% taker fee per side for Coinbase/exchanges)
+    fee_rate = 0.006
+    entry_fee = pos.get("est_fee", round(cost_usd * fee_rate, 2))
+    exit_value = current_price * amount
+    exit_fee = round(exit_value * fee_rate, 2)
+    total_fees = round(entry_fee + exit_fee, 2)
+    net_pnl_usd = round(pnl_usd - total_fees, 2)
+    net_pnl_pct = round((net_pnl_usd / cost_usd * 100) if cost_usd > 0 else 0, 2)
 
     # Record trade (preserve trade_mode for siloing)
     trade = {
@@ -2205,8 +2248,14 @@ async def api_close_trade(request: Request):
         "entry_price": entry,
         "exit_price": current_price,
         "amount": amount,
+        "cost_usd": cost_usd,
         "pnl_usd": round(pnl_usd, 2),
         "pnl_pct": round(pnl_pct, 2),
+        "entry_fee": entry_fee,
+        "exit_fee": exit_fee,
+        "total_fees": total_fees,
+        "net_pnl_usd": net_pnl_usd,
+        "net_pnl_pct": net_pnl_pct,
         "entry_time": pos.get("entry_time", 0),
         "exit_time": time.time(),
         "reason": "Manual close",
@@ -2214,7 +2263,7 @@ async def api_close_trade(request: Request):
         "trade_mode": pos.get("trade_mode", "paper"),
     }
 
-    pdata["cash"] = pdata.get("cash", 0) + pos.get("cost_usd", 0) + pnl_usd
+    pdata["cash"] = pdata.get("cash", 0) + cost_usd + pnl_usd
     pdata.setdefault("trade_history", []).append(trade)
     del pdata["positions"][position_id]
 
@@ -2228,7 +2277,9 @@ async def api_close_trade(request: Request):
         "exit_price": current_price,
         "pnl_usd": round(pnl_usd, 2),
         "pnl_pct": round(pnl_pct, 2),
-        "cost_usd": pos.get("cost_usd", 0),
+        "net_pnl_usd": net_pnl_usd,
+        "total_fees": total_fees,
+        "cost_usd": cost_usd,
     }
 
 
@@ -2601,6 +2652,20 @@ async def api_predictions_autopilot_toggle(request: Request):
             "started_at": time.time(),
             "last_scan_time": 0,
         }
+        # Write an initial scan log so the UI shows immediate feedback
+        log = pdata.get("autopilot_log", [])
+        log.append({
+            "type": "predictions_scan",
+            "time": int(time.time()),
+            "markets_scanned": 0,
+            "status": "starting",
+            "positions": 0,
+            "max_positions": int(body.get("max_positions", 20)),
+            "deployed_usd": 0,
+            "available_usd": amount,
+            "actions": [],
+        })
+        pdata["autopilot_log"] = log[-50:]
     elif action == "stop":
         if "predictions_autopilot" in pdata:
             pdata["predictions_autopilot"]["enabled"] = False
@@ -2657,6 +2722,7 @@ async def api_position_analysis(pid: str, request: Request):
             "trend_score": analysis.get("trend_score"),
             "trend_factors": analysis.get("trend_factors"),
             "risk_level": analysis.get("risk_level", ""),
+            "prediction_meta": analysis.get("prediction_meta"),
         }
         # Include position context
         if pos:
@@ -2682,6 +2748,15 @@ async def api_position_analysis(pid: str, request: Request):
     }
     if pos.get("search_summary"):
         fallback["search_summary"] = pos["search_summary"]
+    # Include prediction metadata from raw position
+    if pos.get("prediction_question"):
+        fallback["prediction_meta"] = {
+            "question": pos.get("prediction_question", ""),
+            "ai_prob": pos.get("prediction_ai_prob", 0),
+            "mkt_prob": pos.get("prediction_mkt_prob", 0),
+            "edge": pos.get("prediction_edge", 0),
+            "side": pos.get("prediction_side", ""),
+        }
     # Build factors from strategy reason text
     reason = pos.get("strategy_reason", "")
     if reason:

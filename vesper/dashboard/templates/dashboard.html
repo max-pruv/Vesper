@@ -1649,6 +1649,9 @@ function renderScanInfo(log, segment) {
     const actions = e.actions || [];
     const buys = actions.filter(a => a.action === 'BUY').length;
 
+    if (e.status === 'starting') return `Started ${t} — first scan in progress...`;
+    if (e.status === 'no_markets') return `Scan ${t} — markets unavailable, retrying next cycle`;
+    if (e.status === 'error') return `Scan ${t} — ${e.error || 'error occurred'}`;
     if (e.status === 'fully_deployed') return `Scan ${t} — all slots filled`;
     if (e.status === 'low_funds') return `Scan ${t} — low funds`;
     if (e.status === 'invested') return `Scan ${t} — ${buys} new position(s)`;
@@ -2032,6 +2035,35 @@ async function openLearnMore(pid, name) {
                 });
                 html += `</div></div>`;
             }
+        }
+
+        // Prediction Market Meta (AI probability vs Market)
+        if (data.prediction_meta) {
+            const pm = data.prediction_meta;
+            const edgeColor = pm.edge >= 10 ? 'var(--green)' : pm.edge >= 5 ? '#f5a623' : 'var(--text-secondary)';
+            html += `<div style="margin-bottom:16px;">
+                <div style="font-size:11px;font-weight:700;color:#a855f7;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                    <span style="font-size:14px;">&#x1F3AF;</span> Prediction Market Analysis
+                </div>
+                <div style="padding:12px;border-radius:10px;background:rgba(168,85,247,0.04);border:1px solid rgba(168,85,247,0.1);">
+                    ${pm.question ? `<div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:10px;line-height:1.5;">${escapeHtml(pm.question)}</div>` : ''}
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+                        <div style="text-align:center;padding:8px;border-radius:8px;background:rgba(255,255,255,0.03);">
+                            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">AI Probability</div>
+                            <div style="font-size:18px;font-weight:800;color:var(--accent);">${pm.ai_prob || 0}%</div>
+                        </div>
+                        <div style="text-align:center;padding:8px;border-radius:8px;background:rgba(255,255,255,0.03);">
+                            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">Market Price</div>
+                            <div style="font-size:18px;font-weight:800;color:var(--text-secondary);">${pm.mkt_prob || 0}%</div>
+                        </div>
+                        <div style="text-align:center;padding:8px;border-radius:8px;background:rgba(255,255,255,0.03);">
+                            <div style="font-size:10px;color:var(--text-muted);margin-bottom:4px;">Edge</div>
+                            <div style="font-size:18px;font-weight:800;color:${edgeColor};">${pm.edge || 0}%</div>
+                        </div>
+                    </div>
+                    ${pm.side ? `<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">Position: <span style="font-weight:700;color:${pm.side === 'yes' ? 'var(--green)' : 'var(--red)'};">${pm.side.toUpperCase()}</span>${pm.source ? ` on ${escapeHtml(pm.source)}` : ''}</div>` : ''}
+                </div>
+            </div>`;
         }
 
         // Deep Search Summary

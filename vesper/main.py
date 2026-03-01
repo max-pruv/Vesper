@@ -1035,6 +1035,32 @@ class UserBot:
         if fund_total <= 0:
             return
 
+        try:
+            self._run_predictions_autopilot_inner(pdata, pred_cfg, fund_total)
+        except Exception as e:
+            self.logger.error(f"[User:{self.email}] Predictions autopilot error: {e}")
+            # Ensure a log entry is always written so the UI doesn't stay on "waiting"
+            self._save_autopilot_log({
+                "type": "predictions_scan",
+                "markets_scanned": 0,
+                "status": "error",
+                "error": str(e)[:100],
+                "positions": 0,
+                "actions": [],
+            })
+            # Persist last_scan_time so we don't spam on errors
+            final_pdata = self.portfolio._load_raw()
+            if "predictions_autopilot" in final_pdata:
+                final_pdata["predictions_autopilot"]["last_scan_time"] = _time.time()
+                path = os.path.join(self.portfolio.data_dir, self.portfolio.filename)
+                import json as _json
+                with open(path, "w") as f:
+                    _json.dump(final_pdata, f, indent=2)
+
+    def _run_predictions_autopilot_inner(self, pdata, pred_cfg, fund_total):
+        """Inner implementation of predictions autopilot scan."""
+        import time as _time
+
         # Rate limit: run predictions scan every 60 minutes
         last_scan = pred_cfg.get("last_scan_time", 0)
         if _time.time() - last_scan < 3600:
@@ -1260,6 +1286,31 @@ class UserBot:
             )
 
             if self.portfolio.open_position(position):
+                # Store full analysis data for "Learn More"
+                analysis_data = {
+                    "deep_research": {
+                        "signal": pred_side.upper(),
+                        "confidence": round(edge / 100, 3),
+                        "reasoning": research.get("reasoning", ""),
+                        "bullish_factors": research.get("bullish_factors", []),
+                        "bearish_factors": research.get("bearish_factors", []),
+                        "catalysts": research.get("catalysts", []),
+                        "sources": research.get("sources", []),
+                        "search_summary": research.get("search_summary", ""),
+                        "engine": research.get("engine", ""),
+                    },
+                    "prediction_meta": {
+                        "question": question,
+                        "ai_prob": ai_prob,
+                        "mkt_prob": mkt_prob,
+                        "edge": round(edge, 1),
+                        "side": pred_side,
+                        "source": market.get("source", ""),
+                    },
+                    "risk_level": pred_cfg.get("risk_level", "aggressive"),
+                }
+                self.portfolio._save_position_analysis(position.id, analysis_data)
+
                 available -= amount_usd
                 slots_open -= 1
                 actions.append({

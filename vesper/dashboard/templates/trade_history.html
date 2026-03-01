@@ -104,8 +104,10 @@
                         <th>Entry Price</th>
                         <th>Exit Price</th>
                         <th style="text-align:right;">Exit Amt</th>
-                        <th style="text-align:right;">P&L ($)</th>
-                        <th style="text-align:right;">P&L (%)</th>
+                        <th style="text-align:right;">Gross P&L</th>
+                        <th style="text-align:right;">Fees</th>
+                        <th style="text-align:right;">Net P&L</th>
+                        <th style="text-align:right;">Net %</th>
                         <th>Duration</th>
                         <th>Reason</th>
                     </tr>
@@ -389,8 +391,11 @@
         empty.style.display = 'none';
 
         tbody.innerHTML = trades.map(t => {
-            const pnlClass = t.pnl_usd >= 0 ? 'positive' : 'negative';
-            const pnlSign = t.pnl_usd >= 0 ? '+' : '';
+            const grossClass = t.pnl_usd >= 0 ? 'positive' : 'negative';
+            const grossSign = t.pnl_usd >= 0 ? '+' : '';
+            const netClass = (t.net_pnl_usd || 0) >= 0 ? 'positive' : 'negative';
+            const netSign = (t.net_pnl_usd || 0) >= 0 ? '+' : '';
+            const fees = t.total_fees || 0;
             return `<tr data-type="${t.type}" data-exit-ts="${t.exit_date}">
                 <td style="font-size:13px;font-family:monospace;color:var(--text-secondary);white-space:nowrap;">${fmtDateTime(t.exit_date)}</td>
                 <td style="font-weight:600;">${t.symbol}</td>
@@ -400,8 +405,10 @@
                 <td style="font-family:monospace;font-size:13px;">$${Number(t.entry_price).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:6})}</td>
                 <td style="font-family:monospace;font-size:13px;">$${Number(t.exit_price).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:6})}</td>
                 <td style="text-align:right;font-family:monospace;font-size:13px;">$${Number(t.exit_amount || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-                <td style="text-align:right;font-weight:700;" class="${pnlClass}">${pnlSign}$${t.pnl_usd.toFixed(2)}</td>
-                <td style="text-align:right;font-weight:600;" class="${pnlClass}">${pnlSign}${t.pnl_pct.toFixed(2)}%</td>
+                <td style="text-align:right;font-size:12px;color:var(--text-muted);" class="${grossClass}">${grossSign}$${t.pnl_usd.toFixed(2)}</td>
+                <td style="text-align:right;font-family:monospace;font-size:12px;color:var(--text-muted);">-$${fees.toFixed(2)}</td>
+                <td style="text-align:right;font-weight:700;" class="${netClass}">${netSign}$${(t.net_pnl_usd || 0).toFixed(2)}</td>
+                <td style="text-align:right;font-weight:600;" class="${netClass}">${netSign}${(t.net_pnl_pct || 0).toFixed(2)}%</td>
                 <td style="font-size:13px;color:var(--text-muted);">${t.duration}</td>
                 <td class="reason-cell" title="${(t.reason || '').replace(/"/g, '&quot;')}">${t.reason || '—'}</td>
             </tr>`;
@@ -412,7 +419,7 @@
     function updateKPIs(trades) {
         function calc(list) {
             const total = list.length;
-            const wins = list.filter(t => t.pnl_usd > 0).length;
+            const wins = list.filter(t => (t.net_pnl_usd || t.pnl_usd) > 0).length;
             const rate = total > 0 ? Math.round(wins / total * 1000) / 10 : 0;
             return { total, wins, rate };
         }

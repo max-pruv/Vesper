@@ -56,6 +56,12 @@ class TradeRecord:
     reason: str
     strategy_reason: str
     trade_mode: str = "paper"
+    cost_usd: float = 0.0
+    entry_fee: float = 0.0
+    exit_fee: float = 0.0
+    total_fees: float = 0.0
+    net_pnl_usd: float = 0.0
+    net_pnl_pct: float = 0.0
 
 
 class Portfolio:
@@ -93,6 +99,18 @@ class Portfolio:
         pnl_usd = pos.unrealized_pnl(exit_price)
         pnl_pct = pos.unrealized_pnl_pct(exit_price)
 
+        # Calculate fees (0.6% taker fee per side for Coinbase/exchanges)
+        fee_rate = 0.006
+        # Check raw position data for stored entry fee
+        raw = self._load_raw()
+        raw_pos = raw.get("positions", {}).get(position_id, {})
+        entry_fee = raw_pos.get("est_fee", round(pos.cost_usd * fee_rate, 2))
+        exit_value = exit_price * pos.amount
+        exit_fee = round(exit_value * fee_rate, 2)
+        total_fees = round(entry_fee + exit_fee, 2)
+        net_pnl_usd = round(pnl_usd - total_fees, 2)
+        net_pnl_pct = round((net_pnl_usd / pos.cost_usd * 100) if pos.cost_usd > 0 else 0, 2)
+
         # Return capital + P&L
         self.cash += pos.cost_usd + pnl_usd
 
@@ -109,6 +127,12 @@ class Portfolio:
             reason=reason,
             strategy_reason=pos.strategy_reason,
             trade_mode=pos.trade_mode,
+            cost_usd=pos.cost_usd,
+            entry_fee=entry_fee,
+            exit_fee=exit_fee,
+            total_fees=total_fees,
+            net_pnl_usd=net_pnl_usd,
+            net_pnl_pct=net_pnl_pct,
         )
         self.trade_history.append(record)
         del self.positions[position_id]
