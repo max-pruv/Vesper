@@ -391,6 +391,31 @@
         .tab-pill:hover { color: var(--text-secondary); }
         .tab-pill.active { color: var(--text); background: var(--glass); }
 
+        /* Paper / Real mode toggle (nav-level) */
+        .nav-trade-mode {
+            display: flex; align-items: center; gap: 4px;
+            padding: 3px 4px; border-radius: 10px;
+            background: rgba(255,255,255,0.03); border: 1px solid var(--glass-border);
+            margin-left: 8px;
+        }
+        .trade-mode-btn {
+            padding: 5px 12px; border: none; border-radius: 7px;
+            font-size: 11px; font-weight: 700; cursor: pointer;
+            background: transparent; color: var(--text-muted);
+            font-family: inherit; transition: all 0.2s;
+            display: inline-flex; align-items: center;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .trade-mode-btn:hover { color: var(--text-secondary); }
+        .trade-mode-btn.active[data-mode="paper"] { background: rgba(245,166,35,0.12); color: #f5a623; }
+        .trade-mode-btn.active[data-mode="real"] { background: rgba(0,232,94,0.12); color: var(--green); }
+        .nav-logout {
+            display: inline-flex; align-items: center; justify-content: center;
+            color: var(--text-muted); transition: color 0.2s;
+        }
+        .nav-logout:hover { color: var(--red); opacity: 1; }
+        .nav-logout svg { width: 18px; height: 18px; }
+
         /* P&L Animations */
         @keyframes flash-green {
             0% { background-color: rgba(0,232,94,0.2); }

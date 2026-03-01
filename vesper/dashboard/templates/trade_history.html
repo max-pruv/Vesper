@@ -14,15 +14,34 @@
         <a class="nav-link active" href="/trade-history">Trade History</a>
         <a class="nav-link" href="/settings">Settings</a>
         {% if user.is_admin %}<a class="nav-link" href="/admin">Admin</a>{% endif %}
-        <a class="nav-link" href="/logout">Log out</a>
+        <div class="nav-trade-mode" id="tradeModeToggle">
+            <button class="trade-mode-btn {{ '' if user.trading_mode == 'live' else 'active' }}" id="modePaper" onclick="setTradeMode('paper')" data-mode="paper">
+                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f5a623;margin-right:4px;"></span>Paper
+            </button>
+            <button class="trade-mode-btn {{ 'active' if user.trading_mode == 'live' else '' }}" id="modeReal" onclick="setTradeMode('real')" data-mode="real">
+                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px;"></span>Real
+            </button>
+        </div>
+        <a class="nav-link nav-logout" href="/logout" title="Log out">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </a>
     </div>
 </div>
 
 <div class="page-wrapper" style="padding-top:32px;padding-bottom:64px;">
 
     <!-- KPI Cards -->
-    <div id="kpiGrid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;">
-        <div class="stat-glass slide-up" id="kpi-overall">
+    <div id="kpiGrid" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px;">
+        <div class="stat-glass slide-up" id="kpi-invested">
+            <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Initial Investment</div>
+            <div style="font-size:28px;font-weight:800;margin-top:4px;color:var(--text);" id="kpi-invested-value">
+                ${{ "%.2f"|format(initial_balance) }}
+            </div>
+            <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="kpi-invested-detail">
+                Total P&L: <span id="kpi-total-pnl">—</span>
+            </div>
+        </div>
+        <div class="stat-glass slide-up" style="animation-delay:0.05s;" id="kpi-overall">
             <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Overall Win Rate</div>
             <div style="font-size:28px;font-weight:800;margin-top:4px;" id="kpi-overall-rate"
                  class="{{ 'positive' if kpis.overall.rate >= 50 else 'negative' }}">
@@ -32,7 +51,7 @@
                 {{ kpis.overall.wins }}/{{ kpis.overall.total }} trades
             </div>
         </div>
-        <div class="stat-glass slide-up" style="animation-delay:0.05s;" id="kpi-crypto">
+        <div class="stat-glass slide-up" style="animation-delay:0.1s;" id="kpi-crypto">
             <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Crypto Win Rate</div>
             <div style="font-size:28px;font-weight:800;margin-top:4px;" id="kpi-crypto-rate"
                  class="{{ 'positive' if kpis.crypto.rate >= 50 else 'negative' }}">
@@ -42,7 +61,7 @@
                 {{ kpis.crypto.wins }}/{{ kpis.crypto.total }} trades
             </div>
         </div>
-        <div class="stat-glass slide-up" style="animation-delay:0.1s;" id="kpi-stocks">
+        <div class="stat-glass slide-up" style="animation-delay:0.15s;" id="kpi-stocks">
             <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Stocks Win Rate</div>
             <div style="font-size:28px;font-weight:800;margin-top:4px;" id="kpi-stocks-rate"
                  class="{{ 'positive' if kpis.stocks.rate >= 50 else 'negative' }}">
@@ -52,7 +71,7 @@
                 {{ kpis.stocks.wins }}/{{ kpis.stocks.total }} trades
             </div>
         </div>
-        <div class="stat-glass slide-up" style="animation-delay:0.15s;" id="kpi-predictions">
+        <div class="stat-glass slide-up" style="animation-delay:0.2s;" id="kpi-predictions">
             <div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;">Predictions Win Rate</div>
             <div style="font-size:28px;font-weight:800;margin-top:4px;" id="kpi-predictions-rate"
                  class="{{ 'positive' if kpis.predictions.rate >= 50 else 'negative' }}">
@@ -124,6 +143,11 @@
 </div>
 
 <style>
+    @media (max-width: 1024px) {
+        #kpiGrid {
+            grid-template-columns: repeat(3, 1fr) !important;
+        }
+    }
     @media (max-width: 768px) {
         #kpiGrid {
             grid-template-columns: repeat(2, 1fr) !important;
@@ -210,8 +234,18 @@
 (function() {
     const allTrades = {{ trades|tojson }};
     const chartData = {{ chart_data|tojson }};
+    const initialBalance = {{ initial_balance }};
     let currentType = 'all';
+    let currentTradeMode = '{{ "real" if user.trading_mode == "live" else "paper" }}';
     let winRateChart = null;
+
+    // --- Trade mode toggle ---
+    window.setTradeMode = function(mode) {
+        currentTradeMode = mode;
+        document.getElementById('modePaper').classList.toggle('active', mode === 'paper');
+        document.getElementById('modeReal').classList.toggle('active', mode === 'real');
+        applyFilters();
+    };
 
     // Format Unix timestamp to user's local timezone
     function fmtDate(ts) {
@@ -457,6 +491,18 @@
         const stocks = calc(trades.filter(t => t.type === 'stocks'));
         const predictions = calc(trades.filter(t => t.type === 'predictions'));
 
+        // Total P&L across filtered trades
+        const totalPnl = trades.reduce((sum, t) => {
+            const net = (t.net_pnl_usd && t.net_pnl_usd !== 0) ? t.net_pnl_usd : t.pnl_usd;
+            return sum + net;
+        }, 0);
+        const pnlEl = document.getElementById('kpi-total-pnl');
+        if (pnlEl) {
+            const sign = totalPnl >= 0 ? '+' : '';
+            pnlEl.textContent = sign + '$' + totalPnl.toFixed(2);
+            pnlEl.className = totalPnl >= 0 ? 'positive' : 'negative';
+        }
+
         function setKPI(id, data) {
             const rateEl = document.getElementById(id + '-rate');
             const detailEl = document.getElementById(id + '-detail');
@@ -477,7 +523,8 @@
 
     // --- Filtering ---
     function getFilteredTrades() {
-        let filtered = allTrades;
+        // First filter by trade mode
+        let filtered = allTrades.filter(t => (t.trade_mode || 'paper') === currentTradeMode);
 
         if (currentType !== 'all') {
             filtered = filtered.filter(t => t.type === currentType);
@@ -512,7 +559,8 @@
 
     // --- Init ---
     renderWinRateChart();
-    renderTable(allTrades);
+    // Apply initial filter (trade mode + type)
+    applyFilters();
 })();
 </script>
 

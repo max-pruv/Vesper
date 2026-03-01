@@ -14,39 +14,26 @@
         <a class="nav-link" href="/trade-history">Trade History</a>
         <a class="nav-link" href="/settings">Settings</a>
         {% if user.is_admin %}<a class="nav-link" href="/admin">Admin</a>{% endif %}
-        <a class="nav-link" href="/logout">Log out</a>
+        <div class="nav-trade-mode" id="tradeModeToggle">
+            <button class="trade-mode-btn {{ '' if user.trading_mode == 'live' else 'active' }}" id="modePaper" onclick="setTradeMode('paper')" data-mode="paper">
+                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f5a623;margin-right:4px;"></span>Paper
+            </button>
+            <button class="trade-mode-btn {{ 'active' if user.trading_mode == 'live' else '' }}" id="modeReal" onclick="setTradeMode('real')" data-mode="real">
+                <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px;"></span>Real
+            </button>
+        </div>
+        <a class="nav-link nav-logout" href="/logout" title="Log out">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </a>
     </div>
 </div>
 
 <div class="page-wrapper">
-
-<!-- Paper / Real Mode Toggle -->
-<div id="tradeModeRow" style="display:flex;justify-content:flex-start;padding:12px 0 0;">
-    <div id="tradeModeToggle" style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--glass-border);">
-        <button class="trade-mode-btn {{ '' if user.trading_mode == 'live' else 'active' }}" id="modePaper" onclick="setTradeMode('paper')" data-mode="paper">
-            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:#f5a623;margin-right:4px;"></span>Paper
-        </button>
-        <button class="trade-mode-btn {{ 'active' if user.trading_mode == 'live' else '' }}" id="modeReal" onclick="setTradeMode('real')" data-mode="real">
-            <span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:4px;"></span>Real
-        </button>
-    </div>
-</div>
 <style>
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
-    /* Paper / Real mode toggle */
-    .trade-mode-btn {
-        padding: 6px 14px; border: none; border-radius: 8px;
-        font-size: 12px; font-weight: 700; cursor: pointer;
-        background: transparent; color: var(--text-muted);
-        font-family: inherit; transition: all 0.2s;
-        display: inline-flex; align-items: center;
-        text-transform: uppercase; letter-spacing: 0.5px;
-    }
-    .trade-mode-btn:hover { color: var(--text-secondary); }
-    .trade-mode-btn.active[data-mode="paper"] { background: rgba(245,166,35,0.12); color: #f5a623; }
-    .trade-mode-btn.active[data-mode="real"] { background: rgba(0,232,94,0.12); color: var(--green); }
+    /* trade-mode-btn styles are in base.html */
     .pm-card {
         background: var(--surface); border: 1px solid var(--border);
         border-radius: 14px; padding: 18px; transition: all 0.2s;
@@ -2499,9 +2486,7 @@ function switchTab(tab) {
     // Update nav active states
     document.getElementById('navDashboard').classList.toggle('active', tab === 'trading');
     document.getElementById('navMarkets').classList.toggle('active', tab === 'markets');
-    // Show/hide trade mode toggle (only on dashboard)
-    const tmToggle = document.getElementById('tradeModeToggle');
-    if (tmToggle) tmToggle.parentElement.style.display = tab === 'trading' ? 'flex' : 'none';
+    // Trade mode toggle is now in the nav bar — always visible
 
     if (tab === 'trading') {
         document.getElementById('contentTrading').classList.add('active');

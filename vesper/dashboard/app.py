@@ -580,6 +580,7 @@ async def trade_history_page(request: Request):
             "exit_date": exit_time,
             "duration": duration_str,
             "reason": t.get("reason", ""),
+            "trade_mode": t.get("trade_mode", "paper"),
         })
 
     # Build chart data: cumulative win rate over time per vertical
@@ -620,12 +621,15 @@ async def trade_history_page(request: Request):
         "predictions": calc_kpi([t for t in trades if t["type"] == "predictions"]),
     }
 
+    initial_balance = portfolio.get("initial_balance", 0)
+
     return templates.TemplateResponse("trade_history.html", {
         "request": request,
         "user": user,
         "trades": trades,
         "chart_data": chart_data,
         "kpis": kpis,
+        "initial_balance": initial_balance,
     })
 
 
