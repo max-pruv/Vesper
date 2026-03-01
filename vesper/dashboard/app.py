@@ -13,8 +13,26 @@ import time
 import traceback
 from datetime import datetime
 
+from logging.handlers import RotatingFileHandler
+
+# Console logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s %(message)s")
 _log = logging.getLogger("vesper.dashboard")
+
+# Persistent file logging — errors and warnings saved to disk for post-mortem analysis
+_LOG_DIR = os.environ.get("VESPER_DATA_DIR", "data")
+os.makedirs(_LOG_DIR, exist_ok=True)
+_file_handler = RotatingFileHandler(
+    os.path.join(_LOG_DIR, "vesper_errors.log"),
+    maxBytes=5 * 1024 * 1024,  # 5 MB per file
+    backupCount=3,
+)
+_file_handler.setLevel(logging.WARNING)  # Only warnings and errors to file
+_file_handler.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(levelname)s %(message)s"))
+logging.getLogger().addHandler(_file_handler)
+# Also capture vesper.main and vesper.learning logs
+for _logger_name in ("vesper.dashboard", "vesper.main", "vesper.learning", "vesper"):
+    logging.getLogger(_logger_name).addHandler(_file_handler)
 
 import bcrypt
 import ccxt
@@ -144,18 +162,64 @@ def _normalize_trade_modes(data: dict) -> dict:
 
 
 def _load_portfolio(uid: int) -> dict:
+    _default = {"cash": 0, "initial_balance": 0, "positions": {}, "trade_history": []}
     p = os.path.join(DATA_DIR, f"portfolio_{uid}.json")
     if not os.path.exists(p):
-        return {"cash": 0, "initial_balance": 0, "positions": {}, "trade_history": []}
-    with open(p) as f:
-        data = _clean_nones(json.load(f))
-    return _normalize_trade_modes(data)
+        return _default
+    try:
+        with open(p) as f:
+            raw = f.read()
+        if not raw or not raw.strip():
+            _log.warning(f"[portfolio] empty file for user {uid}, returning defaults")
+            return _default
+        data = _clean_nones(json.loads(raw))
+        if not isinstance(data, dict):
+            _log.warning(f"[portfolio] invalid data type for user {uid}: {type(data)}")
+            return _default
+        return _normalize_trade_modes(data)
+    except (json.JSONDecodeError, ValueError) as e:
+        _log.error(f"[portfolio] corrupt JSON for user {uid}: {e}")
+        # Try to recover from backup
+        backup = p + ".bak"
+        if os.path.exists(backup):
+            try:
+                with open(backup) as f:
+                    data = _clean_nones(json.loads(f.read()))
+                _log.info(f"[portfolio] recovered user {uid} from backup")
+                return _normalize_trade_modes(data)
+            except Exception:
+                _log.error(f"[portfolio] backup also corrupt for user {uid}")
+        return _default
+    except Exception as e:
+        _log.error(f"[portfolio] unexpected error loading user {uid}: {e}")
+        return _default
 
 
 def _save_portfolio(uid: int, data: dict):
+    """Save portfolio with atomic write (write to temp, then rename)."""
     p = os.path.join(DATA_DIR, f"portfolio_{uid}.json")
-    with open(p, "w") as f:
-        json.dump(data, f, indent=2)
+    tmp = p + ".tmp"
+    try:
+        payload = json.dumps(data, indent=2)
+        # Keep a backup of the last good state
+        if os.path.exists(p):
+            try:
+                os.replace(p, p + ".bak")
+            except Exception:
+                pass
+        with open(tmp, "w") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, p)
+    except Exception as e:
+        _log.error(f"[portfolio] save failed for user {uid}: {e}")
+        # Restore from backup if the write failed
+        if not os.path.exists(p) and os.path.exists(p + ".bak"):
+            try:
+                os.replace(p + ".bak", p)
+            except Exception:
+                pass
 
 
 # --- Home ---
@@ -873,7 +937,6 @@ async def reset_trades(request: Request):
 
     _log.warning(f"[reset-trades] user={user.id} email={user.email} — FULL RESET")
 
-    portfolio_path = os.path.join(DATA_DIR, f"portfolio_{user.id}.json")
     fresh = {
         "cash": user.paper_balance,
         "initial_balance": user.paper_balance,
@@ -884,8 +947,7 @@ async def reset_trades(request: Request):
         "autopilot": {},
         "predictions_autopilot": {},
     }
-    with open(portfolio_path, "w") as f:
-        json.dump(fresh, f, indent=2)
+    _save_portfolio(user.id, fresh)
 
     _log.info(f"[reset-trades] user={user.id} — portfolio reset to ${user.paper_balance}")
     return RedirectResponse(url="/settings?msg=trades_reset", status_code=303)
@@ -1114,7 +1176,7 @@ async def _get_cached_prices() -> list[dict]:
     now = time.time()
     if _price_cache and (now - _price_cache_time) < _CACHE_TTL:
         return _price_cache
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     _price_cache = await loop.run_in_executor(None, _fetch_tickers_sync)
     _price_cache_time = now
     return _price_cache
@@ -1243,7 +1305,7 @@ async def _get_price_map_for_positions(position_symbols: set[str], user=None) ->
 
     # Fetch remaining missing symbols individually (exchange + CoinGecko fallback)
     if still_missing:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         for sym in still_missing:
             if sym.endswith("/USD"):
                 price = await loop.run_in_executor(None, _fetch_stock_price, sym, user)
@@ -1318,6 +1380,97 @@ async def health():
     }
 
 
+@app.get("/api/debug")
+async def debug_endpoint(request: Request):
+    """Diagnostic endpoint — tests each component that could cause 500 errors."""
+    result = {"steps": []}
+
+    def step(name, fn):
+        try:
+            val = fn()
+            result["steps"].append({"name": name, "ok": True, "value": str(val)[:200]})
+            return val
+        except Exception as e:
+            result["steps"].append({"name": name, "ok": False, "error": f"{type(e).__name__}: {e}"})
+            return None
+
+    # Step 1: Check user session
+    user = step("get_user", lambda: _get_user(request))
+    if not user:
+        result["steps"].append({"name": "auth", "ok": False, "error": "Not logged in"})
+        return result
+
+    # Step 2: Check portfolio file
+    uid = user.id
+    portfolio_path = os.path.join(DATA_DIR, f"portfolio_{uid}.json")
+    step("portfolio_file_exists", lambda: os.path.exists(portfolio_path))
+
+    if os.path.exists(portfolio_path):
+        step("portfolio_file_size", lambda: os.path.getsize(portfolio_path))
+        step("portfolio_file_readable", lambda: open(portfolio_path).read()[:100])
+
+        def try_json_parse():
+            with open(portfolio_path) as f:
+                raw = f.read()
+            data = json.loads(raw)
+            return f"type={type(data).__name__}, keys={list(data.keys()) if isinstance(data, dict) else 'N/A'}"
+        step("portfolio_json_parse", try_json_parse)
+
+    # Step 3: Load portfolio through our function
+    portfolio = step("load_portfolio", lambda: _load_portfolio(uid))
+
+    # Step 4: Check exchange
+    def check_exchange():
+        ex = _get_public_exchange()
+        if ex is None:
+            return "None (no exchange reachable)"
+        return f"{ex.id}, markets={len(ex.markets) if ex.markets else 0}"
+    step("public_exchange", check_exchange)
+
+    # Step 5: Check user properties
+    step("user_trading_mode", lambda: user.trading_mode)
+    step("user_paper_balance", lambda: user.paper_balance)
+
+    # Step 6: Try portfolio stats
+    try:
+        stats = await _portfolio_stats_inner(user, "")
+        result["steps"].append({"name": "portfolio_stats", "ok": True,
+                                "value": f"value={stats.get('portfolio_value')}, trades={stats.get('total_trades')}"})
+    except Exception as e:
+        result["steps"].append({"name": "portfolio_stats", "ok": False,
+                                "error": f"{type(e).__name__}: {e}"})
+
+    # Step 7: Try positions
+    try:
+        positions = await _positions_inner(user, "")
+        result["steps"].append({"name": "positions", "ok": True,
+                                "value": f"count={len(positions) if isinstance(positions, list) else 'dict'}"})
+    except Exception as e:
+        result["steps"].append({"name": "positions", "ok": False,
+                                "error": f"{type(e).__name__}: {e}"})
+
+    # Step 8: Try altcoin-hunter
+    try:
+        ah = await _altcoin_hunter_status_inner(user, "")
+        result["steps"].append({"name": "altcoin_hunter", "ok": True,
+                                "value": f"enabled={ah.get('enabled')}, fund={ah.get('fund_usd')}"})
+    except Exception as e:
+        result["steps"].append({"name": "altcoin_hunter", "ok": False,
+                                "error": f"{type(e).__name__}: {e}"})
+
+    # Step 9: Try autopilot
+    try:
+        ap = await _autopilot_status_inner(user, "")
+        result["steps"].append({"name": "autopilot", "ok": True,
+                                "value": f"enabled={ap.get('enabled')}, fund={ap.get('fund_usd')}"})
+    except Exception as e:
+        result["steps"].append({"name": "autopilot", "ok": False,
+                                "error": f"{type(e).__name__}: {e}"})
+
+    result["all_ok"] = all(s.get("ok", False) for s in result["steps"])
+    return result
+
+
 @app.post("/api/admin/deploy")
 async def admin_deploy():
     """Hot-deploy: git pull inside container + restart process.
@@ -1351,6 +1504,24 @@ async def admin_deploy():
                 "message": "Code pulled. Restarting in 1s..."}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+
+@app.get("/api/admin/logs")
+async def admin_logs(request: Request, lines: int = 100):
+    """View recent error logs from the server."""
+    user = _get_user(request)
+    if not user or not user.is_admin:
+        return JSONResponse({"error": "admin only"}, status_code=403)
+    log_path = os.path.join(_LOG_DIR, "vesper_errors.log")
+    if not os.path.exists(log_path):
+        return {"logs": [], "message": "No log file yet (no errors recorded)"}
+    try:
+        with open(log_path) as f:
+            all_lines = f.readlines()
+        recent = all_lines[-lines:] if len(all_lines) > lines else all_lines
+        return {"logs": [l.rstrip() for l in recent], "total_lines": len(all_lines)}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 @app.get("/api/admin/bot-state")
@@ -1814,7 +1985,7 @@ async def api_chart(request: Request, symbol: str, timeframe: str = "1h"):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     # URL uses dash: BTC-USDT -> BTC/USDT
     symbol = symbol.replace("-", "/")
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     candles = await loop.run_in_executor(None, _fetch_ohlcv_sync, symbol, timeframe)
     return candles
 
@@ -1842,7 +2013,7 @@ async def api_signal(request: Request, symbol: str, strategy: str = "smart_auto"
     if cached and (now - cached["time"]) < _SIGNAL_CACHE_TTL:
         return cached["data"]
     # Fetch fresh signal with the correct strategy
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     data = await loop.run_in_executor(None, _fetch_signal_sync, symbol, strategy)
     _signal_cache[cache_key] = {"data": data, "time": now}
     return data
@@ -2025,7 +2196,7 @@ async def api_reasoning(request: Request, pid: str = ""):
     current_price = price_map.get(pos["symbol"], pos["entry_price"])
 
     # Run analysis
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     data = await loop.run_in_executor(
         None, _fetch_reasoning_sync,
         pos["symbol"],
@@ -2320,11 +2491,8 @@ async def api_open_trade(request: Request):
         return JSONResponse({"error": "Add Coinbase API keys in Settings to place real trades"}, status_code=400)
 
     # Load portfolio
-    portfolio_path = os.path.join(DATA_DIR, f"portfolio_{user.id}.json")
-    if os.path.exists(portfolio_path):
-        with open(portfolio_path) as f:
-            pdata = _clean_nones(json.load(f))
-    else:
+    pdata = _load_portfolio(user.id)
+    if not pdata.get("cash") and not pdata.get("positions"):
         pdata = {"cash": user.paper_balance, "initial_balance": user.paper_balance,
                  "positions": {}, "trade_history": []}
 
@@ -2436,9 +2604,7 @@ async def api_open_trade(request: Request):
         for k in keys[:len(analyses) - 50]:
             del analyses[k]
     pdata["position_analyses"] = analyses
-
-    with open(portfolio_path, "w") as f:
-        json.dump(pdata, f, indent=2)
+    _save_portfolio(user.id, pdata)
 
     return {"ok": True, "position_id": pos_id, "entry_price": current_price, "fee": est_fee}
 
@@ -2453,12 +2619,7 @@ async def api_close_trade(request: Request):
     body = await request.json()
     position_id = body.get("position_id", "")
 
-    portfolio_path = os.path.join(DATA_DIR, f"portfolio_{user.id}.json")
-    if not os.path.exists(portfolio_path):
-        return JSONResponse({"error": "No portfolio found"}, status_code=404)
-
-    with open(portfolio_path) as f:
-        pdata = json.load(f)
+    pdata = _load_portfolio(user.id)
 
     pos = pdata.get("positions", {}).get(position_id)
     if not pos:
@@ -2514,9 +2675,7 @@ async def api_close_trade(request: Request):
     pdata["cash"] = pdata.get("cash", 0) + cost_usd + pnl_usd
     pdata.setdefault("trade_history", []).append(trade)
     del pdata["positions"][position_id]
-
-    with open(portfolio_path, "w") as f:
-        json.dump(pdata, f, indent=2)
+    _save_portfolio(user.id, pdata)
 
     return {
         "ok": True,
@@ -2640,14 +2799,7 @@ async def api_autopilot_toggle(request: Request):
     action = body.get("action", "")
     amount = float(body.get("amount_usd", 0))
 
-    portfolio_path = os.path.join(
-        os.environ.get("VESPER_DATA_DIR", "data"),
-        f"portfolio_{user.id}.json",
-    )
-    pdata = {}
-    if os.path.exists(portfolio_path):
-        with open(portfolio_path) as f:
-            pdata = _clean_nones(json.load(f))
+    pdata = _load_portfolio(user.id)
 
     if action == "start":
         if amount < 10:
@@ -2682,8 +2834,7 @@ async def api_autopilot_toggle(request: Request):
         if mb is not None:
             pdata["autopilot"]["max_bet_usd"] = float(mb)
 
-    with open(portfolio_path, "w") as f:
-        json.dump(pdata, f, indent=2)
+    _save_portfolio(user.id, pdata)
 
     return {"ok": True, "autopilot": pdata.get("autopilot", {})}
 
@@ -2793,14 +2944,7 @@ async def api_altcoin_hunter_toggle(request: Request):
     action = body.get("action", "")
     amount = float(body.get("amount_usd") or 0)
 
-    portfolio_path = os.path.join(
-        os.environ.get("VESPER_DATA_DIR", "data"),
-        f"portfolio_{user.id}.json",
-    )
-    pdata = {}
-    if os.path.exists(portfolio_path):
-        with open(portfolio_path) as f:
-            pdata = _clean_nones(json.load(f))
+    pdata = _load_portfolio(user.id)
 
     if action == "start":
         if amount < 10:
@@ -2833,8 +2977,7 @@ async def api_altcoin_hunter_toggle(request: Request):
         if mb is not None:
             pdata["altcoin_hunter"]["max_bet_usd"] = float(mb)
 
-    with open(portfolio_path, "w") as f:
-        json.dump(pdata, f, indent=2)
+    _save_portfolio(user.id, pdata)
 
     return {"ok": True, "altcoin_hunter": pdata.get("altcoin_hunter", {})}
 
@@ -2947,14 +3090,7 @@ async def api_predictions_autopilot_toggle(request: Request):
     action = body.get("action", "")
     amount = float(body.get("amount_usd", 0))
 
-    portfolio_path = os.path.join(
-        os.environ.get("VESPER_DATA_DIR", "data"),
-        f"portfolio_{user.id}.json",
-    )
-    pdata = {}
-    if os.path.exists(portfolio_path):
-        with open(portfolio_path) as f:
-            pdata = _clean_nones(json.load(f))
+    pdata = _load_portfolio(user.id)
 
     if action == "start":
         if amount < 10:
@@ -3002,8 +3138,7 @@ async def api_predictions_autopilot_toggle(request: Request):
         if mb is not None:
             pdata["predictions_autopilot"]["max_bet_usd"] = float(mb)
 
-    with open(portfolio_path, "w") as f:
-        json.dump(pdata, f, indent=2)
+    _save_portfolio(user.id, pdata)
 
     return {"ok": True, "predictions_autopilot": pdata.get("predictions_autopilot", {})}
 
@@ -3066,7 +3201,7 @@ async def api_position_analysis(pid: str, request: Request):
     is_prediction = symbol.startswith("PRED:")
 
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         if is_prediction:
             question = _s(pos.get("prediction_question")) or symbol.replace("PRED:", "")
             mkt_prob = pos.get("prediction_mkt_prob", 50)
@@ -3206,7 +3341,7 @@ async def api_social_sentiment(request: Request, symbol: str, asset_type: str = 
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     from vesper.social_sentiment import fetch_social_sentiment
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, fetch_social_sentiment, symbol, asset_type)
     if not result:
         return JSONResponse({"error": "Social sentiment unavailable — check Perplexity API key"}, status_code=503)
@@ -3323,7 +3458,7 @@ async def api_markets_crypto(request: Request):
     if cached and now - _markets_crypto_cache.get("ts", 0) < 30:
         return {"markets": cached}
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     markets = await loop.run_in_executor(None, _fetch_crypto_markets_sync)
     _markets_crypto_cache["data"] = markets
     _markets_crypto_cache["ts"] = now
@@ -3394,7 +3529,7 @@ async def api_markets_stocks(request: Request):
     if cached and now - _markets_stocks_cache.get("ts", 0) < 60:
         return {"markets": cached}
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, _fetch_stocks_sync)
     _markets_stocks_cache["data"] = result
     _markets_stocks_cache["ts"] = now

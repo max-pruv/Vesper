@@ -197,8 +197,25 @@ class Portfolio:
         path = os.path.join(self.data_dir, self.filename)
         if not os.path.exists(path):
             return {}
-        with open(path) as f:
-            return json.load(f)
+        try:
+            with open(path) as f:
+                raw = f.read()
+            if not raw or not raw.strip():
+                return {}
+            data = json.loads(raw)
+            return data if isinstance(data, dict) else {}
+        except (json.JSONDecodeError, ValueError):
+            # Try backup
+            backup = path + ".bak"
+            if os.path.exists(backup):
+                try:
+                    with open(backup) as f:
+                        return json.loads(f.read())
+                except Exception:
+                    pass
+            return {}
+        except Exception:
+            return {}
 
     # Extra per-position keys written by other modules (price recorder, predictions, etc.)
     # that must survive _save_state() rebuilds.
@@ -253,18 +270,54 @@ class Portfolio:
                 state[key] = existing[key]
 
         path = os.path.join(self.data_dir, self.filename)
-        with open(path, "w") as f:
-            json.dump(state, f, indent=2)
+        tmp = path + ".tmp"
+        try:
+            payload = json.dumps(state, indent=2)
+            if os.path.exists(path):
+                try:
+                    os.replace(path, path + ".bak")
+                except Exception:
+                    pass
+            with open(tmp, "w") as f:
+                f.write(payload)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
+        except Exception:
+            if not os.path.exists(path) and os.path.exists(path + ".bak"):
+                try:
+                    os.replace(path + ".bak", path)
+                except Exception:
+                    pass
 
     def _load_state(self):
         path = os.path.join(self.data_dir, self.filename)
         if not os.path.exists(path):
             return
-        with open(path) as f:
-            state = json.load(f)
+        try:
+            with open(path) as f:
+                raw = f.read()
+            if not raw or not raw.strip():
+                return
+            state = json.loads(raw)
+            if not isinstance(state, dict):
+                return
+        except (json.JSONDecodeError, ValueError):
+            # Try backup
+            backup = path + ".bak"
+            if os.path.exists(backup):
+                try:
+                    with open(backup) as f:
+                        state = json.loads(f.read())
+                except Exception:
+                    return
+            else:
+                return
+        except Exception:
+            return
 
-        self.cash = state["cash"]
-        self.initial_balance = state["initial_balance"]
+        self.cash = state.get("cash", self.cash)
+        self.initial_balance = state.get("initial_balance", self.initial_balance)
 
         self.positions = {}
         for pid, p in state.get("positions", {}).items():
