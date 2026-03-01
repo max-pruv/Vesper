@@ -21,8 +21,8 @@
 <!-- Top Bar: Tabs + Trade Mode Toggle -->
 <div style="display:flex;justify-content:center;align-items:center;padding:16px 0 0;gap:16px;flex-wrap:wrap;">
     <div style="display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px;" id="mainTabs">
-        <button class="tab-pill active" onclick="switchTab('trading')" id="tabTrading">Trading</button>
-        <button class="tab-pill" onclick="switchTab('predictions')" id="tabPredictions">Predictions</button>
+        <button class="tab-pill active" onclick="switchTab('trading')" id="tabTrading">Dashboard</button>
+        <button class="tab-pill" onclick="switchTab('markets')" id="tabMarkets">Markets</button>
     </div>
     <!-- Paper / Real Mode Toggle -->
     <div id="tradeModeToggle" style="display:flex;align-items:center;gap:8px;padding:5px 6px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid var(--glass-border);">
@@ -593,95 +593,173 @@
 
 </div><!-- /contentTrading -->
 
-<!-- ═══ PREDICTIONS TAB ═══ -->
-<div class="tab-content" id="contentPredictions">
+<!-- ═══ MARKETS TAB ═══ -->
+<div class="tab-content" id="contentMarkets">
 
-    <!-- Predictions Header -->
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap;gap:16px;">
-        <div>
-            <div style="font-size:14px;color:var(--text-muted);margin-bottom:4px;">Prediction Markets</div>
-            <div style="font-size:28px;font-weight:700;letter-spacing:-1px;" id="pmSourceTitle">Polymarket</div>
-            <div style="font-size:13px;color:var(--text-secondary);margin-top:4px;">Short-term markets with AI edge estimation. Sorted by expected value.</div>
+    <!-- Markets Sub-tabs -->
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;flex-wrap:wrap;">
+        <div style="display:flex;gap:2px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:3px;" id="marketSubTabs">
+            <button class="market-sub-tab active" onclick="switchMarketTab('crypto')" id="mktTabCrypto">
+                <span style="font-size:13px;margin-right:4px;">&#8383;</span>Crypto
+            </button>
+            <button class="market-sub-tab" onclick="switchMarketTab('stocks')" id="mktTabStocks">
+                <span style="font-size:13px;margin-right:4px;">&#x1F4C8;</span>Stocks
+            </button>
+            <button class="market-sub-tab" onclick="switchMarketTab('predictions')" id="mktTabPredictions">
+                <span style="font-size:13px;margin-right:4px;">&#x1F52E;</span>Predictions
+            </button>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <!-- Source selector -->
-            <div class="pm-timeframe-pills">
-                <button class="pm-tf-pill active" onclick="setPmSource('polymarket')" id="pmSrcPoly">Polymarket</button>
-                <button class="pm-tf-pill" onclick="setPmSource('kalshi')" id="pmSrcKalshi">Kalshi</button>
-            </div>
-            <!-- Timeframe -->
-            <div class="pm-timeframe-pills">
-                <button class="pm-tf-pill" onclick="setPmTimeframe(3)" id="pmTf3">3d</button>
-                <button class="pm-tf-pill" onclick="setPmTimeframe(7)" id="pmTf7">7d</button>
-                <button class="pm-tf-pill active" onclick="setPmTimeframe(14)" id="pmTf14">14d</button>
-                <button class="pm-tf-pill" onclick="setPmTimeframe(30)" id="pmTf30">30d</button>
-                <button class="pm-tf-pill" onclick="setPmTimeframe(0)" id="pmTf0">All</button>
-            </div>
-            <select id="pmCategoryFilter" onchange="filterPolymarkets()" style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:12px;">
-                <option value="all">All Categories</option>
-                <option value="Politics">Politics</option>
-                <option value="Sports">Sports</option>
-                <option value="Crypto">Crypto</option>
-                <option value="Business">Business</option>
-                <option value="Science">Science</option>
-                <option value="Pop Culture">Pop Culture</option>
-                <option value="Financials">Financials</option>
-                <option value="World">World</option>
-                <option value="Economics">Economics</option>
-            </select>
-            <button class="btn btn-sm" style="background:var(--card);border:1px solid var(--border);font-size:12px;" onclick="fetchPolymarkets()">Refresh</button>
+        <div id="mktSearchWrap" style="flex:1;min-width:180px;max-width:320px;">
+            <input type="text" id="mktSearchInput" placeholder="Search markets..." oninput="filterMarketTable()"
+                   style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:rgba(255,255,255,0.03);color:var(--text);font-size:13px;box-sizing:border-box;">
         </div>
     </div>
 
-    <!-- AI Methodology Banner -->
-    <div id="pmMethodologyBanner" style="margin-bottom:16px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:14px;">&#x1f9e0;</span>
-                <span style="font-size:13px;font-weight:600;">AI Edge Estimation</span>
-                <span style="font-size:11px;color:var(--text-muted);">Market microstructure analysis</span>
+    <style>
+        .market-sub-tab {
+            padding: 7px 16px; border: none; border-radius: 8px;
+            font-size: 12px; font-weight: 600; cursor: pointer;
+            background: transparent; color: var(--text-muted);
+            font-family: inherit; transition: all 0.2s;
+            display: inline-flex; align-items: center;
+        }
+        .market-sub-tab:hover { color: var(--text); }
+        .market-sub-tab.active { background: var(--card); color: var(--text); }
+        .market-sub-content { display: none; }
+        .market-sub-content.active { display: block; }
+        .mkt-table { width: 100%; border-collapse: collapse; }
+        .mkt-table th {
+            text-align: left; padding: 10px 12px; font-size: 11px;
+            color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
+            font-weight: 600; border-bottom: 1px solid var(--border);
+            cursor: pointer; user-select: none;
+        }
+        .mkt-table th:hover { color: var(--text); }
+        .mkt-table td {
+            padding: 12px; font-size: 13px; border-bottom: 1px solid rgba(255,255,255,0.03);
+        }
+        .mkt-table tr:hover { background: rgba(255,255,255,0.02); }
+        .mkt-table .mkt-symbol {
+            font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 8px;
+        }
+        .mkt-table .mkt-symbol-sub { font-size: 11px; color: var(--text-muted); font-weight: 400; }
+        .mkt-change { font-weight: 600; font-size: 13px; }
+        .mkt-change.up { color: var(--green); }
+        .mkt-change.down { color: var(--red); }
+    </style>
+
+    <!-- ═══ CRYPTO SUB-TAB ═══ -->
+    <div class="market-sub-content active" id="mktContentCrypto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <div>
+                <div style="font-size:22px;font-weight:700;letter-spacing:-0.5px;">Crypto Markets</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">60+ altcoins tracked by the AI scanner</div>
             </div>
-            <button class="pm-signals-toggle" onclick="toggleMethodology()">How it works</button>
+            <button class="btn btn-sm" style="background:var(--card);border:1px solid var(--border);font-size:12px;" onclick="loadMarketsCrypto()">Refresh</button>
         </div>
-        <div id="pmMethodologyDetail" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);">
-            <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
-                The AI estimates true probability using <b>5 market microstructure signals</b> — no news, no social media, no insider info. It detects potential mispricings purely from trading patterns:
+        <div id="mktCryptoTable">
+            <div style="text-align:center;padding:40px;color:var(--text-muted);">Loading crypto markets...</div>
+        </div>
+    </div>
+
+    <!-- ═══ STOCKS SUB-TAB ═══ -->
+    <div class="market-sub-content" id="mktContentStocks">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+            <div>
+                <div style="font-size:22px;font-weight:700;letter-spacing:-0.5px;">Stock Markets</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Top US equities tracked by the AI autopilot</div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
-                <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
-                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">1. Volume Momentum</div>
-                    <div style="font-size:10px;color:var(--text-muted);">High 24h volume vs total = active repricing. Trends with the money flow direction.</div>
+            <button class="btn btn-sm" style="background:var(--card);border:1px solid var(--border);font-size:12px;" onclick="loadMarketsStocks()">Refresh</button>
+        </div>
+        <div id="mktStocksTable">
+            <div style="text-align:center;padding:40px;color:var(--text-muted);">Loading stock markets...</div>
+        </div>
+    </div>
+
+    <!-- ═══ PREDICTIONS SUB-TAB ═══ -->
+    <div class="market-sub-content" id="mktContentPredictions">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap;gap:16px;">
+            <div>
+                <div style="font-size:22px;font-weight:700;letter-spacing:-0.5px;" id="pmSourceTitle">Polymarket</div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Short-term markets with AI edge estimation</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <div class="pm-timeframe-pills">
+                    <button class="pm-tf-pill active" onclick="setPmSource('polymarket')" id="pmSrcPoly">Polymarket</button>
+                    <button class="pm-tf-pill" onclick="setPmSource('kalshi')" id="pmSrcKalshi">Kalshi</button>
                 </div>
-                <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
-                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">2. Liquidity Depth</div>
-                    <div style="font-size:10px;color:var(--text-muted);">Thin order books = wider mispricings. Deep liquidity confirms current price.</div>
+                <div class="pm-timeframe-pills">
+                    <button class="pm-tf-pill" onclick="setPmTimeframe(3)" id="pmTf3">3d</button>
+                    <button class="pm-tf-pill" onclick="setPmTimeframe(7)" id="pmTf7">7d</button>
+                    <button class="pm-tf-pill active" onclick="setPmTimeframe(14)" id="pmTf14">14d</button>
+                    <button class="pm-tf-pill" onclick="setPmTimeframe(30)" id="pmTf30">30d</button>
+                    <button class="pm-tf-pill" onclick="setPmTimeframe(0)" id="pmTf0">All</button>
                 </div>
-                <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
-                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">3. Spread Analysis</div>
-                    <div style="font-size:10px;color:var(--text-muted);">Wide bid-ask spread = market maker uncertainty = opportunity for edge.</div>
+                <select id="pmCategoryFilter" onchange="filterPolymarkets()" style="padding:6px 12px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);font-size:12px;">
+                    <option value="all">All Categories</option>
+                    <option value="Politics">Politics</option>
+                    <option value="Sports">Sports</option>
+                    <option value="Crypto">Crypto</option>
+                    <option value="Business">Business</option>
+                    <option value="Science">Science</option>
+                    <option value="Pop Culture">Pop Culture</option>
+                    <option value="Financials">Financials</option>
+                    <option value="World">World</option>
+                    <option value="Economics">Economics</option>
+                </select>
+                <button class="btn btn-sm" style="background:var(--card);border:1px solid var(--border);font-size:12px;" onclick="fetchPolymarkets()">Refresh</button>
+            </div>
+        </div>
+
+        <div id="pmMethodologyBanner" style="margin-bottom:16px;padding:14px 16px;border-radius:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span style="font-size:14px;">&#x1f9e0;</span>
+                    <span style="font-size:13px;font-weight:600;">AI Edge Estimation</span>
+                    <span style="font-size:11px;color:var(--text-muted);">Market microstructure analysis</span>
                 </div>
-                <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
-                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">4. Contrarian Reversion</div>
-                    <div style="font-size:10px;color:var(--text-muted);">Extreme prices (>92% or <8%) tend to overshoot. Statistical mean reversion.</div>
+                <button class="pm-signals-toggle" onclick="toggleMethodology()">How it works</button>
+            </div>
+            <div id="pmMethodologyDetail" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.06);">
+                <div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">
+                    The AI estimates true probability using <b>5 market microstructure signals</b> — no news, no social media, no insider info. It detects potential mispricings purely from trading patterns:
                 </div>
-                <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);grid-column:span 2;">
-                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">5. Freshness Premium</div>
-                    <div style="font-size:10px;color:var(--text-muted);">Low-volume markets have less price discovery = wider potential mispricings. New markets offer better edges.</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
+                    <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
+                        <div style="font-size:11px;font-weight:600;margin-bottom:2px;">1. Volume Momentum</div>
+                        <div style="font-size:10px;color:var(--text-muted);">High 24h volume vs total = active repricing. Trends with the money flow direction.</div>
+                    </div>
+                    <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
+                        <div style="font-size:11px;font-weight:600;margin-bottom:2px;">2. Liquidity Depth</div>
+                        <div style="font-size:10px;color:var(--text-muted);">Thin order books = wider mispricings. Deep liquidity confirms current price.</div>
+                    </div>
+                    <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
+                        <div style="font-size:11px;font-weight:600;margin-bottom:2px;">3. Spread Analysis</div>
+                        <div style="font-size:10px;color:var(--text-muted);">Wide bid-ask spread = market maker uncertainty = opportunity for edge.</div>
+                    </div>
+                    <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);">
+                        <div style="font-size:11px;font-weight:600;margin-bottom:2px;">4. Contrarian Reversion</div>
+                        <div style="font-size:10px;color:var(--text-muted);">Extreme prices (>92% or <8%) tend to overshoot. Statistical mean reversion.</div>
+                    </div>
+                    <div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,0.02);grid-column:span 2;">
+                        <div style="font-size:11px;font-weight:600;margin-bottom:2px;">5. Freshness Premium</div>
+                        <div style="font-size:10px;color:var(--text-muted);">Low-volume markets have less price discovery = wider potential mispricings. New markets offer better edges.</div>
+                    </div>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:10px;padding:8px;border-radius:6px;background:rgba(255,165,0,0.05);border:1px solid rgba(255,165,0,0.1);">
+                    The AI nudge is typically 2-8% from market price. It's a statistical edge, not a prediction. Think: "the market might be slightly off by this much based on trading patterns." Always do your own research.
                 </div>
             </div>
-            <div style="font-size:11px;color:var(--text-muted);margin-top:10px;padding:8px;border-radius:6px;background:rgba(255,165,0,0.05);border:1px solid rgba(255,165,0,0.1);">
-                The AI nudge is typically 2-8% from market price. It's a statistical edge, not a prediction. Think: "the market might be slightly off by this much based on trading patterns." Always do your own research.
+        </div>
+
+        <div id="pmMarketsContainer">
+            <div style="text-align:center;padding:40px;color:var(--text-muted);">
+                <div style="font-size:20px;margin-bottom:8px;">Loading markets...</div>
             </div>
         </div>
     </div>
 
-    <div id="pmMarketsContainer">
-        <div style="text-align:center;padding:40px;color:var(--text-muted);">
-            <div style="font-size:20px;margin-bottom:8px;">Loading markets...</div>
-        </div>
-    </div>
-
-</div><!-- /contentPredictions -->
+</div><!-- /contentMarkets -->
 
 </div>
 </div>
@@ -1266,37 +1344,68 @@ function renderTopPortfolioChart() {
         if (!d.time) return '';
         return new Date(d.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false});
     });
+    const totalData = data.map(d => d.value || 0);
     const investedData = data.map(d => d.invested || 0);
     const uninvestedData = data.map(d => (d.value || 0) - (d.invested || 0));
 
     if (_portfolioChartInstance) _portfolioChartInstance.destroy();
+
+    // Create gradient fills
+    const chartCtx = ctx.getContext('2d');
+    const gradTotal = chartCtx.createLinearGradient(0, 0, 0, ctx.parentElement.clientHeight);
+    gradTotal.addColorStop(0, 'rgba(99,102,241,0.20)');
+    gradTotal.addColorStop(1, 'rgba(99,102,241,0.01)');
+    const gradInvested = chartCtx.createLinearGradient(0, 0, 0, ctx.parentElement.clientHeight);
+    gradInvested.addColorStop(0, 'rgba(139,92,246,0.18)');
+    gradInvested.addColorStop(1, 'rgba(139,92,246,0.01)');
+    const gradUninvested = chartCtx.createLinearGradient(0, 0, 0, ctx.parentElement.clientHeight);
+    gradUninvested.addColorStop(0, 'rgba(0,232,94,0.12)');
+    gradUninvested.addColorStop(1, 'rgba(0,232,94,0.01)');
+
     _portfolioChartInstance = new Chart(ctx, {
         type: 'line',
         data: {
             labels,
             datasets: [
                 {
+                    label: 'Total Value',
+                    data: totalData,
+                    borderColor: '#818cf8',
+                    backgroundColor: gradTotal,
+                    borderWidth: 2.5,
+                    fill: true,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    pointHoverBackgroundColor: '#818cf8',
+                    pointHoverBorderColor: '#fff',
+                    pointHoverBorderWidth: 2,
+                    tension: 0.35,
+                    order: 0,
+                },
+                {
                     label: 'Invested',
                     data: investedData,
-                    borderColor: '#6366f1',
-                    backgroundColor: 'rgba(99,102,241,0.15)',
-                    borderWidth: 2,
+                    borderColor: 'rgba(139,92,246,0.6)',
+                    backgroundColor: gradInvested,
+                    borderWidth: 1.5,
+                    borderDash: [4, 3],
                     fill: true,
                     pointRadius: 0,
                     pointHoverRadius: 3,
-                    tension: 0.3,
+                    tension: 0.35,
                     order: 1,
                 },
                 {
-                    label: 'Uninvested',
+                    label: 'Cash',
                     data: uninvestedData,
-                    borderColor: '#00e85e',
-                    backgroundColor: 'rgba(0,232,94,0.08)',
-                    borderWidth: 2,
+                    borderColor: 'rgba(0,232,94,0.5)',
+                    backgroundColor: gradUninvested,
+                    borderWidth: 1.5,
+                    borderDash: [4, 3],
                     fill: true,
                     pointRadius: 0,
                     pointHoverRadius: 3,
-                    tension: 0.3,
+                    tension: 0.35,
                     order: 2,
                 },
             ]
@@ -1306,24 +1415,42 @@ function renderTopPortfolioChart() {
             plugins: {
                 legend: {
                     display: true, position: 'top', align: 'end',
-                    labels: { color: '#888', boxWidth: 10, boxHeight: 10, font: { size: 10 }, padding: 8 }
+                    labels: {
+                        color: '#6b7280', boxWidth: 8, boxHeight: 8,
+                        font: { size: 11, weight: '500' }, padding: 12,
+                        usePointStyle: true, pointStyle: 'circle',
+                    }
                 },
                 tooltip: {
                     mode: 'index', intersect: false,
-                    backgroundColor: '#1a1a1a', borderColor: '#2a2a2a', borderWidth: 1,
-                    titleColor: '#9ca3af', bodyColor: '#fff', bodyFont: { weight: '600' },
-                    padding: 10, cornerRadius: 8,
+                    backgroundColor: 'rgba(15,15,15,0.95)',
+                    borderColor: 'rgba(255,255,255,0.08)', borderWidth: 1,
+                    titleColor: '#9ca3af', titleFont: { size: 11 },
+                    bodyColor: '#e5e7eb', bodyFont: { size: 12, weight: '600' },
+                    padding: 12, cornerRadius: 10,
+                    displayColors: true,
+                    boxWidth: 8, boxHeight: 8, boxPadding: 4,
                     callbacks: {
-                        label: c => c.dataset.label + ': $' + c.parsed.y.toFixed(2)
+                        title: items => items[0]?.label || '',
+                        label: c => ' ' + c.dataset.label + ':  $' + c.parsed.y.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}),
                     }
                 }
             },
             scales: {
-                x: { display: false },
+                x: {
+                    display: true,
+                    ticks: { color: '#3f3f46', font: { size: 10 }, maxRotation: 0, maxTicksLimit: 6 },
+                    grid: { display: false },
+                    border: { display: false },
+                },
                 y: {
-                    display: true, stacked: false, position: 'right',
-                    ticks: { color: '#444', font: { size: 10 }, callback: v => '$' + v, maxTicksLimit: 4 },
+                    display: true, position: 'right',
+                    ticks: {
+                        color: '#3f3f46', font: { size: 10 }, maxTicksLimit: 4,
+                        callback: v => '$' + (v >= 1000 ? (v/1000).toFixed(1) + 'k' : v.toFixed(0)),
+                    },
                     grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false },
+                    border: { display: false },
                 }
             },
             interaction: { mode: 'nearest', axis: 'x', intersect: false }
@@ -1377,10 +1504,10 @@ async function updatePortfolioStats() {
     } catch(e) {}
 }
 
-// Seed portfolio chart with initial value
-_portfolioChartHistory.push({ time: Math.floor(Date.now() / 1000), value: {{ portfolio_value }}, invested: 0 });
+// Seed portfolio chart — use time in the past so first real update is accepted
+_portfolioChartHistory.push({ time: Math.floor(Date.now() / 1000) - 30, value: {{ portfolio_value }}, invested: 0 });
 
-// Fetch live stats immediately
+// Fetch live stats immediately (will add a 2nd data point and render chart)
 updatePortfolioStats();
 
 // ═══════════════════════════════════════
@@ -1521,7 +1648,7 @@ setInterval(() => {
 // ═══════════════════════════════════════
 
 // Segment config: maps UI segment name → API endpoint + element IDs
-let currentTradeMode = 'paper';
+let currentTradeMode = '{{ "real" if user.trading_mode == "live" else "paper" }}';
 
 const SEGMENTS = {
     crypto: {
@@ -2133,35 +2260,101 @@ document.getElementById('realModeModal').addEventListener('click', function(e) {
 // ═══════════════════════════════════════
 function humanizeReason(raw) {
     if (!raw) return '';
+
+    // --- Altcoin Hunter ---
+    const ahMatch = raw.match(/Altcoin Hunter:\s*score\s*([0-9.]+)/i);
+    if (ahMatch) {
+        const score = parseFloat(ahMatch[1]);
+        const factors = [];
+        if (/momentum=([0-9.]+)/.test(raw)) {
+            const v = parseFloat(RegExp.$1);
+            if (v >= 0.7) factors.push('strong price momentum');
+            else if (v >= 0.4) factors.push('moderate momentum');
+        }
+        if (/rsi=([0-9.]+)/.test(raw)) {
+            const v = parseFloat(RegExp.$1);
+            if (v >= 0.7) factors.push('RSI in favorable zone');
+        }
+        if (/volume_surge=([0-9.]+)/.test(raw)) {
+            const v = parseFloat(RegExp.$1);
+            if (v >= 0.5) factors.push('volume surge detected');
+        }
+        if (/ema_alignment=([0-9.]+)/.test(raw)) {
+            const v = parseFloat(RegExp.$1);
+            if (v >= 0.7) factors.push('moving averages aligned bullish');
+        }
+        if (/adx_strength=([0-9.]+)/.test(raw)) {
+            const v = parseFloat(RegExp.$1);
+            if (v >= 0.5) factors.push('strong directional trend');
+        }
+        const strength = score >= 0.7 ? 'Very strong' : score >= 0.6 ? 'Strong' : 'Moderate';
+        const detail = factors.length > 0 ? ' — ' + factors.join(', ') + '.' : '.';
+        return escapeHtml(`${strength} uptrend signal (${(score*100).toFixed(0)}/100)${detail}`);
+    }
+
+    // --- Predictions AI ---
+    const predMatch = raw.match(/Predictions AI:\s*(YES|NO)\s+(.+?)\s+\(AI\s+([0-9.]+)%\s+vs\s+Mkt\s+([0-9.]+)%.*?edge\s+([0-9.]+)%/i);
+    if (predMatch) {
+        const [, side, question, aiProb, mktProb, edge] = predMatch;
+        return escapeHtml(`Betting ${side} on "${question.substring(0, 60)}" — AI sees ${edge}% edge (AI estimate: ${aiProb}% vs market: ${mktProb}%).`);
+    }
+
+    // --- Smart Auto / Ensemble ---
+    if (/Smart Auto/i.test(raw) || /ensemble/i.test(raw)) {
+        const signals = [];
+        const buyMatch = raw.match(/BUY signal\s*\(([0-9.]+)\s*confidence\)/i);
+        const sellMatch = raw.match(/SELL signal\s*\(([0-9.]+)\s*confidence\)/i);
+        if (buyMatch) signals.push({dir: 'bullish', conf: parseFloat(buyMatch[1])});
+        if (sellMatch) signals.push({dir: 'bearish', conf: parseFloat(sellMatch[1])});
+
+        const parts = [];
+        if (/Uptrend|EMA12\s*>\s*EMA26|above SMA/i.test(raw)) parts.push('price trending upward');
+        if (/Downtrend|EMA12\s*<\s*EMA26|below SMA/i.test(raw)) parts.push('price trending downward');
+        if (/overbought/i.test(raw)) parts.push('potentially overbought (may pull back)');
+        if (/oversold/i.test(raw)) parts.push('potentially oversold (may bounce)');
+        if (/strong trend|ADX/i.test(raw)) parts.push('strong directional movement');
+
+        const dominant = signals.length > 0 ? signals.sort((a,b) => b.conf - a.conf)[0] : null;
+        if (dominant) {
+            const conf = (dominant.conf * 100).toFixed(0);
+            const detail = parts.length > 0 ? ' — ' + parts.join(', ') + '.' : '.';
+            return escapeHtml(`${dominant.dir === 'bullish' ? 'Bullish' : 'Bearish'} signal (${conf}% confidence)${detail}`);
+        }
+        if (parts.length > 0) return escapeHtml(parts.join(', ') + '.');
+    }
+
+    // --- Trend Scanner ---
+    if (/Trend Scanner/i.test(raw)) {
+        const parts = [];
+        if (/BUY/i.test(raw)) parts.push('Buy signal detected');
+        if (/SELL/i.test(raw)) parts.push('Sell signal detected');
+        if (/breakout/i.test(raw)) parts.push('price breakout');
+        if (/momentum/i.test(raw)) parts.push('momentum shift');
+        const confM = raw.match(/([0-9.]+)\s*confidence/);
+        if (confM) parts.push(`${(parseFloat(confM[1])*100).toFixed(0)}% confidence`);
+        return escapeHtml(parts.join(' — ') || raw.substring(0, 120));
+    }
+
+    // --- Continuous re-entry ---
+    if (/Continuous re-entry/i.test(raw)) {
+        return escapeHtml('Autopilot re-entering position based on ongoing signal.');
+    }
+
+    // --- AI Exit ---
+    if (/ai.*exit|stale.*position|trailing.*stop/i.test(raw)) {
+        return escapeHtml(raw.replace(/\|/g, ' — ').substring(0, 150));
+    }
+
+    // --- Fallback: clean up raw text ---
     let text = raw;
-    // Parse "[strategy_name] SIGNAL(score)" patterns
-    text = text.replace(/\[trend_following\]\s*BUY\(([0-9.]+)\)/gi, 'Trend strategy: BUY signal ($1 confidence)');
-    text = text.replace(/\[trend_following\]\s*SELL\(([0-9.]+)\)/gi, 'Trend strategy: SELL signal ($1 confidence)');
-    text = text.replace(/\[trend_following\]\s*HOLD\(([0-9.]+)\)/gi, 'Trend strategy: HOLD ($1)');
-    text = text.replace(/\[mean_reversion\]\s*BUY\(([0-9.]+)\)/gi, 'Mean reversion: BUY signal ($1 confidence)');
-    text = text.replace(/\[mean_reversion\]\s*SELL\(([0-9.]+)\)/gi, 'Mean reversion: SELL signal ($1 confidence)');
-    text = text.replace(/\[mean_reversion\]\s*HOLD\(([0-9.]+)\)/gi, 'Mean reversion: HOLD ($1)');
-    text = text.replace(/\[momentum\]\s*BUY\(([0-9.]+)\)/gi, 'Momentum strategy: BUY signal ($1 confidence)');
-    text = text.replace(/\[momentum\]\s*SELL\(([0-9.]+)\)/gi, 'Momentum strategy: SELL signal ($1 confidence)');
-    text = text.replace(/\[momentum\]\s*HOLD\(([0-9.]+)\)/gi, 'Momentum strategy: HOLD ($1)');
-    // Parse ensemble notation
-    text = text.replace(/ensemble_conf=([0-9.]+)/gi, 'ensemble confidence: $1');
-    text = text.replace(/combined_conf=([0-9.]+)/gi, 'combined confidence: $1');
-    text = text.replace(/whale_score=([0-9.-]+)/gi, 'whale activity: $1');
-    text = text.replace(/sentiment=([0-9.-]+)/gi, 'sentiment: $1');
-    text = text.replace(/ob_pressure=([0-9.-]+)/gi, 'order book pressure: $1');
-    text = text.replace(/adx=([0-9.]+)/gi, 'ADX (trend strength): $1');
-    text = text.replace(/rsi=([0-9.]+)/gi, 'RSI: $1');
-    text = text.replace(/atr_pct=([0-9.]+)/gi, 'volatility (ATR%): $1');
-    text = text.replace(/tf_align=([0-9.]+)/gi, 'timeframe alignment: $1');
-    // Simplify common patterns
-    text = text.replace(/below threshold/gi, 'below minimum threshold');
-    text = text.replace(/conf\s*[<>=]+\s*([0-9.]+)/gi, 'confidence $1');
-    text = text.replace(/score:\s*([0-9.]+)/gi, 'score: $1');
-    // Clean up pipe/bracket separators
-    text = text.replace(/\s*\|\s*/g, ' · ');
-    text = text.replace(/\s*;\s*/g, ' · ');
-    return escapeHtml(text);
+    text = text.replace(/\[[\w_]+\]\s*/g, '');
+    text = text.replace(/\s*\|\s*/g, ' — ');
+    text = text.replace(/\s*;\s*/g, '. ');
+    text = text.replace(/([A-Z_]+)\(([0-9.]+)\)/g, (_, sig, val) => {
+        const v = parseFloat(val);
+        return `${sig.toLowerCase()} (${(v*100).toFixed(0)}%)`;
+    });
+    return escapeHtml(text.substring(0, 200));
 }
 
 function escapeHtml(text) {
@@ -2186,14 +2379,201 @@ function switchTab(tab) {
     if (tab === 'trading') {
         document.getElementById('tabTrading').classList.add('active');
         document.getElementById('contentTrading').classList.add('active');
-    } else if (tab === 'predictions') {
-        document.getElementById('tabPredictions').classList.add('active');
-        document.getElementById('contentPredictions').classList.add('active');
+    } else if (tab === 'markets') {
+        document.getElementById('tabMarkets').classList.add('active');
+        document.getElementById('contentMarkets').classList.add('active');
+        // Load crypto by default on first visit
+        if (!_marketsLoaded.crypto) {
+            loadMarketsCrypto();
+            _marketsLoaded.crypto = true;
+        }
+    }
+}
+
+// ═══════════════════════════════════════
+// Markets Sub-tab Navigation
+// ═══════════════════════════════════════
+const _marketsLoaded = { crypto: false, stocks: false, predictions: false };
+let _marketsSortCol = 'market_cap';
+let _marketsSortDir = -1;
+
+function switchMarketTab(sub) {
+    document.querySelectorAll('.market-sub-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.market-sub-content').forEach(c => c.classList.remove('active'));
+    document.getElementById('mktTab' + sub.charAt(0).toUpperCase() + sub.slice(1)).classList.add('active');
+    document.getElementById('mktContent' + sub.charAt(0).toUpperCase() + sub.slice(1)).classList.add('active');
+
+    // Show/hide search bar (not relevant for predictions)
+    document.getElementById('mktSearchWrap').style.display = sub === 'predictions' ? 'none' : 'block';
+
+    // Lazy-load data
+    if (sub === 'crypto' && !_marketsLoaded.crypto) {
+        loadMarketsCrypto();
+        _marketsLoaded.crypto = true;
+    } else if (sub === 'stocks' && !_marketsLoaded.stocks) {
+        loadMarketsStocks();
+        _marketsLoaded.stocks = true;
+    } else if (sub === 'predictions' && !_marketsLoaded.predictions) {
         if (!pmLoaded) {
             fetchPolymarkets();
             pmLoaded = true;
         }
+        _marketsLoaded.predictions = true;
     }
+}
+
+// ═══════════════════════════════════════
+// Markets — Crypto Table
+// ═══════════════════════════════════════
+let _cryptoMarkets = [];
+
+async function loadMarketsCrypto() {
+    const container = document.getElementById('mktCryptoTable');
+    try {
+        const resp = await fetch('/api/markets/crypto');
+        if (!resp.ok) throw new Error('Failed');
+        const data = await resp.json();
+        _cryptoMarkets = data.markets || [];
+        renderCryptoTable();
+    } catch(e) {
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">Failed to load crypto markets. Check exchange connection.</div>';
+    }
+}
+
+function renderCryptoTable() {
+    const container = document.getElementById('mktCryptoTable');
+    const search = (document.getElementById('mktSearchInput').value || '').toLowerCase();
+    let items = _cryptoMarkets.filter(m => !search || m.symbol.toLowerCase().includes(search) || (m.name || '').toLowerCase().includes(search));
+
+    // Sort
+    items.sort((a, b) => {
+        const av = a[_marketsSortCol] || 0, bv = b[_marketsSortCol] || 0;
+        return (av - bv) * _marketsSortDir;
+    });
+
+    if (items.length === 0) {
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">No markets found</div>';
+        return;
+    }
+
+    let html = `<table class="mkt-table">
+        <thead><tr>
+            <th onclick="sortMarkets('name')">Asset</th>
+            <th onclick="sortMarkets('price')" style="text-align:right;">Price</th>
+            <th onclick="sortMarkets('change_pct')" style="text-align:right;">24h</th>
+            <th onclick="sortMarkets('volume')" style="text-align:right;">Volume</th>
+            <th onclick="sortMarkets('market_cap')" style="text-align:right;">Mkt Cap</th>
+        </tr></thead><tbody>`;
+
+    for (const m of items) {
+        const sym = m.symbol.split('/')[0];
+        const price = m.price > 1 ? '$' + m.price.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})
+                                  : '$' + m.price.toFixed(6);
+        const chg = m.change_pct || 0;
+        const chgClass = chg >= 0 ? 'up' : 'down';
+        const chgStr = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+        const vol = m.volume ? '$' + _formatCompact(m.volume) : '—';
+        const mcap = m.market_cap ? '$' + _formatCompact(m.market_cap) : '—';
+
+        html += `<tr>
+            <td><div class="mkt-symbol">${sym}<span class="mkt-symbol-sub">${m.name || ''}</span></div></td>
+            <td style="text-align:right;font-weight:600;">${price}</td>
+            <td style="text-align:right;"><span class="mkt-change ${chgClass}">${chgStr}</span></td>
+            <td style="text-align:right;color:var(--text-secondary);">${vol}</td>
+            <td style="text-align:right;color:var(--text-secondary);">${mcap}</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    container.innerHTML = html;
+}
+
+function _formatCompact(n) {
+    if (n >= 1e12) return (n / 1e12).toFixed(1) + 'T';
+    if (n >= 1e9) return (n / 1e9).toFixed(1) + 'B';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return n.toFixed(0);
+}
+
+function sortMarkets(col) {
+    if (_marketsSortCol === col) {
+        _marketsSortDir *= -1;
+    } else {
+        _marketsSortCol = col;
+        _marketsSortDir = col === 'name' ? 1 : -1;
+    }
+    // Re-render whichever sub-tab is active
+    if (document.getElementById('mktContentCrypto').classList.contains('active')) renderCryptoTable();
+    else if (document.getElementById('mktContentStocks').classList.contains('active')) renderStocksTable();
+}
+
+function filterMarketTable() {
+    if (document.getElementById('mktContentCrypto').classList.contains('active')) renderCryptoTable();
+    else if (document.getElementById('mktContentStocks').classList.contains('active')) renderStocksTable();
+}
+
+// ═══════════════════════════════════════
+// Markets — Stocks Table
+// ═══════════════════════════════════════
+let _stockMarkets = [];
+
+async function loadMarketsStocks() {
+    const container = document.getElementById('mktStocksTable');
+    try {
+        const resp = await fetch('/api/markets/stocks');
+        if (!resp.ok) throw new Error('Failed');
+        const data = await resp.json();
+        _stockMarkets = data.markets || [];
+        renderStocksTable();
+    } catch(e) {
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">Failed to load stock markets. Check Alpaca connection.</div>';
+    }
+}
+
+function renderStocksTable() {
+    const container = document.getElementById('mktStocksTable');
+    const search = (document.getElementById('mktSearchInput').value || '').toLowerCase();
+    let items = _stockMarkets.filter(m => !search || m.symbol.toLowerCase().includes(search) || (m.name || '').toLowerCase().includes(search));
+
+    items.sort((a, b) => {
+        const av = a[_marketsSortCol] || 0, bv = b[_marketsSortCol] || 0;
+        if (typeof av === 'string') return av.localeCompare(bv) * _marketsSortDir;
+        return (av - bv) * _marketsSortDir;
+    });
+
+    if (items.length === 0) {
+        container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted);">No stock markets found</div>';
+        return;
+    }
+
+    let html = `<table class="mkt-table">
+        <thead><tr>
+            <th onclick="sortMarkets('name')">Asset</th>
+            <th onclick="sortMarkets('price')" style="text-align:right;">Price</th>
+            <th onclick="sortMarkets('change_pct')" style="text-align:right;">24h</th>
+            <th onclick="sortMarkets('volume')" style="text-align:right;">Volume</th>
+            <th onclick="sortMarkets('market_cap')" style="text-align:right;">Mkt Cap</th>
+        </tr></thead><tbody>`;
+
+    for (const m of items) {
+        const sym = m.symbol.split('/')[0];
+        const price = '$' + (m.price || 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+        const chg = m.change_pct || 0;
+        const chgClass = chg >= 0 ? 'up' : 'down';
+        const chgStr = (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%';
+        const vol = m.volume ? '$' + _formatCompact(m.volume) : '—';
+        const mcap = m.market_cap ? '$' + _formatCompact(m.market_cap) : '—';
+
+        html += `<tr>
+            <td><div class="mkt-symbol">${sym}<span class="mkt-symbol-sub">${m.name || ''}</span></div></td>
+            <td style="text-align:right;font-weight:600;">${price}</td>
+            <td style="text-align:right;"><span class="mkt-change ${chgClass}">${chgStr}</span></td>
+            <td style="text-align:right;color:var(--text-secondary);">${vol}</td>
+            <td style="text-align:right;color:var(--text-secondary);">${mcap}</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    container.innerHTML = html;
 }
 
 // ═══════════════════════════════════════

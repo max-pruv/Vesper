@@ -83,12 +83,26 @@ Recorded every cycle (~60s) by `_record_price_snapshots()` in `UserBot.run_cycle
 
 ## Dashboard UI Structure
 
-- **Portfolio Overview** (top): Value, chart (stacked invested/uninvested), stats grid
+**Two main tabs:** Dashboard + Markets
+
+### Dashboard Tab (autopilot management)
+- **Portfolio Overview** (top): Value, gradient chart (Total Value + Invested + Cash lines), stats grid
 - **3 Autopilot Cards**: Crypto, Stocks, Predictions — each has ON/OFF state, fund/deployed/P&L display, single "Edit" button (opens unified modal with fund, max bet, risk, reinvest %)
-- **Active Positions**: Cards with P&L sparkline, tooltips on all values, AI reasoning, Learn More modal
-- **P&L section removed** — replaced by portfolio chart at top
+- **Active Positions**: Cards with P&L sparkline, tooltips on all values, AI reasoning via `humanizeReason()`, Learn More modal
+- **AI Decisions**: Feed with filter (all/entries/skips), human-readable descriptions
 - **Trade History**: Table of closed trades
-- **Predictions Tab**: Polymarket/Kalshi browser with AI edge estimation
+
+### Markets Tab (browsable market data — 3 sub-tabs)
+- **Crypto**: Live prices for 60+ altcoins (ALTCOIN_UNIVERSE) — price, 24h%, volume. Sortable columns, search filter.
+- **Stocks**: US equities list (STOCK_SYMBOLS) — requires Alpaca keys for live prices.
+- **Predictions**: Polymarket/Kalshi browser with AI edge estimation, source selector, timeframe pills, methodology explainer.
+
+### Key JS Functions
+- `switchTab('trading'|'markets')` — main tab navigation
+- `switchMarketTab('crypto'|'stocks'|'predictions')` — Markets sub-tab navigation
+- `humanizeReason(raw)` — converts AI decision text to human-readable sentences
+- `renderTopPortfolioChart()` — gradient area chart with 3 datasets
+- `currentTradeMode` — initialized from server `{{ "real" if user.trading_mode == "live" else "paper" }}`
 
 ## API Endpoints (Key Ones)
 
@@ -100,9 +114,14 @@ Recorded every cycle (~60s) by `_record_price_snapshots()` in `UserBot.run_cycle
 | `/api/autopilot` | GET/POST | Stocks autopilot status/control |
 | `/api/predictions-autopilot` | GET/POST | Predictions autopilot status/control |
 | `/api/position-analysis/{pid}` | GET | Full AI analysis for Learn More modal |
+| `/api/markets/crypto` | GET | Crypto market browser (60+ altcoins, live prices) |
+| `/api/markets/stocks` | GET | Stock market browser (20 US equities) |
+| `/api/polymarket/markets` | GET | Polymarket prediction markets |
+| `/api/kalshi/markets` | GET | Kalshi prediction markets |
 | `/ws/live` | WS | Real-time updates (positions, stats, segments) |
 | `/api/admin/bot-state` | GET | Debug: user configs, scan logs |
 | `/api/admin/scan-test` | GET | Debug: test exchange + scanning pipeline |
+| `/api/admin/deploy` | POST | Hot-deploy: git pull + restart |
 | `/api/health` | GET | Health check with cycle state |
 
 ## Common Issues & Fixes
@@ -116,6 +135,10 @@ Recorded every cycle (~60s) by `_record_price_snapshots()` in `UserBot.run_cycle
 | `EnhancedEnsemble` not defined | Missing import | Fixed — added to top-level imports |
 | Cycle count = 0 | `__main__` vs `vesper.main` split | Fixed — shared `vesper/state.py` |
 | Prices show $0 | Dashboard used `ccxt.binance()` directly | Fixed — uses `_resolve_exchange()` |
+| Active positions not showing | `currentTradeMode` defaults to 'paper', but positions stored as 'real' in live mode | Fixed — initialized from server: `{{ "real" if user.trading_mode == "live" else "paper" }}` |
+| Portfolio chart not loading | Seed point same timestamp as first update, blocked by 5s dedup check | Fixed — seed 30s in the past |
+| AI decisions incomprehensible | Raw strategy output shown directly | Fixed — `humanizeReason()` rewrites into natural language |
+| Docker network conflict on deploy | `network with name vesper_default already exists` | Fix: `docker compose down --remove-orphans && docker network prune -f` |
 
 ## Deployment
 
@@ -126,7 +149,7 @@ git push -u origin claude/deploy-openclaw-cloudflare-GkBQL
 # On server (SSH): pull and rebuild
 cd /opt/vesper
 git pull origin claude/deploy-openclaw-cloudflare-GkBQL
-docker compose down && docker compose up -d --build
+docker compose down --remove-orphans && docker network prune -f && docker compose up -d --build
 
 # Check logs
 docker logs vesper-bot --tail 50 -f
@@ -141,5 +164,8 @@ curl -s http://localhost:8080/api/admin/bot-state | python3 -m json.tool
 - **Crypto autopilot**: Working. BinanceUS auto-selected. Scans 60+ coins, opens positions.
 - **Stocks autopilot**: Needs Alpaca API keys configured by user.
 - **Predictions autopilot**: Should work if Perplexity + Anthropic keys are set. Runs hourly.
-- **Dashboard**: Real-time via WebSocket + 10s polling fallback. Portfolio chart, tooltips, unified Edit modal.
+- **Dashboard tab**: Real-time via WebSocket + 10s polling fallback. Portfolio gradient chart, tooltips, unified Edit modal, humanized AI decisions.
+- **Markets tab**: 3 sub-tabs (Crypto, Stocks, Predictions). Crypto shows live prices for ALTCOIN_UNIVERSE. Predictions shows Polymarket/Kalshi browser.
 - **Price recording**: Every 60s per position for sparkline charts.
+- **currentTradeMode**: Initialized from server-side `user.trading_mode` (not hardcoded 'paper').
+- **Hot-deploy**: `/api/admin/deploy` does git pull + restart. Git installed in Dockerfile.

@@ -2456,6 +2456,134 @@ async def api_position_analysis(pid: str, request: Request):
 
 
 # ═══════════════════════════════════════
+# Markets Browser (Crypto + Stocks)
+# ═══════════════════════════════════════
+
+_markets_crypto_cache: dict = {}
+_markets_stocks_cache: dict = {}
+
+
+def _fetch_crypto_markets_sync() -> list[dict]:
+    """Fetch full ALTCOIN_UNIVERSE tickers with volume + market cap."""
+    from config.settings import ALTCOIN_UNIVERSE
+    ex = _get_public_exchange()
+    available = [s for s in ALTCOIN_UNIVERSE if s in ex.markets]
+    result = []
+    try:
+        tickers = ex.fetch_tickers(available)
+        for sym in available:
+            t = tickers.get(sym)
+            if not t:
+                continue
+            result.append({
+                "symbol": sym,
+                "name": sym.split("/")[0],
+                "price": t.get("last", 0) or 0,
+                "change_pct": _calc_change_pct(t),
+                "volume": (t.get("quoteVolume") or t.get("baseVolume", 0) or 0),
+                "market_cap": 0,  # ccxt doesn't provide this directly
+                "high": t.get("high", 0) or 0,
+                "low": t.get("low", 0) or 0,
+            })
+    except Exception:
+        # Fallback: fetch individually for key symbols
+        for sym in available[:20]:
+            try:
+                t = ex.fetch_ticker(sym)
+                result.append({
+                    "symbol": sym,
+                    "name": sym.split("/")[0],
+                    "price": t.get("last", 0) or 0,
+                    "change_pct": _calc_change_pct(t),
+                    "volume": (t.get("quoteVolume") or t.get("baseVolume", 0) or 0),
+                    "market_cap": 0,
+                    "high": t.get("high", 0) or 0,
+                    "low": t.get("low", 0) or 0,
+                })
+            except Exception:
+                pass
+    # Sort by volume descending
+    result.sort(key=lambda x: x.get("volume", 0), reverse=True)
+    return result
+
+
+@app.get("/api/markets/crypto")
+async def api_markets_crypto(request: Request):
+    """Crypto market browser — all tracked altcoins with live data."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    now = time.time()
+    cached = _markets_crypto_cache.get("data")
+    if cached and now - _markets_crypto_cache.get("ts", 0) < 30:
+        return {"markets": cached}
+
+    loop = asyncio.get_event_loop()
+    markets = await loop.run_in_executor(None, _fetch_crypto_markets_sync)
+    _markets_crypto_cache["data"] = markets
+    _markets_crypto_cache["ts"] = now
+    return {"markets": markets}
+
+
+@app.get("/api/markets/stocks")
+async def api_markets_stocks(request: Request):
+    """Stock market browser — tracked equities."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    from config.settings import STOCK_SYMBOLS
+
+    now = time.time()
+    cached = _markets_stocks_cache.get("data")
+    if cached and now - _markets_stocks_cache.get("ts", 0) < 60:
+        return {"markets": cached}
+
+    # Try fetching from Alpaca if available
+    result = []
+    try:
+        import alpaca_trade_api as tradeapi
+        alpaca_key = os.environ.get("ALPACA_API_KEY", "")
+        alpaca_secret = os.environ.get("ALPACA_SECRET_KEY", "")
+        if alpaca_key and alpaca_secret:
+            api = tradeapi.REST(alpaca_key, alpaca_secret, base_url="https://paper-api.alpaca.markets")
+            for sym_pair in STOCK_SYMBOLS:
+                sym = sym_pair.split("/")[0]
+                try:
+                    snapshot = api.get_snapshot(sym)
+                    price = snapshot.latest_trade.price if snapshot.latest_trade else 0
+                    prev_close = snapshot.prev_daily_bar.close if snapshot.prev_daily_bar else price
+                    chg = ((price - prev_close) / prev_close * 100) if prev_close else 0
+                    vol = snapshot.daily_bar.volume if snapshot.daily_bar else 0
+                    result.append({
+                        "symbol": sym_pair,
+                        "name": sym,
+                        "price": price,
+                        "change_pct": round(chg, 2),
+                        "volume": vol * price,
+                        "market_cap": 0,
+                    })
+                except Exception:
+                    result.append({
+                        "symbol": sym_pair, "name": sym,
+                        "price": 0, "change_pct": 0, "volume": 0, "market_cap": 0,
+                    })
+    except Exception:
+        # No Alpaca — return static list with no prices
+        for sym_pair in STOCK_SYMBOLS:
+            sym = sym_pair.split("/")[0]
+            result.append({
+                "symbol": sym_pair, "name": sym,
+                "price": 0, "change_pct": 0, "volume": 0, "market_cap": 0,
+            })
+
+    _markets_stocks_cache["data"] = result
+    _markets_stocks_cache["ts"] = now
+    return {"markets": result}
+
+
+# ═══════════════════════════════════════
 # Polymarket API
 # ═══════════════════════════════════════
 
