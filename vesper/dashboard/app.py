@@ -654,7 +654,7 @@ def _fetch_tickers_sync() -> list[dict]:
                 result.append({
                     "symbol": sym,
                     "name": sym.split("/")[0],
-                    "price": t.get("last", 0),
+                    "price": t.get("last") or 0,
                     "change_pct": _calc_change_pct(t),
                     "asset_type": "crypto",
                 })
@@ -666,7 +666,7 @@ def _fetch_tickers_sync() -> list[dict]:
                 result.append({
                     "symbol": sym,
                     "name": sym.split("/")[0],
-                    "price": t.get("last", 0),
+                    "price": t.get("last") or 0,
                     "change_pct": _calc_change_pct(t),
                     "asset_type": "crypto",
                 })
@@ -688,7 +688,7 @@ def _fetch_stock_prices_sync(api_key: str, api_secret: str) -> list[dict]:
                 result.append({
                     "symbol": sym,
                     "name": sym.split("/")[0],
-                    "price": t.get("last", 0),
+                    "price": t.get("last") or 0,
                     "change_pct": 0.0,  # Alpaca quotes don't include 24h change
                     "asset_type": "stock",
                 })
@@ -991,7 +991,7 @@ async def api_reasoning(request: Request, pid: str = ""):
 
     # Get current price
     prices = await _get_cached_prices()
-    price_map = {p["symbol"]: p["price"] for p in prices}
+    price_map = {p["symbol"]: (p["price"] or 0) for p in prices}
     current_price = price_map.get(pos["symbol"], pos["entry_price"])
 
     # Run analysis
@@ -1032,7 +1032,7 @@ async def api_portfolio_stats(request: Request):
     unrealized_pnl = 0
     if positions:
         prices = await _get_all_prices(user)
-        price_map = {p["symbol"]: p["price"] for p in prices}
+        price_map = {p["symbol"]: (p["price"] or 0) for p in prices}
         for p in positions.values():
             entry = p.get("entry_price", 0)
             current = price_map.get(p.get("symbol", ""), entry)
@@ -1095,7 +1095,7 @@ async def api_positions(request: Request):
 
     # Fetch crypto + stock prices (stock prices need user's Alpaca keys)
     prices = await _get_all_prices(user)
-    price_map = {p["symbol"]: p["price"] for p in prices}
+    price_map = {p["symbol"]: (p["price"] or 0) for p in prices}
 
     import logging
     logger = logging.getLogger("vesper.dashboard")
@@ -1212,7 +1212,7 @@ async def api_open_trade(request: Request):
 
     # Get current price
     prices = await _get_cached_prices()
-    price_map = {p["symbol"]: p["price"] for p in prices}
+    price_map = {p["symbol"]: (p["price"] or 0) for p in prices}
     current_price = price_map.get(symbol, 0)
     if current_price <= 0:
         return JSONResponse({"error": "Could not fetch price for " + symbol}, status_code=400)
@@ -1323,7 +1323,7 @@ async def api_close_trade(request: Request):
 
     # Get current price
     prices = await _get_cached_prices()
-    price_map = {p["symbol"]: p["price"] for p in prices}
+    price_map = {p["symbol"]: (p["price"] or 0) for p in prices}
     current_price = price_map.get(pos["symbol"], pos["entry_price"])
 
     # Calculate P&L
