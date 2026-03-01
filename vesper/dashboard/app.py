@@ -896,6 +896,33 @@ async def health():
     }
 
 
+@app.post("/api/admin/deploy")
+async def admin_deploy():
+    """Trigger deploy by proxying to the deploy-webhook running on the host.
+    The webhook (port 9876) runs outside Docker and handles git pull + docker rebuild."""
+    import httpx
+    # Inside Docker, the host is reachable at host.docker.internal or 172.17.0.1
+    webhook_urls = [
+        "http://host.docker.internal:9876/deploy",
+        "http://172.17.0.1:9876/deploy",
+    ]
+    deploy_token = os.environ.get("DEPLOY_TOKEN", "")
+    headers = {"Authorization": f"Bearer {deploy_token}"} if deploy_token else {}
+
+    for url in webhook_urls:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.post(url, headers=headers)
+                return {"status": "triggered", "webhook_response": resp.text, "url": url}
+        except Exception:
+            continue
+
+    return {"status": "webhook_unreachable",
+            "message": "Deploy webhook not reachable. SSH to server and run: "
+                       "cd /opt/vesper && git pull origin claude/deploy-openclaw-cloudflare-GkBQL && "
+                       "docker compose down && docker compose up -d --build"}
+
+
 @app.get("/api/admin/bot-state")
 async def bot_state():
     """Debug endpoint — show all active users and their autopilot configs."""
