@@ -56,6 +56,19 @@ STOCK_SYMBOLS = [
 ]
 
 
+# Extended altcoin universe — scanned alongside TICKER_SYMBOLS in autopilot
+ALTCOIN_SCAN_SYMBOLS = [
+    "INJ/USDT", "TIA/USDT", "SEI/USDT", "SUI/USDT",
+    "JUP/USDT", "WLD/USDT", "BONK/USDT", "WIF/USDT",
+    "PEPE/USDT", "FLOKI/USDT", "RENDER/USDT", "FET/USDT",
+    "TAO/USDT", "RUNE/USDT", "PENDLE/USDT", "STX/USDT",
+    "IMX/USDT", "PYTH/USDT", "JTO/USDT", "OCEAN/USDT",
+]
+
+# All crypto symbols (core + altcoins) for autopilot scanning
+ALL_CRYPTO_SYMBOLS = TICKER_SYMBOLS + ALTCOIN_SCAN_SYMBOLS
+
+
 def is_stock_symbol(symbol: str) -> bool:
     """Check if a symbol is a stock (ends with /USD) vs crypto (/USDT)."""
     return symbol.endswith("/USD")

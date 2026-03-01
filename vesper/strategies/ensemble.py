@@ -72,13 +72,16 @@ class EnsembleStrategy(Strategy):
 class EnhancedEnsemble(EnsembleStrategy):
     """AI Brain — combines technical analysis + whale tracking + sentiment.
 
-    Uses 6 signal layers to decide entry AND exit:
+    Uses 9 signal layers to decide entry AND exit:
     1. Technical ensemble (trend + mean-reversion + momentum)
     2. Multi-timeframe alignment (1h + 4h EMA agreement)
     3. Order book pressure (bid/ask imbalance)
     4. Whale activity (large trades, on-chain flows)
     5. Composite sentiment (Reddit + news + Fear&Greed + momentum)
     6. ADX trend strength
+    7. RSI divergence (bullish/bearish divergence detection)
+    8. Support/Resistance proximity (key price levels)
+    9. Volume profile (Point of Control positioning)
 
     The AI can override technical signals when whale + sentiment diverge.
     """
@@ -194,7 +197,65 @@ class EnhancedEnsemble(EnsembleStrategy):
                 confidence += 0.05
                 extra_reasons.append(f"strong trend (ADX {adx:.0f})")
 
+            # ── Layer 7: RSI Divergence (±0.10) ──
+            rsi_div = snapshot.get("rsi_divergence", "none")
+            if rsi_div == "bullish" and signal == Signal.BUY:
+                confidence += 0.10
+                extra_reasons.append("bullish RSI divergence confirms entry")
+            elif rsi_div == "bearish" and signal == Signal.SELL:
+                confidence += 0.10
+                extra_reasons.append("bearish RSI divergence confirms exit")
+            elif rsi_div == "bullish" and signal == Signal.SELL:
+                confidence -= 0.07
+                extra_reasons.append("bullish RSI divergence contradicts sell")
+            elif rsi_div == "bearish" and signal == Signal.BUY:
+                confidence -= 0.07
+                extra_reasons.append("bearish RSI divergence contradicts buy")
+
+            # ── Layer 8: Support/Resistance proximity (±0.08) ──
+            sr = snapshot.get("sr_levels", {})
+            nearest_support = sr.get("nearest_support", 0)
+            nearest_resistance = sr.get("nearest_resistance", 0)
+            price = snapshot.get("price", 0)
+            if price and nearest_support and signal == Signal.BUY:
+                dist_pct = (price - nearest_support) / price
+                if dist_pct < 0.015:  # within 1.5% of support
+                    confidence += 0.08
+                    extra_reasons.append(f"near support ${nearest_support:,.0f} (+0.08)")
+                elif dist_pct < 0.03:  # within 3%
+                    confidence += 0.04
+                    extra_reasons.append(f"approaching support ${nearest_support:,.0f}")
+            if price and nearest_resistance and signal == Signal.SELL:
+                dist_pct = (nearest_resistance - price) / price
+                if dist_pct < 0.015:  # within 1.5% of resistance
+                    confidence += 0.08
+                    extra_reasons.append(f"near resistance ${nearest_resistance:,.0f} (+0.08)")
+                elif dist_pct < 0.03:
+                    confidence += 0.04
+                    extra_reasons.append(f"approaching resistance ${nearest_resistance:,.0f}")
+
+            # ── Layer 9: Volume Profile — POC positioning (±0.05) ──
+            vp = snapshot.get("volume_profile", {})
+            price_vs_poc = vp.get("price_vs_poc", "at")
+            poc = vp.get("poc", 0)
+            if signal == Signal.BUY and price_vs_poc == "below":
+                confidence += 0.05
+                extra_reasons.append(f"below POC ${poc:,.0f} — value zone buy")
+            elif signal == Signal.SELL and price_vs_poc == "above":
+                confidence += 0.05
+                extra_reasons.append(f"above POC ${poc:,.0f} — overextended sell")
+            elif signal == Signal.BUY and price_vs_poc == "above":
+                confidence -= 0.03
+                extra_reasons.append(f"above POC — less value")
+
         confidence = max(0.0, min(confidence, 1.0))
+
+        # ── SHORT detection: strong bearish conviction → open short position ──
+        # Conditions: SELL signal with high confidence + bearish whale + bearish trend
+        if (signal == Signal.SELL and confidence >= 0.60
+                and whale_score < -0.15 and alignment < 0.3):
+            signal = Signal.SHORT
+            extra_reasons.append("strong bearish setup → SHORT signal")
 
         # Build enhanced reason
         reason = base.reason

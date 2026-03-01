@@ -12,7 +12,7 @@ import threading
 from apscheduler.schedulers.blocking import BlockingScheduler
 import uvicorn
 
-from config.settings import ExchangeConfig, RiskConfig, TICKER_SYMBOLS, STOCK_SYMBOLS, is_stock_symbol
+from config.settings import ExchangeConfig, RiskConfig, TICKER_SYMBOLS, STOCK_SYMBOLS, ALL_CRYPTO_SYMBOLS, is_stock_symbol
 from vesper.exchange import create_exchange, AlpacaExchange
 from vesper.market_data import (
     get_market_snapshot, get_multi_tf_snapshot,
@@ -92,6 +92,12 @@ class UserBot:
             f"[User:{self.email}] Portfolio: ${summary['total_value']:,.2f} | "
             f"P&L: ${summary['total_pnl_usd']:+,.2f} ({summary['total_pnl_pct']:+.2f}%)"
         )
+
+        # Record portfolio value snapshot for the equity chart
+        try:
+            self.portfolio.record_value_snapshot(prices)
+        except Exception:
+            pass
 
     def _get_strategy(self, strategy_id: str):
         """Get or create a strategy instance for the given strategy_id."""
@@ -236,6 +242,15 @@ class UserBot:
                 self._reopen_continuous(closed_continuous, snapshot)
             else:
                 self._open_position(symbol, snapshot, result)
+        elif result.signal == Signal.SHORT:
+            # Only short stocks via Alpaca (crypto shorting not supported)
+            if is_stock_symbol(symbol) and self.alpaca:
+                self._open_short_position(symbol, snapshot, result)
+            else:
+                self.logger.debug(
+                    f"[User:{self.email}] SHORT signal for {symbol} — "
+                    f"skipping (shorting only available for stocks via Alpaca)"
+                )
 
     def _open_position(self, symbol, snapshot, result):
         portfolio_value = self.portfolio.total_value({symbol: snapshot["price"]})
@@ -278,18 +293,66 @@ class UserBot:
             except Exception as e:
                 self.logger.error(f"[User:{self.email}] BUY failed {symbol}: {e}")
 
+    def _open_short_position(self, symbol, snapshot, result):
+        """Open a short position (sell to open). Currently stocks only via Alpaca."""
+        portfolio_value = self.portfolio.total_value({symbol: snapshot["price"]})
+        limits = self.risk_manager.calculate_position(
+            entry_price=snapshot["price"],
+            portfolio_value=portfolio_value,
+            atr=snapshot["atr"],
+            confidence=result.confidence,
+            side="sell",
+        )
+
+        position = Position(
+            symbol=symbol, side="sell",
+            entry_price=snapshot["price"],
+            amount=limits.position_size_asset,
+            cost_usd=limits.position_size_usd,
+            limits=limits,
+            strategy_reason=f"SHORT: {result.reason}",
+        )
+
+        if self.mode == "paper":
+            if self.portfolio.open_position(position):
+                self.logger.info(
+                    f"[User:{self.email}] PAPER SHORT {symbol}: "
+                    f"{position.amount:.6f} @ ${position.entry_price:,.2f}"
+                )
+        else:
+            try:
+                from vesper.exchange import alpaca_market_sell
+                order = alpaca_market_sell(self.alpaca, symbol, limits.position_size_asset)
+                position.entry_price = float(order.get("average", snapshot["price"]))
+                position.amount = float(order.get("filled", limits.position_size_asset))
+                position.cost_usd = position.entry_price * position.amount
+                self.portfolio.open_position(position)
+                self.logger.info(f"[User:{self.email}] LIVE SHORT {symbol}: filled")
+            except Exception as e:
+                self.logger.error(f"[User:{self.email}] SHORT failed {symbol}: {e}")
+
     def _close_position(self, position: Position, exit_price: float, reason: str):
         trade_mode = position.trade_mode if position.trade_mode else self.mode
         if trade_mode == "real" or self.mode == "live":
             try:
-                if is_stock_symbol(position.symbol) and self.alpaca:
-                    from vesper.exchange import alpaca_market_sell
-                    alpaca_market_sell(self.alpaca, position.symbol, position.amount)
+                if position.side == "sell":
+                    # Closing a short = buy back
+                    if is_stock_symbol(position.symbol) and self.alpaca:
+                        from vesper.exchange import alpaca_market_buy
+                        alpaca_market_buy(self.alpaca, position.symbol, position.cost_usd)
+                    else:
+                        from vesper.exchange import place_market_buy
+                        place_market_buy(self.exchange, position.symbol, position.amount)
                 else:
-                    from vesper.exchange import place_market_sell
-                    place_market_sell(self.exchange, position.symbol, position.amount)
+                    # Closing a long = sell
+                    if is_stock_symbol(position.symbol) and self.alpaca:
+                        from vesper.exchange import alpaca_market_sell
+                        alpaca_market_sell(self.alpaca, position.symbol, position.amount)
+                    else:
+                        from vesper.exchange import place_market_sell
+                        place_market_sell(self.exchange, position.symbol, position.amount)
             except Exception as e:
-                self.logger.error(f"[User:{self.email}] SELL failed: {e}")
+                self.logger.error(f"[User:{self.email}] Close failed: {e}")
                 return
 
         record = self.portfolio.close_position(position.id, exit_price, reason)
@@ -512,8 +575,8 @@ class UserBot:
         scanned = 0
         scan_details = []
 
-        # Scan crypto symbols
-        for sym in TICKER_SYMBOLS:
+        # Scan all crypto symbols (core + altcoins)
+        for sym in ALL_CRYPTO_SYMBOLS:
             try:
                 if any(pos.symbol == sym for pos in autopilot_positions):
                     continue
@@ -554,7 +617,8 @@ class UserBot:
                         "sentiment": 0.0,
                         "reason": result.reason[:100],
                     })
-                    if result.signal == Signal.BUY and result.confidence >= 0.55:
+                    # Accept both BUY and SHORT signals for stocks (Alpaca supports shorting)
+                    if result.signal in (Signal.BUY, Signal.SHORT) and result.confidence >= 0.55:
                         candidates.append((result.confidence, sym, snap, result))
                 except Exception:
                     continue
@@ -574,8 +638,12 @@ class UserBot:
             })
             return
 
-        # Sort by confidence, pick the top N to fill available slots
-        candidates.sort(reverse=True, key=lambda x: x[0])
+        # Sort by confidence + whale score for a composite ranking
+        def _rank(c):
+            conf, sym, snap, result = c
+            whale = snap.get("whale_score", 0)
+            return conf * 0.7 + max(whale, 0) * 0.3  # confidence dominates, whale is a bonus
+        candidates.sort(reverse=True, key=_rank)
         to_open = candidates[:slots_open]
 
         # Allocate funds evenly across new positions
@@ -599,18 +667,33 @@ class UserBot:
             tp_min_pct = 1.5 + confidence * 1.0  # 1.5% - 2.5%
             tp_max_pct = 5.0 + confidence * 5.0  # 5% - 10%
 
-            limits = PositionLimits(
-                stop_loss_price=new_price * (1 - sl_pct / 100),
-                take_profit_min_price=new_price * (1 + tp_min_pct / 100),
-                take_profit_max_price=new_price * (1 + tp_max_pct / 100),
-                position_size_usd=amount_usd,
-                position_size_asset=amount_usd / new_price,
-                trailing_stop_pct=1.5,  # Autopilot always uses trailing stop
-                highest_price_seen=new_price,
-            )
+            # Determine side (long or short)
+            side = "sell" if result.signal == Signal.SHORT else "buy"
+
+            if side == "buy":
+                limits = PositionLimits(
+                    stop_loss_price=new_price * (1 - sl_pct / 100),
+                    take_profit_min_price=new_price * (1 + tp_min_pct / 100),
+                    take_profit_max_price=new_price * (1 + tp_max_pct / 100),
+                    position_size_usd=amount_usd,
+                    position_size_asset=amount_usd / new_price,
+                    trailing_stop_pct=1.5,
+                    highest_price_seen=new_price,
+                )
+            else:
+                # SHORT: SL above entry, TP below entry (inverted)
+                limits = PositionLimits(
+                    stop_loss_price=new_price * (1 + sl_pct / 100),
+                    take_profit_min_price=new_price * (1 - tp_min_pct / 100),
+                    take_profit_max_price=new_price * (1 - tp_max_pct / 100),
+                    position_size_usd=amount_usd,
+                    position_size_asset=amount_usd / new_price,
+                    trailing_stop_pct=1.5,
+                    highest_price_seen=new_price,
+                )
 
             position = Position(
-                symbol=sym, side="buy",
+                symbol=sym, side=side,
                 entry_price=new_price,
                 amount=limits.position_size_asset,
                 cost_usd=amount_usd,
@@ -628,26 +711,27 @@ class UserBot:
 
             if self.mode == "live":
                 try:
-                    if is_stock_symbol(sym) and self.alpaca:
+                    if side == "sell":
+                        # SHORT entry — sell to open
+                        from vesper.exchange import alpaca_market_sell
+                        order = alpaca_market_sell(self.alpaca, sym, limits.position_size_asset)
+                    elif is_stock_symbol(sym) and self.alpaca:
                         from vesper.exchange import alpaca_market_buy
                         order = alpaca_market_buy(self.alpaca, sym, amount_usd)
-                        position.entry_price = float(order.get("average", new_price))
-                        position.amount = float(order.get("filled", limits.position_size_asset))
-                        position.cost_usd = position.entry_price * position.amount
                     else:
                         from vesper.exchange import place_market_buy
                         order = place_market_buy(self.exchange, sym, limits.position_size_asset)
-                        position.entry_price = float(order.get("average", new_price))
-                        position.amount = float(order.get("filled", limits.position_size_asset))
-                        position.cost_usd = position.entry_price * position.amount
+                    position.entry_price = float(order.get("average", new_price))
+                    position.amount = float(order.get("filled", limits.position_size_asset))
+                    position.cost_usd = position.entry_price * position.amount
                 except Exception as e:
-                    self.logger.error(f"[User:{self.email}] Autopilot BUY failed {sym}: {e}")
+                    self.logger.error(f"[User:{self.email}] Autopilot {side.upper()} failed {sym}: {e}")
                     continue
 
             if self.portfolio.open_position(position):
                 available -= amount_usd
                 actions.append({
-                    "action": "BUY",
+                    "action": "SHORT" if side == "sell" else "BUY",
                     "symbol": sym,
                     "amount_usd": round(amount_usd, 2),
                     "price": round(new_price, 2),

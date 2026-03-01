@@ -8,6 +8,7 @@ from abc import ABC, abstractmethod
 class Signal(Enum):
     BUY = "BUY"
     SELL = "SELL"
+    SHORT = "SHORT"  # Open a short position (distinct from SELL which closes a long)
     HOLD = "HOLD"
 
 

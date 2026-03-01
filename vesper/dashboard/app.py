@@ -414,6 +414,13 @@ async def dashboard(request: Request):
 
     strategies = get_strategy_catalog()
 
+    # Portfolio value history for the equity chart
+    value_history = portfolio.get("value_history", [])
+    # Thin to max 200 points for initial page render
+    if len(value_history) > 200:
+        step = len(value_history) // 200
+        value_history = value_history[::step] + [value_history[-1]]
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request, "user": user, "cash": cash,
         "initial_balance": initial, "total_pnl": total_pnl,
@@ -422,10 +429,53 @@ async def dashboard(request: Request):
         "wins": len(wins), "losses": len(losses),
         "positions": fmt_pos, "trades": fmt_trades,
         "equity_curve": json.dumps(equity),
+        "value_history": json.dumps(value_history),
         "has_api_keys": bool(user.coinbase_api_key) or bool(user.alpaca_api_key),
         "has_alpaca": bool(user.alpaca_api_key),
         "strategies": strategies,
     })
+
+
+# --- Markets ---
+
+@app.get("/markets", response_class=HTMLResponse)
+async def markets_page(request: Request):
+    user = _get_user(request)
+    if not user:
+        return RedirectResponse(url="/login", status_code=303)
+
+    strategies = get_strategy_catalog()
+    from config.settings import STOCK_SYMBOLS
+    return templates.TemplateResponse("markets.html", {
+        "request": request, "user": user,
+        "strategies": strategies,
+        "crypto_symbols": ALL_CRYPTO_SYMBOLS,
+        "stock_symbols": STOCK_SYMBOLS,
+    })
+
+
+@app.get("/api/markets/crypto")
+async def api_markets_crypto(request: Request):
+    """Crypto market data for the markets page."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    prices = await _get_cached_prices()
+    return prices
+
+
+@app.get("/api/markets/stocks")
+async def api_markets_stocks(request: Request):
+    """Stock market data for the markets page."""
+    user = _get_user(request)
+    if not user:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    stocks = await _get_cached_stock_prices(user)
+    if not stocks:
+        # Return placeholders for stocks when no Alpaca keys
+        from config.settings import STOCK_SYMBOLS
+        return [{"symbol": sym, "name": sym.split("/")[0], "price": 0, "change_pct": 0, "asset_type": "stock"} for sym in STOCK_SYMBOLS]
+    return stocks
 
 
 # --- Settings ---
@@ -512,7 +562,7 @@ async def toggle_mode(request: Request):
 
 # --- Price Cache ---
 
-from config.settings import TICKER_SYMBOLS
+from config.settings import TICKER_SYMBOLS, ALL_CRYPTO_SYMBOLS
 _price_cache: dict = {}
 _price_cache_time: float = 0
 _CACHE_TTL = 10  # seconds
@@ -552,16 +602,26 @@ def _fetch_signal_sync(symbol: str, strategy_id: str = "smart_auto") -> dict:
 
         strategy = config["strategy"]()
         result = strategy.analyze(snapshot)
+
+        # Generate human-readable summary
+        from vesper.humanize import humanize_signal
+        human_summary = humanize_signal(
+            symbol, result.signal.value, result.confidence,
+            result.reason, snapshot
+        )
+
         return {
             "signal": result.signal.value,
             "confidence": round(result.confidence, 2),
             "reason": result.reason,
+            "human_summary": human_summary,
             "strategy": strategy_id,
             "timeframe": timeframe if timeframe != "multi" else "1h+4h",
         }
     except Exception:
         return {"signal": "HOLD", "confidence": 0,
                 "reason": "Unable to analyze — data unavailable",
+                "human_summary": f"{symbol.split('/')[0]} — data unavailable, holding off.",
                 "strategy": strategy_id}
 
 
@@ -583,12 +643,12 @@ def _calc_change_pct(t: dict) -> float:
 
 
 def _fetch_tickers_sync() -> list[dict]:
-    """Fetch ticker data for all symbols (sync, run in executor)."""
+    """Fetch ticker data for all crypto symbols including altcoins (sync, run in executor)."""
     ex = _get_public_exchange()
     result = []
     try:
-        tickers = ex.fetch_tickers(TICKER_SYMBOLS)
-        for sym in TICKER_SYMBOLS:
+        tickers = ex.fetch_tickers(ALL_CRYPTO_SYMBOLS)
+        for sym in ALL_CRYPTO_SYMBOLS:
             t = tickers.get(sym)
             if t:
                 result.append({
@@ -596,9 +656,10 @@ def _fetch_tickers_sync() -> list[dict]:
                     "name": sym.split("/")[0],
                     "price": t.get("last", 0),
                     "change_pct": _calc_change_pct(t),
+                    "asset_type": "crypto",
                 })
     except Exception:
-        # Fallback: fetch individually
+        # Fallback: fetch individually (core symbols only for speed)
         for sym in TICKER_SYMBOLS:
             try:
                 t = ex.fetch_ticker(sym)
@@ -607,10 +668,64 @@ def _fetch_tickers_sync() -> list[dict]:
                     "name": sym.split("/")[0],
                     "price": t.get("last", 0),
                     "change_pct": _calc_change_pct(t),
+                    "asset_type": "crypto",
                 })
             except Exception:
                 pass
     return result
+
+
+def _fetch_stock_prices_sync(api_key: str, api_secret: str) -> list[dict]:
+    """Fetch stock prices via Alpaca (requires user keys). Returns list of ticker dicts."""
+    from config.settings import STOCK_SYMBOLS
+    try:
+        from vesper.exchange import AlpacaExchange
+        alpaca = AlpacaExchange(api_key=api_key, api_secret=api_secret)
+        result = []
+        for sym in STOCK_SYMBOLS:
+            try:
+                t = alpaca.fetch_ticker(sym)
+                result.append({
+                    "symbol": sym,
+                    "name": sym.split("/")[0],
+                    "price": t.get("last", 0),
+                    "change_pct": 0.0,  # Alpaca quotes don't include 24h change
+                    "asset_type": "stock",
+                })
+            except Exception:
+                pass
+        return result
+    except Exception:
+        return []
+
+
+# Stock price cache (separate from crypto — populated per-user on demand)
+_stock_price_cache: list[dict] = []
+_stock_price_cache_time: float = 0
+_STOCK_CACHE_TTL = 120  # 2 minutes
+
+
+async def _get_cached_stock_prices(user) -> list[dict]:
+    """Return cached stock prices, refreshing if stale. Requires user with Alpaca keys."""
+    global _stock_price_cache, _stock_price_cache_time
+    if not user or not user.has_alpaca:
+        return []
+    now = time.time()
+    if _stock_price_cache and (now - _stock_price_cache_time) < _STOCK_CACHE_TTL:
+        return _stock_price_cache
+    loop = asyncio.get_event_loop()
+    _stock_price_cache = await loop.run_in_executor(
+        None, _fetch_stock_prices_sync, user.get_alpaca_key(), user.get_alpaca_secret()
+    )
+    _stock_price_cache_time = now
+    return _stock_price_cache
+
+
+async def _get_all_prices(user=None) -> list[dict]:
+    """Return combined crypto + stock prices."""
+    crypto = await _get_cached_prices()
+    stocks = await _get_cached_stock_prices(user) if user else []
+    return crypto + stocks
 
 
 def _fetch_ohlcv_sync(symbol: str, timeframe: str = "1h", limit: int = 100) -> list[dict]:
@@ -651,7 +766,7 @@ async def api_ticker(request: Request):
     user = _get_user(request)
     if not user:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    prices = await _get_cached_prices()
+    prices = await _get_all_prices(user)
     return prices
 
 
@@ -831,11 +946,16 @@ def _fetch_reasoning_sync(symbol: str, strategy_id: str, entry_price: float,
             action = "HOLD"
             summary = f"Neutral signal ({conf:.0%}). Waiting for clearer direction — {result.reason}"
 
+        # Generate human-friendly summary
+        from vesper.humanize import humanize_reasoning
+        human_summary = humanize_reasoning(details, action, summary)
+
         return {
             "action": action,
             "signal": sig,
             "confidence": round(conf, 2),
             "summary": summary,
+            "human_summary": human_summary,
             "details": details,
             "timeframe": timeframe if timeframe != "multi" else "1h+4h",
         }
@@ -844,6 +964,7 @@ def _fetch_reasoning_sync(symbol: str, strategy_id: str, entry_price: float,
         return {
             "action": "HOLD",
             "summary": f"Analysis unavailable — {str(e)[:80]}",
+            "human_summary": "AI analysis temporarily unavailable.",
             "details": [],
         }
 
@@ -910,7 +1031,7 @@ async def api_portfolio_stats(request: Request):
     # Unrealized P&L from open positions
     unrealized_pnl = 0
     if positions:
-        prices = await _get_cached_prices()
+        prices = await _get_all_prices(user)
         price_map = {p["symbol"]: p["price"] for p in prices}
         for p in positions.values():
             entry = p.get("entry_price", 0)
@@ -939,6 +1060,12 @@ async def api_portfolio_stats(request: Request):
             "symbol": t.get("symbol", ""),
         })
 
+    # Portfolio value history for the equity chart
+    value_history = portfolio.get("value_history", [])
+    if len(value_history) > 200:
+        step = len(value_history) // 200
+        value_history = value_history[::step] + [value_history[-1]]
+
     return {
         "portfolio_value": round(portfolio_value, 2),
         "cash": round(cash, 2),
@@ -950,6 +1077,7 @@ async def api_portfolio_stats(request: Request):
         "total_trades": total_trades,
         "open_count": len(positions),
         "pnl_history": pnl_history,
+        "value_history": value_history,
     }
 
 
@@ -965,8 +1093,19 @@ async def api_positions(request: Request):
     if not positions:
         return []
 
-    prices = await _get_cached_prices()
+    # Fetch crypto + stock prices (stock prices need user's Alpaca keys)
+    prices = await _get_all_prices(user)
     price_map = {p["symbol"]: p["price"] for p in prices}
+
+    import logging
+    logger = logging.getLogger("vesper.dashboard")
+    if not price_map:
+        logger.warning(f"[api_positions] Price cache empty for user {user.email}")
+    else:
+        # Log any positions whose symbol is not in the price map
+        missing = [p.get("symbol") for p in positions.values() if p.get("symbol") not in price_map]
+        if missing:
+            logger.warning(f"[api_positions] Missing prices for: {missing}")
 
     result = []
     for pid, p in positions.items():
@@ -1290,8 +1429,20 @@ async def api_autopilot_status(request: Request):
         "available_usd": round(fund_total - deployed, 2),
         "max_positions": autopilot.get("max_positions", 3),
         "positions": ap_positions,
-        "log": portfolio.get("autopilot_log", [])[-20:],
+        "log": _humanize_ap_log(portfolio.get("autopilot_log", [])[-20:]),
     }
+
+
+def _humanize_ap_log(log: list[dict]) -> list[dict]:
+    """Add human-readable summary to each autopilot log entry."""
+    from vesper.humanize import humanize_autopilot_log
+    for entry in log:
+        if "human" not in entry:
+            try:
+                entry["human"] = humanize_autopilot_log(entry)
+            except Exception:
+                entry["human"] = ""
+    return log
 
 
 @app.post("/api/autopilot")

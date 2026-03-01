@@ -128,6 +128,22 @@ class Portfolio:
                 return pos
         return None
 
+    def record_value_snapshot(self, prices: dict[str, float]):
+        """Append a portfolio value data point for the equity chart.
+
+        Keeps at most 2000 entries to bound storage.
+        """
+        value = self.total_value(prices)
+        raw = self._load_raw()
+        history = raw.get("value_history", [])
+        history.append({"time": int(time.time()), "value": round(value, 2)})
+        if len(history) > 2000:
+            history = history[-2000:]
+        raw["value_history"] = history
+        path = os.path.join(self.data_dir, self.filename)
+        with open(path, "w") as f:
+            json.dump(raw, f, indent=2)
+
     def summary(self, prices: dict[str, float]) -> dict:
         """Portfolio summary stats."""
         total = self.total_value(prices)

@@ -103,13 +103,186 @@ def _extract_snapshot(df: pd.DataFrame, symbol: str) -> dict:
     }
 
 
+def detect_rsi_divergence(df: pd.DataFrame) -> str:
+    """Detect RSI divergences (bullish or bearish).
+
+    Bullish divergence: price makes lower low, RSI makes higher low → buy signal.
+    Bearish divergence: price makes higher high, RSI makes lower high → sell signal.
+
+    Returns: 'bullish', 'bearish', or 'none'.
+    """
+    if len(df) < 30:
+        return "none"
+
+    close = df["close"].values
+    rsi = df["rsi"].values
+
+    # Look at last 20 candles for swing points
+    window = min(20, len(df) - 5)
+    recent = slice(-window, None)
+    c = close[recent]
+    r = rsi[recent]
+
+    if len(c) < 10:
+        return "none"
+
+    # Find local lows (for bullish divergence)
+    try:
+        mid = len(c) // 2
+        price_low1 = min(c[:mid])
+        price_low2 = min(c[mid:])
+        rsi_low1 = min(r[:mid])
+        rsi_low2 = min(r[mid:])
+
+        if price_low2 < price_low1 and rsi_low2 > rsi_low1:
+            return "bullish"
+
+        # Find local highs (for bearish divergence)
+        price_high1 = max(c[:mid])
+        price_high2 = max(c[mid:])
+        rsi_high1 = max(r[:mid])
+        rsi_high2 = max(r[mid:])
+
+        if price_high2 > price_high1 and rsi_high2 < rsi_high1:
+            return "bearish"
+    except (ValueError, IndexError):
+        pass
+
+    return "none"
+
+
+def find_support_resistance(df: pd.DataFrame, n_levels: int = 3) -> dict:
+    """Find key support and resistance levels using pivot points + volume clusters.
+
+    Returns:
+        supports: list of price levels (below current price)
+        resistances: list of price levels (above current price)
+        nearest_support: closest support below price
+        nearest_resistance: closest resistance above price
+    """
+    if len(df) < 20:
+        return {"supports": [], "resistances": [], "nearest_support": 0, "nearest_resistance": 0}
+
+    close = df["close"].values
+    high = df["high"].values
+    low = df["low"].values
+    current = close[-1]
+
+    # Collect pivot points (local highs and lows)
+    pivots = []
+    for i in range(2, len(df) - 2):
+        # Local low (support candidate)
+        if low[i] < low[i-1] and low[i] < low[i-2] and low[i] < low[i+1] and low[i] < low[i+2]:
+            pivots.append(low[i])
+        # Local high (resistance candidate)
+        if high[i] > high[i-1] and high[i] > high[i-2] and high[i] > high[i+1] and high[i] > high[i+2]:
+            pivots.append(high[i])
+
+    if not pivots:
+        return {"supports": [], "resistances": [], "nearest_support": 0, "nearest_resistance": 0}
+
+    # Cluster nearby pivots (within 0.5% of each other)
+    pivots.sort()
+    clusters = []
+    current_cluster = [pivots[0]]
+    for p in pivots[1:]:
+        if abs(p - current_cluster[-1]) / current_cluster[-1] < 0.005:
+            current_cluster.append(p)
+        else:
+            clusters.append(sum(current_cluster) / len(current_cluster))
+            current_cluster = [p]
+    clusters.append(sum(current_cluster) / len(current_cluster))
+
+    supports = sorted([c for c in clusters if c < current], reverse=True)[:n_levels]
+    resistances = sorted([c for c in clusters if c > current])[:n_levels]
+
+    return {
+        "supports": [round(s, 2) for s in supports],
+        "resistances": [round(r, 2) for r in resistances],
+        "nearest_support": round(supports[0], 2) if supports else 0,
+        "nearest_resistance": round(resistances[0], 2) if resistances else 0,
+    }
+
+
+def volume_profile(df: pd.DataFrame, bins: int = 20) -> dict:
+    """Compute a simplified volume profile.
+
+    Returns:
+        poc: Point of Control (price level with highest volume)
+        value_area_high: upper bound of 70% volume area
+        value_area_low: lower bound of 70% volume area
+        price_vs_poc: 'above', 'below', or 'at'
+    """
+    if len(df) < 20:
+        return {"poc": 0, "value_area_high": 0, "value_area_low": 0, "price_vs_poc": "at"}
+
+    import numpy as np
+    close = df["close"].values
+    volume = df["volume"].values
+    current = close[-1]
+
+    price_min, price_max = close.min(), close.max()
+    if price_max == price_min:
+        return {"poc": float(current), "value_area_high": float(current),
+                "value_area_low": float(current), "price_vs_poc": "at"}
+
+    bin_edges = np.linspace(price_min, price_max, bins + 1)
+    vol_per_bin = np.zeros(bins)
+
+    for i in range(len(close)):
+        bin_idx = int((close[i] - price_min) / (price_max - price_min) * (bins - 1))
+        bin_idx = min(bin_idx, bins - 1)
+        vol_per_bin[bin_idx] += volume[i]
+
+    # POC: price level with maximum volume
+    poc_idx = int(np.argmax(vol_per_bin))
+    poc = (bin_edges[poc_idx] + bin_edges[poc_idx + 1]) / 2
+
+    # Value Area: 70% of total volume
+    total_vol = vol_per_bin.sum()
+    target = total_vol * 0.70
+    accumulated = vol_per_bin[poc_idx]
+    low_idx, high_idx = poc_idx, poc_idx
+
+    while accumulated < target and (low_idx > 0 or high_idx < bins - 1):
+        expand_low = vol_per_bin[low_idx - 1] if low_idx > 0 else 0
+        expand_high = vol_per_bin[high_idx + 1] if high_idx < bins - 1 else 0
+        if expand_low >= expand_high and low_idx > 0:
+            low_idx -= 1
+            accumulated += expand_low
+        elif high_idx < bins - 1:
+            high_idx += 1
+            accumulated += expand_high
+        else:
+            break
+
+    va_low = (bin_edges[low_idx] + bin_edges[low_idx + 1]) / 2
+    va_high = (bin_edges[high_idx] + bin_edges[high_idx + 1]) / 2
+
+    price_vs_poc = "above" if current > poc * 1.005 else "below" if current < poc * 0.995 else "at"
+
+    return {
+        "poc": round(float(poc), 2),
+        "value_area_high": round(float(va_high), 2),
+        "value_area_low": round(float(va_low), 2),
+        "price_vs_poc": price_vs_poc,
+    }
+
+
 def get_market_snapshot(
     exchange: ccxt.Exchange, symbol: str, timeframe: str = "1h"
 ) -> dict:
     """Get a complete market snapshot with indicators for a single timeframe."""
     df = fetch_ohlcv(exchange, symbol, timeframe=timeframe, limit=100)
     df = add_indicators(df)
-    return _extract_snapshot(df, symbol)
+    snapshot = _extract_snapshot(df, symbol)
+
+    # Add advanced indicators
+    snapshot["rsi_divergence"] = detect_rsi_divergence(df)
+    snapshot["sr_levels"] = find_support_resistance(df)
+    snapshot["volume_profile"] = volume_profile(df)
+
+    return snapshot
 
 
 def get_multi_tf_snapshot(exchange: ccxt.Exchange, symbol: str) -> dict:

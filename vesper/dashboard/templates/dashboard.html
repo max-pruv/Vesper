@@ -17,6 +17,7 @@
     <span class="nav-logo">vesper</span>
     <div class="nav-links">
         <a class="nav-link active" href="/dashboard">Dashboard</a>
+        <a class="nav-link" href="/markets">Markets</a>
         <a class="nav-link" href="#" onclick="toggleLogsDrawer();return false;">Logs</a>
         <a class="nav-link" href="/settings">Settings</a>
         <a class="nav-link" href="/logout">Log out</a>
@@ -144,8 +145,8 @@
         </div>
         <div id="activeBets">
             <div class="empty-state">
-                <div class="empty-state-icon">~</div>
-                No active bets — pick a strategy below to start
+                <div class="empty-state-icon" style="animation:pulse 1.5s ease-in-out infinite;">⟳</div>
+                Loading positions...
             </div>
         </div>
     </div>
@@ -191,16 +192,31 @@
         </div>
     </div>
 
-    <!-- Cumulative P&L Chart -->
+    <!-- Portfolio Equity Chart (CoinMarketCap-style) -->
     <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <div class="card-title" style="margin-bottom:0;">Profit & Loss</div>
-            <div style="display:flex;gap:12px;font-size:13px;">
-                <span style="color:var(--text-muted);">Realized: <span id="pnlRealized" style="font-weight:600;">${{ "%+.2f"|format(total_pnl) }}</span></span>
-                <span style="color:var(--text-muted);">Unrealized: <span id="pnlUnrealized" style="font-weight:600;">$0.00</span></span>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+            <div class="card-title" style="margin-bottom:0;">Portfolio Performance</div>
+            <div style="display:flex;gap:16px;font-size:13px;align-items:center;">
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="width:8px;height:8px;border-radius:50%;background:#00dc5a;display:inline-block;"></span>
+                    <span style="color:var(--text-muted);">Value</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <span style="width:12px;height:2px;background:#6366f1;display:inline-block;border-top:2px dashed #6366f1;"></span>
+                    <span style="color:var(--text-muted);">Realized P&L</span>
+                </div>
+                <span style="color:var(--text-muted);">R: <span id="pnlRealized" style="font-weight:600;">${{ "%+.2f"|format(total_pnl) }}</span></span>
+                <span style="color:var(--text-muted);">U: <span id="pnlUnrealized" style="font-weight:600;">$0.00</span></span>
             </div>
         </div>
-        <div style="height:220px;">
+        <div id="pnlChartEmpty" style="display:none;height:220px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:14px;">
+            <div style="text-align:center;">
+                <div style="font-size:28px;margin-bottom:8px;opacity:0.3;">📈</div>
+                <div>Chart will appear once trading starts</div>
+                <div style="font-size:12px;margin-top:4px;">Portfolio value is recorded every cycle</div>
+            </div>
+        </div>
+        <div id="pnlChartWrap" style="height:220px;">
             <canvas id="pnlChart"></canvas>
         </div>
     </div>
@@ -619,7 +635,16 @@ async function updatePositions() {
             if (!newIds.has(id)) delete prevPnlMap[id];
         });
         knownPositionIds = newIds;
-    } catch(e) {}
+    } catch(e) {
+        console.error('[Vesper] updatePositions error:', e);
+        const container = document.getElementById('activeBets');
+        if (container && container.innerHTML.includes('Loading')) {
+            container.innerHTML = `<div class="empty-state">
+                <div class="empty-state-icon">!</div>
+                Failed to load positions — retrying...
+            </div>`;
+        }
+    }
 }
 updatePositions();
 setInterval(updatePositions, 3000);
@@ -877,13 +902,23 @@ async function fetchReasoning(posId) {
         const actionColor = actionColors[data.action] || 'var(--text-muted)';
         status.innerHTML = `<span style="color:${actionColor};font-weight:600;">${data.action || 'HOLD'}</span>`;
 
-        // Build reasoning body
-        let html = `<div style="color:var(--text-secondary);margin-bottom:6px;">${data.summary || ''}</div>`;
-        if (data.details && data.details.length > 0) {
-            html += '<div style="display:flex;flex-direction:column;gap:3px;">';
-            data.details.forEach(d => {
-                html += `<div style="color:var(--text-muted);font-size:11px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);">${d}</div>`;
-            });
+        // Build reasoning body — human summary prominent, technical collapsible
+        let html = '';
+        if (data.human_summary) {
+            html += `<div style="color:var(--text);font-size:13px;line-height:1.5;margin-bottom:8px;">${data.human_summary}</div>`;
+        }
+        if (data.summary) {
+            const techId = 'tech-' + posId;
+            html += `<div style="cursor:pointer;font-size:11px;color:var(--text-muted);margin-bottom:4px;" onclick="const d=document.getElementById('${techId}');d.style.display=d.style.display==='none'?'block':'none';">▸ Technical details</div>`;
+            html += `<div id="${techId}" style="display:none;">`;
+            html += `<div style="color:var(--text-secondary);font-size:12px;margin-bottom:6px;">${data.summary}</div>`;
+            if (data.details && data.details.length > 0) {
+                html += '<div style="display:flex;flex-direction:column;gap:3px;">';
+                data.details.forEach(d => {
+                    html += `<div style="color:var(--text-muted);font-size:11px;padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);">${d}</div>`;
+                });
+                html += '</div>';
+            }
             html += '</div>';
         }
         html += `<div style="margin-top:6px;font-size:10px;color:var(--text-muted);">Auto-refreshes every 60s &mdash; <a href="#" onclick="fetchReasoning('${posId}');return false;" style="color:var(--accent);">Refresh now</a></div>`;
@@ -918,62 +953,107 @@ document.getElementById('tradeModal').addEventListener('click', function(e) {
 // ═══════════════════════════════════════
 let pnlChart = null;
 
-function formatPnlLabels(history) {
-    const times = history.filter(d => d.time).map(d => d.time);
+function formatChartLabels(dataPoints) {
+    const times = dataPoints.filter(d => d.time).map(d => d.time);
     if (times.length < 2) {
-        return history.map(d => d.time ? new Date(d.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '');
+        return dataPoints.map(d => d.time ? new Date(d.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '');
     }
-    const minT = Math.min(...times);
-    const maxT = Math.max(...times);
-    const spanHours = (maxT - minT) / 3600;
-
+    const spanHours = (Math.max(...times) - Math.min(...times)) / 3600;
     if (spanHours < 24) {
-        // Same day: show HH:MM
-        return history.map(d => d.time ? new Date(d.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '');
+        return dataPoints.map(d => d.time ? new Date(d.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '');
     } else if (spanHours < 72) {
-        // 1-3 days: show "Feb 27 14:00"
-        return history.map(d => d.time ? new Date(d.time * 1000).toLocaleDateString('en', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false}) : '');
+        return dataPoints.map(d => d.time ? new Date(d.time * 1000).toLocaleDateString('en', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false}) : '');
     } else {
-        // Multi-day: show "Feb 27"
-        return history.map(d => d.time ? new Date(d.time * 1000).toLocaleDateString('en', {month:'short', day:'numeric'}) : '');
+        return dataPoints.map(d => d.time ? new Date(d.time * 1000).toLocaleDateString('en', {month:'short', day:'numeric'}) : '');
     }
 }
 
-function initPnlChart(history) {
-    const ctx = document.getElementById('pnlChart');
-    const labels = formatPnlLabels(history);
-    const values = history.map(d => d.pnl);
-    const lastVal = values.length > 0 ? values[values.length - 1] : 0;
-    const positive = lastVal >= 0;
+function showChartEmpty(show) {
+    document.getElementById('pnlChartEmpty').style.display = show ? 'flex' : 'none';
+    document.getElementById('pnlChartWrap').style.display = show ? 'none' : 'block';
+}
 
-    // Bar colors: green for cumulative profit, red when dipping below zero
-    const barColors = values.map(v => v >= 0 ? 'rgba(0,220,90,0.7)' : 'rgba(255,59,48,0.7)');
+function initPnlChart(valueHistory, pnlHistory) {
+    // No data at all → show placeholder
+    if ((!valueHistory || valueHistory.length === 0) && (!pnlHistory || pnlHistory.length === 0)) {
+        showChartEmpty(true);
+        return;
+    }
+    showChartEmpty(false);
+
+    const ctx = document.getElementById('pnlChart');
+    // Use value_history as primary timeline; fall back to pnl_history
+    const primaryData = valueHistory && valueHistory.length > 0 ? valueHistory : pnlHistory;
+    const labels = formatChartLabels(primaryData);
+
+    // Build gradient for area fill
+    const chartCtx = ctx.getContext('2d');
+    const gradient = chartCtx.createLinearGradient(0, 0, 0, 220);
+    gradient.addColorStop(0, 'rgba(0, 220, 90, 0.18)');
+    gradient.addColorStop(0.6, 'rgba(0, 220, 90, 0.04)');
+    gradient.addColorStop(1, 'rgba(0, 220, 90, 0)');
+
+    const datasets = [];
+
+    // Dataset 1: Portfolio Value (area)
+    if (valueHistory && valueHistory.length > 0) {
+        datasets.push({
+            label: 'Portfolio Value',
+            data: valueHistory.map(d => d.value),
+            borderColor: '#00dc5a',
+            backgroundColor: gradient,
+            fill: true,
+            tension: 0.35,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            pointHoverBackgroundColor: '#00dc5a',
+            pointHoverBorderColor: '#fff',
+            pointHoverBorderWidth: 2,
+            borderWidth: 2,
+            order: 1,
+        });
+    }
+
+    // Dataset 2: Realized P&L (dashed line)
+    if (pnlHistory && pnlHistory.length > 0) {
+        // Align pnl data to same label count if needed
+        const pnlValues = pnlHistory.map(d => d.pnl);
+        datasets.push({
+            label: 'Realized P&L',
+            data: pnlValues,
+            borderColor: '#6366f1',
+            backgroundColor: 'transparent',
+            fill: false,
+            tension: 0.35,
+            pointRadius: 0,
+            pointHoverRadius: 3,
+            borderWidth: 1.5,
+            borderDash: [5, 4],
+            order: 2,
+        });
+    }
 
     // Store raw timestamps for tooltip
-    const rawTimes = history.map(d => d.time || 0);
+    const rawTimes = primaryData.map(d => d.time || 0);
 
     pnlChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [{
-                data: values,
-                backgroundColor: barColors,
-                borderRadius: 3,
-                barPercentage: 0.8,
-                rawTimes: rawTimes,
-            }]
-        },
+        type: 'line',
+        data: { labels, datasets },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: { display: false },
+                legend: { display: false },  // We use custom legend above
                 tooltip: {
                     mode: 'index', intersect: false,
-                    backgroundColor: '#1a1a1a', borderColor: '#2a2a2a', borderWidth: 1,
-                    titleColor: '#9ca3af', bodyColor: '#fff', bodyFont: { weight: '600' },
-                    padding: 12, cornerRadius: 8,
+                    backgroundColor: 'rgba(10,10,10,0.95)',
+                    borderColor: '#2a2a2a', borderWidth: 1,
+                    titleColor: '#9ca3af', bodyColor: '#fff',
+                    bodyFont: { weight: '600', size: 13 },
+                    titleFont: { size: 11 },
+                    padding: 14, cornerRadius: 10,
+                    displayColors: true,
+                    boxWidth: 8, boxHeight: 8, boxPadding: 4,
                     callbacks: {
                         title: tooltipItems => {
                             const idx = tooltipItems[0].dataIndex;
@@ -981,31 +1061,69 @@ function initPnlChart(history) {
                             if (!t) return '';
                             return new Date(t * 1000).toLocaleString('en', {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hour12:false});
                         },
-                        label: ctx => '$' + ctx.parsed.y.toFixed(2) + ' cumulative P&L'
+                        label: item => {
+                            const val = item.parsed.y;
+                            const prefix = item.dataset.label === 'Realized P&L' ? (val >= 0 ? '+' : '') : '';
+                            return ' ' + item.dataset.label + ': $' + prefix + val.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+                        }
                     }
                 }
             },
             scales: {
-                x: { display: true, ticks: { color: '#555', font: { size: 10 } }, grid: { display: false } },
+                x: {
+                    display: true,
+                    ticks: { color: '#444', font: { size: 10 }, maxTicksLimit: 8, maxRotation: 0 },
+                    grid: { display: false },
+                    border: { display: false },
+                },
                 y: {
                     display: true,
-                    ticks: { color: '#555', font: { size: 10 }, callback: v => '$' + v },
-                    grid: { color: '#1a1a1a' },
+                    position: 'right',
+                    ticks: {
+                        color: '#444', font: { size: 10 }, maxTicksLimit: 5,
+                        callback: v => '$' + v.toLocaleString(),
+                    },
+                    grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false },
+                    border: { display: false },
                 }
             },
-            interaction: { mode: 'nearest', axis: 'x', intersect: false }
+            interaction: { mode: 'nearest', axis: 'x', intersect: false },
+            hover: { mode: 'nearest', intersect: false },
         }
     });
 }
 
-function updatePnlChart(history) {
+function updatePnlChart(valueHistory, pnlHistory) {
     if (!pnlChart) {
-        initPnlChart(history);
+        initPnlChart(valueHistory, pnlHistory);
         return;
     }
-    pnlChart.data.labels = formatPnlLabels(history);
-    pnlChart.data.datasets[0].data = history.map(d => d.pnl);
-    pnlChart.data.datasets[0].backgroundColor = history.map(d => d.pnl >= 0 ? 'rgba(0,220,90,0.7)' : 'rgba(255,59,48,0.7)');
+    // Show chart if we now have data
+    if ((valueHistory && valueHistory.length > 0) || (pnlHistory && pnlHistory.length > 0)) {
+        showChartEmpty(false);
+    }
+
+    const primaryData = valueHistory && valueHistory.length > 0 ? valueHistory : pnlHistory || [];
+    pnlChart.data.labels = formatChartLabels(primaryData);
+
+    // Update Portfolio Value dataset (index 0 if exists)
+    if (valueHistory && valueHistory.length > 0 && pnlChart.data.datasets[0]) {
+        pnlChart.data.datasets[0].data = valueHistory.map(d => d.value);
+        // Recreate gradient on update
+        const ctx = document.getElementById('pnlChart').getContext('2d');
+        const gradient = ctx.createLinearGradient(0, 0, 0, 220);
+        gradient.addColorStop(0, 'rgba(0, 220, 90, 0.18)');
+        gradient.addColorStop(0.6, 'rgba(0, 220, 90, 0.04)');
+        gradient.addColorStop(1, 'rgba(0, 220, 90, 0)');
+        pnlChart.data.datasets[0].backgroundColor = gradient;
+    }
+
+    // Update Realized P&L dataset (index 1 if exists)
+    const pnlIdx = pnlChart.data.datasets.length > 1 ? 1 : -1;
+    if (pnlIdx >= 0 && pnlHistory && pnlHistory.length > 0) {
+        pnlChart.data.datasets[pnlIdx].data = pnlHistory.map(d => d.pnl);
+    }
+
     pnlChart.update('none');
 }
 
@@ -1015,7 +1133,7 @@ async function updatePortfolioStats() {
         if (!resp.ok) return;
         const s = await resp.json();
 
-        // Portfolio value (cash + positions + unrealized P&L)
+        // Portfolio value
         document.getElementById('portfolioValue').textContent = '$' + s.portfolio_value.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
 
         // Total P&L
@@ -1037,26 +1155,31 @@ async function updatePortfolioStats() {
         document.getElementById('pnlUnrealized').textContent = '$' + uSign + s.unrealized_pnl.toFixed(2);
         document.getElementById('pnlUnrealized').style.color = s.unrealized_pnl >= 0 ? 'var(--green)' : 'var(--red)';
 
-        // P&L chart
-        if (s.pnl_history && s.pnl_history.length > 0) {
-            updatePnlChart(s.pnl_history);
+        // Update equity chart with both value_history and pnl_history
+        const vh = s.value_history || [];
+        const ph = s.pnl_history || [];
+        if (vh.length > 0 || ph.length > 0) {
+            updatePnlChart(vh, ph);
         }
-    } catch(e) {}
+    } catch(e) { console.error('Portfolio stats error:', e); }
 }
 
-// Initialize P&L chart from server-rendered data, then switch to live
-const initialPnlData = {{ equity_curve|safe }};
-if (initialPnlData.length > 1) {
-    // Convert equity curve to cumulative P&L format
-    const initial = initialPnlData[0].value;
-    const pnlHistory = initialPnlData.slice(1).map(d => ({
+// Initialize chart from server-rendered data
+const initialValueHistory = {{ value_history|safe }};
+const initialEquityCurve = {{ equity_curve|safe }};
+
+// Convert equity curve to P&L format for the dashed line
+let initialPnlHistory = [];
+if (initialEquityCurve.length > 1) {
+    const baseValue = initialEquityCurve[0].value;
+    initialPnlHistory = initialEquityCurve.slice(1).map(d => ({
         time: d.time,
-        pnl: +(d.value - initial).toFixed(2),
+        pnl: +(d.value - baseValue).toFixed(2),
     }));
-    initPnlChart(pnlHistory);
-} else {
-    initPnlChart([]);
 }
+
+// Initialize chart (will show placeholder if both are empty)
+initPnlChart(initialValueHistory, initialPnlHistory);
 
 // Fetch live stats immediately and every 5s
 updatePortfolioStats();
@@ -1068,56 +1191,47 @@ setInterval(updatePortfolioStats, 5000);
 
 function renderApLog(log) {
     if (!log || log.length === 0) return '<div style="color:var(--text-muted);font-style:italic;">Waiting for first scan...</div>';
-    // Show most recent first
     const entries = [...log].reverse();
-    return entries.map(e => {
+    return entries.map((e, idx) => {
         const t = e.time ? new Date(e.time * 1000).toLocaleTimeString('en', {hour:'2-digit', minute:'2-digit', hour12:false}) : '';
-        const scanned = e.symbols_scanned || 0;
+        const humanText = e.human || '';
 
-        if (e.status === 'fully_deployed') {
-            return `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
-                <span style="color:var(--text-muted);">${t}</span>
-                <span style="color:var(--accent);font-weight:600;"> All slots filled</span>
-                <span style="color:var(--text-muted);"> — ${e.positions}/${e.max_positions} positions, $${e.deployed_usd} deployed</span>
-            </div>`;
-        }
-        if (e.status === 'low_funds') {
-            return `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
-                <span style="color:var(--text-muted);">${t}</span>
-                <span style="color:var(--yellow,#f59e0b);font-weight:600;"> Low funds</span>
-                <span style="color:var(--text-muted);"> — $${e.available_usd} available</span>
-            </div>`;
-        }
+        // Determine status icon
+        const icon = e.actions?.length > 0 ? '🟢' :
+                     e.status === 'fully_deployed' ? '🔵' :
+                     e.status === 'low_funds' ? '🟡' : '⏳';
 
-        // Actions taken
-        let actionsHtml = '';
-        if (e.actions && e.actions.length > 0) {
-            actionsHtml = e.actions.map(a =>
-                `<div style="padding:2px 0 2px 12px;color:var(--green);font-weight:600;">
-                    BUY ${a.symbol} — $${a.amount_usd} @ $${a.price.toLocaleString()} (${(a.confidence*100).toFixed(0)}% conf, whale: ${a.whale > 0 ? '+' : ''}${a.whale}, sentiment: ${a.sentiment > 0 ? '+' : ''}${a.sentiment})
-                </div>
-                <div style="padding:0 0 2px 12px;color:var(--text-muted);font-size:11px;">${a.reason}</div>`
+        // Technical details (collapsible)
+        let techDetails = '';
+        if (e.actions?.length > 0) {
+            techDetails += e.actions.map(a =>
+                `<div style="padding:2px 0;color:var(--green);font-size:12px;">BUY ${a.symbol} — $${a.amount_usd} @ $${Number(a.price).toLocaleString()} (${(a.confidence*100).toFixed(0)}% conf)</div>`
             ).join('');
         }
-
-        // Top signals
-        let topHtml = '';
-        if (e.top_signals && e.top_signals.length > 0 && !e.actions?.length) {
-            topHtml = '<div style="padding:2px 0 2px 12px;color:var(--text-muted);">Top signals: ' +
-                e.top_signals.slice(0, 3).map(s =>
-                    `${s.symbol} ${s.signal} ${(s.confidence*100).toFixed(0)}%`
-                ).join(', ') + '</div>';
+        if (e.top_signals?.length > 0 && !e.actions?.length) {
+            techDetails += '<div style="padding:2px 0;font-size:12px;color:var(--text-muted);">Top: ' +
+                e.top_signals.slice(0, 3).map(s => `${s.symbol.split('/')[0]} ${s.signal} ${(s.confidence*100).toFixed(0)}%`).join(', ') + '</div>';
         }
 
-        const statusIcon = e.actions?.length > 0 ? '🟢' : '⏳';
-        const statusText = e.actions?.length > 0
-            ? `Opened ${e.actions.length} position${e.actions.length > 1 ? 's' : ''}`
-            : `Scanned ${scanned} symbols — no opportunity`;
+        const detailId = 'aplog-detail-' + idx;
+        const hasDetails = techDetails.length > 0;
+        const detailToggle = hasDetails
+            ? `<span onclick="const d=document.getElementById('${detailId}');d.style.display=d.style.display==='none'?'block':'none';"
+                style="font-size:11px;color:var(--text-muted);cursor:pointer;margin-left:4px;">▸ details</span>`
+            : '';
 
-        return `<div style="padding:4px 0;border-bottom:1px solid var(--border);">
-            <span style="color:var(--text-muted);">${t}</span>
-            <span style="font-weight:600;${e.actions?.length > 0 ? 'color:var(--green);' : ''}"> ${statusText}</span>
-            ${actionsHtml}${topHtml}
+        return `<div style="padding:8px 0;border-bottom:1px solid var(--border);">
+            <div style="display:flex;align-items:flex-start;gap:8px;">
+                <span style="flex-shrink:0;">${icon}</span>
+                <div style="flex:1;min-width:0;">
+                    <div style="font-size:14px;color:var(--text);line-height:1.4;">${humanText || (e.status === 'fully_deployed' ? 'All slots active' : e.status === 'low_funds' ? 'Low funds' : 'Scan completed')}</div>
+                    <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+                        <span style="font-size:11px;color:var(--text-muted);">${t}</span>
+                        ${detailToggle}
+                    </div>
+                    ${hasDetails ? `<div id="${detailId}" style="display:none;margin-top:6px;padding:8px;background:var(--bg);border-radius:8px;">${techDetails}</div>` : ''}
+                </div>
+            </div>
         </div>`;
     }).join('');
 }
